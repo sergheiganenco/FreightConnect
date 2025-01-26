@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { TextField, Button } from '@mui/material';
+import { TextField, Select, MenuItem, Button, Typography } from '@mui/material';
 import api from '../services/api';
+import '../styles/Dashboard.css';
 
 function CarrierDashboard() {
   const [loads, setLoads] = useState([]);
   const [filter, setFilter] = useState('');
+  const [sortBy, setSortBy] = useState('');
   const [error, setError] = useState(null);
 
+  // Fetch loads on component mount or when filters change
   useEffect(() => {
     const fetchLoads = async () => {
       try {
@@ -25,6 +28,19 @@ function CarrierDashboard() {
     fetchLoads();
   }, []);
 
+  // Filter and sort loads dynamically
+  const filteredLoads = loads
+    .filter((load) =>
+      [load.origin, load.destination, load.equipmentType, load.rate.toString()]
+        .some((value) => value.toLowerCase().includes(filter.toLowerCase()))
+    )
+    .sort((a, b) => {
+      if (sortBy === 'rateAsc') return a.rate - b.rate;
+      if (sortBy === 'rateDesc') return b.rate - a.rate;
+      return 0;
+    });
+
+  // Accept load handler
   const handleAccept = async (loadId) => {
     try {
       const token = localStorage.getItem('token');
@@ -43,42 +59,57 @@ function CarrierDashboard() {
     }
   };
 
-  const filteredLoads = loads.filter(
-    (load) =>
-      load.origin.toLowerCase().includes(filter.toLowerCase()) ||
-      load.destination.toLowerCase().includes(filter.toLowerCase()) ||
-      load.rate.toString().includes(filter)
-  );
-
   return (
     <div>
-      <h2>Carrier Dashboard</h2>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <TextField
-        label="Search by origin, destination, or rate"
-        variant="outlined"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        style={{ marginBottom: '1rem', width: '100%' }}
-      />
+      <Typography variant="h4" gutterBottom>
+        Carrier Dashboard
+      </Typography>
+      {error && <Typography style={{ color: 'red' }}>{error}</Typography>}
+      <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+        <TextField
+          label="Search by origin, destination, or rate"
+          variant="outlined"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <Select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          displayEmpty
+          style={{ width: '200px' }}
+        >
+          <MenuItem value="">Sort By</MenuItem>
+          <MenuItem value="rateAsc">Rate (Low to High)</MenuItem>
+          <MenuItem value="rateDesc">Rate (High to Low)</MenuItem>
+        </Select>
+      </div>
+      <Typography variant="h5" gutterBottom>
+        Available Loads
+      </Typography>
       <ul>
-        {filteredLoads.map((load) => (
-          <li key={load._id} style={{ marginBottom: '1rem' }}>
-            <p>
-              <strong>{load.title}</strong> — {load.origin} to {load.destination} — ${load.rate} —{' '}
-              Status: {load.status}
-            </p>
-            {load.status === 'open' && (
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => handleAccept(load._id)}
-              >
-                Accept
-              </Button>
-            )}
-          </li>
-        ))}
+        {filteredLoads.length > 0 ? (
+          filteredLoads.map((load) => (
+            <li key={load._id} style={{ marginBottom: '1rem' }}>
+              <Typography>
+                <strong>{load.title}</strong> — {load.origin} to {load.destination} — ${load.rate} —{' '}
+                Status: {load.status}
+              </Typography>
+              {load.status === 'open' && (
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={() => handleAccept(load._id)}
+                  style={{ marginTop: '10px' }}
+                >
+                  Accept
+                </Button>
+              )}
+            </li>
+          ))
+        ) : (
+          <Typography>No loads available.</Typography>
+        )}
       </ul>
     </div>
   );

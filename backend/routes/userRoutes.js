@@ -38,8 +38,9 @@ router.post('/signup', async (req, res) => {
 
 // Login Route
 router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+
   try {
-    const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -50,22 +51,15 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '1d' }
-    );
-
-    res.json({
-      message: 'Login successful',
-      token,
-      user: { _id: user._id, name: user.name, email: user.email, role: user.role },
-    });
-  } catch (err) {
-    console.error('Error in /login:', err);
-    return res.status(500).json({ error: 'Server error' });
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+  } catch (error) {
+    console.error('Error during login:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
+
+
 
 // WhoAmI Route
 router.get('/whoami', auth, (req, res) => {
@@ -75,11 +69,13 @@ router.get('/whoami', auth, (req, res) => {
 // Get User Profile
 router.get('/profile', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('-password');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    const user = await User.findById(req.user.userId).select('-password'); // Exclude password
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user); // Return user details
   } catch (err) {
-    console.error('Error in /profile:', err);
+    console.error('Error in GET /profile:', err);
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
 });
