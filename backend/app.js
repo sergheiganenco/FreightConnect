@@ -13,8 +13,17 @@ const io = new Server(server, {
   },
 });
 
+const axios = require('axios');
+
+const ORS_API_KEY = process.env.ORS_API_KEY; // Store your OpenRouteService API Key in .env
+
+
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*', 
+  methods: 'GET,POST,PUT,DELETE',
+  allowedHeaders: 'Content-Type, Authorization'
+}));
 app.use(express.json());
 
 // MongoDB Connection
@@ -52,4 +61,27 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+// Proxy API for fetching route data
+app.get('/api/get-route', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!start || !end) {
+      return res.status(400).json({ error: 'Missing start or end location' });
+    }
+
+    console.log(`Fetching route for: ${start} → ${end}`);
+
+    const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${process.env.ORS_API_KEY}&start=${start}&end=${end}`;
+    console.log("Requesting ORS URL:", url); // Log URL before making the request
+
+    const response = await axios.get(url);
+    console.log('Route Data:', response.data);
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching route:', error.response?.data || error.message);
+    res.status(500).json({ error: error.response?.data || 'Failed to fetch route' });
+  }
 });

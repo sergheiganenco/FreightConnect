@@ -3,21 +3,58 @@ module.exports = (io) => {
   const router = express.Router();
   const auth = require('../middlewares/authMiddleware');
   const Load = require('../models/Load');
+  const axios = require('axios');
+  require('dotenv').config(); // Load environment variables
 
-  // GET /api/loads
-  // Update the carrier's load-fetching route to include all loads
-  router.get('/', auth, async (req, res) => {
-    try {
-      if (req.user.role !== 'carrier') {
-        return res.status(403).json({ error: 'Access denied: Only carriers can view this data' });
-      }
-      const loads = await Load.find({ status: 'open' });
-      res.json(loads);
-    } catch (err) {
-      console.error('Error fetching loads:', err);
-      res.status(500).json({ error: 'Server error' });
+ // GET /api/loads (Return all loads, including accepted ones)
+ router.get('/', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') {
+      return res.status(403).json({ error: 'Access denied: Only carriers can view loads' });
     }
-  });
+
+    // Fetch only open loads + loads accepted by this carrier
+    const loads = await Load.find({
+      $or: [
+        { status: 'open' }, 
+        { acceptedBy: req.user.userId } // Only loads accepted by this carrier
+      ]
+    });
+
+    res.json(loads);
+  } catch (err) {
+    console.error('Error fetching loads:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/loads/accepted (Paginated)
+router.get('/accepted', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') {
+      return res.status(403).json({ error: 'Access denied: Only carriers can view accepted loads' });
+    }
+
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const acceptedLoads = await Load.find({ acceptedBy: req.user.userId })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalCount = await Load.countDocuments({ acceptedBy: req.user.userId });
+
+    res.json({
+      loads: acceptedLoads,
+      totalPages: Math.ceil(totalCount / limit),
+      currentPage: parseInt(page),
+    });
+  } catch (err) {
+    console.error('Error fetching accepted loads:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 
   // GET /api/loads/posted
   router.get('/posted', auth, async (req, res) => {
@@ -99,6 +136,62 @@ module.exports = (io) => {
     }
   });
   
+// GET /api/loads/accepted - Fetch loads accepted by the logged-in carrier
+router.get('/accepted', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') {
+      return res.status(403).json({ error: 'Access denied: Only carriers can view accepted loads' });
+    }
+    
+    // Fetch loads where acceptedBy is the logged-in carrier
+    const acceptedLoads = await Load.find({ acceptedBy: req.user.userId });
+    res.json(acceptedLoads);
+  } catch (err) {
+    console.error('Error fetching accepted loads:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/loads/my-loads - Fetch loads accepted by the carrier
+router.get('/my-loads', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') {
+      return res.status(403).json({ error: 'Access denied: Only carriers can view this data' });
+    }
+
+    // Fetch loads where the current carrier is the acceptedBy user
+    const loads = await Load.find({ acceptedBy: req.user.userId });
+
+    res.json(loads);
+  } catch (err) {
+    console.error('Error fetching carrier loads:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/get-route', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    if (!start || !end) {
+      return res.status(400).json({ error: 'Start and End locations are required' });
+    }
+
+    const apiKey = process.env.ORS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'API Key is missing in backend' });
+    }
+
+    const url = `https://api.openrouteservice.org/v2/directions/driving-hgv?api_key=${apiKey}&start=${start}&end=${end}`;
+
+    console.log(`Fetching route from ${start} to ${end}`);
+
+    const response = await axios.get(url);
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching route:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch route' });
+  }
+});
 
   return router;
 };

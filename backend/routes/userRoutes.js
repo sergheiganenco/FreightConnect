@@ -98,4 +98,49 @@ router.put('/profile', auth, async (req, res) => {
   }
 });
 
+// Update Carrier Location
+router.put('/update-location', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user || user.role !== 'carrier') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    user.location = req.body.location;
+    await user.save();
+
+    res.json({ message: 'Location updated', location: user.location });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update Carrier Location
+router.put('/update-location', auth, async (req, res) => {
+  try {
+      if (req.user.role !== 'carrier') {
+          return res.status(403).json({ error: 'Access denied: Only carriers can update location' });
+      }
+
+      const { latitude, longitude } = req.body;
+      if (!latitude || !longitude) {
+          return res.status(400).json({ error: 'Latitude and longitude are required' });
+      }
+
+      const user = await User.findById(req.user.userId);
+      if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Save new location in the database
+      user.location = { latitude, longitude };
+      await user.save();
+
+      res.json({ message: 'Location updated successfully', location: user.location });
+  } catch (err) {
+      console.error('Error updating location:', err);
+      res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

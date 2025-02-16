@@ -1,33 +1,114 @@
+/* General container styles */
 .dashboard-container {
-    padding: 2rem;
-    background-color: #f9f9f9;
+  padding: 2rem;
+  background-color: #f4f8fc;
+  min-height: 100vh;
+}
+
+/* Form for posting loads */
+.post-load-form {
+  margin-bottom: 2rem;
+  background: #ffffff;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.post-load-form:hover {
+  transform: translateY(-2px);
+  box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Filter bar styles */
+.filter-bar {
+  margin-bottom: 1.5rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+/* List container for loads */
+.loads-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+/* Individual load item card */
+.load-item {
+  background: #ffffff;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.load-item:hover {
+  transform: translateY(-4px);
+  box-shadow: 0px 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Typography for load details */
+.load-item strong {
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.load-item span {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+/* Button styles */
+button {
+  background-color: #007bff;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.2s;
+}
+
+button:hover {
+  background-color: #0056b3;
+  transform: scale(1.05);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* Snackbar styles */
+.snackbar-success {
+  background-color: #4caf50;
+  color: white;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.3s ease-out, fadeOut 0.3s ease-in 3s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
   }
-  
-  .post-load-form {
-    margin-bottom: 2rem;
-    background: white;
-    padding: 1rem;
-    border-radius: 10px;
-    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
-  
-  .filter-bar {
-    margin-bottom: 1rem;
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
   }
-  
-  .loads-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
+  to {
+    opacity: 0;
+    transform: translateY(10px);
   }
-  
-  .load-item {
-    background: white;
-    padding: 1rem;
-    border-radius: 10px;
-    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  
+}

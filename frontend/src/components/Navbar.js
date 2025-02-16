@@ -1,17 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { AppBar, Toolbar, Typography, Box, Button } from '@mui/material';
+import {
+  AppBar,
+  Toolbar,
+  Typography,
+  Button,
+  IconButton,
+  Menu,
+  MenuItem,
+  Box,
+} from '@mui/material';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import '../styles/Navbar.css';
 
 function Navbar() {
+  const [anchorEl, setAnchorEl] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Retrieve token and role from localStorage
   const token = localStorage.getItem('token');
   const role = localStorage.getItem('role');
-
-  // Determine if we're on the Login or Signup pages
-  const isLoginOrSignup = location.pathname === '/' || location.pathname === '/signup';
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -19,60 +27,61 @@ function Navbar() {
     navigate('/');
   };
 
-  // Clicking the brand name
-  const handleBrandClick = () => {
-    if (token) {
-      // Navigate to the appropriate dashboard based on role
-      if (role === 'carrier') {
-        navigate('/dashboard/carrier');
-      } else {
-        navigate('/dashboard/shipper');
-      }
-    } else {
-      // If not logged in, go to login
-      navigate('/');
-    }
+  const handleMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
   };
 
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const isLoginOrSignup = location.pathname === '/' || location.pathname === '/signup';
+
   return (
-    <AppBar position="static" sx={{ mb: 2 }}>
+    <AppBar position="static" sx={{ marginBottom: 2 }}>
       <Toolbar>
-        {/* Brand */}
         <Typography
           variant="h6"
           sx={{ flexGrow: 1, cursor: 'pointer' }}
-          onClick={handleBrandClick}
+          onClick={() => {
+            if (token) {
+              if (role === 'carrier') {
+                navigate('/dashboard/carrier');
+              } else {
+                navigate('/dashboard/shipper');
+              }
+            } else {
+              navigate('/');
+            }
+          }}
         >
           FreightConnect
         </Typography>
 
-        {/* Hide nav buttons if on Login or Signup */}
-        {!isLoginOrSignup && (
-          <>
-            {token ? (
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button color="inherit" onClick={() => navigate('/profile')}>
-                  Profile
-                </Button>
-                <Button
-                  color="secondary"
-                  variant="contained"
-                  onClick={handleLogout}
-                >
-                  Logout
-                </Button>
-              </Box>
-            ) : (
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button color="inherit" onClick={() => navigate('/')}>
-                  Login
-                </Button>
-                <Button color="inherit" onClick={() => navigate('/signup')}>
-                  Sign Up
-                </Button>
-              </Box>
-            )}
-          </>
+        {!isLoginOrSignup && token && (
+          <Box>
+            <IconButton color="inherit" onClick={handleMenuOpen}>
+              <AccountCircleIcon />
+            </IconButton>
+            <Menu
+              anchorEl={anchorEl}
+              open={Boolean(anchorEl)}
+              onClose={handleMenuClose}
+            >
+              <MenuItem onClick={() => { navigate('/profile'); handleMenuClose(); }}>Profile</MenuItem>
+              {role === 'carrier' && (
+                <MenuItem onClick={() => { navigate('/my-loads'); handleMenuClose(); }}>My Loads</MenuItem>
+              )}
+              <MenuItem onClick={handleLogout}>Logout</MenuItem>
+            </Menu>
+          </Box>
+        )}
+
+        {!token && !isLoginOrSignup && (
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button color="inherit" onClick={() => navigate('/')}>Login</Button>
+            <Button color="inherit" onClick={() => navigate('/signup')}>Sign Up</Button>
+          </Box>
         )}
       </Toolbar>
     </AppBar>
