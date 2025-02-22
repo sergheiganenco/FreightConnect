@@ -1,28 +1,15 @@
-const mongoose = require('mongoose');
-const { Schema } = mongoose;
-
-const userSchema = new Schema({
-  name: {
-    type: String,
-    required: true,
+// models/User.js
+const mongoose = require("mongoose");
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: String,
+  password: String,
+  role: { type: String, enum: ["shipper", "carrier", "admin"] },
+  location: {
+    latitude: Number,
+    longitude: Number,
   },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-  },
-  password: {
-    type: String,
-    required: true,
-  },
-  role: {
-    type: String,
-    enum: ['shipper', 'carrier', 'admin'],
-    default: 'carrier',
-  },
-},
-{
-  timestamps: true,
+  // or currentLocation: { lat: Number, lng: Number },
 });
 
-module.exports = mongoose.model('User', userSchema);
+module.exports = mongoose.model("User", userSchema);

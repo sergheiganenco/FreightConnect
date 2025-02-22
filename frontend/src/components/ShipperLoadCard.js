@@ -1,8 +1,7 @@
-// src/components/LoadCard.js
 import React from "react";
 import { Card, CardContent, Typography, Button } from "@mui/material";
 
-function LoadCard({ load, onViewDetails }) {
+function ShipperLoadCard({ load, userRole, onViewDetails, onAcceptLoad }) {
   return (
     <Card sx={{ mb: 2 }}>
       <CardContent>
@@ -22,11 +21,24 @@ function LoadCard({ load, onViewDetails }) {
           <strong>Status:</strong> {load.status}
         </Typography>
 
+        {/* For Shipper: No "Accept Load" button */}
+        {/* For Carrier: Show "Accept Load" if status === 'open' */}
+        {userRole === "carrier" && load.status === "open" && (
+          <Button
+            variant="contained"
+            color="primary"
+            sx={{ mt: 2, mr: 2 }}
+            onClick={() => onAcceptLoad(load)}
+          >
+            Accept Load
+          </Button>
+        )}
+
         <Button
           variant="contained"
-          color="primary"
+          color="secondary"
           sx={{ mt: 2 }}
-          onClick={onViewDetails}
+          onClick={() => onViewDetails(load)}
         >
           View Details
         </Button>
@@ -35,4 +47,4 @@ function LoadCard({ load, onViewDetails }) {
   );
 }
 
-export default LoadCard;
+export default ShipperLoadCard;
