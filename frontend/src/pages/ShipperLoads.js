@@ -17,6 +17,7 @@ import LoadDetailsModal from '../components/LoadDetailsModal';
 import { MapContainer, TileLayer, Marker, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { io } from 'socket.io-client'; // <-- Added for real-time updates
 
 function ShipperLoads() {
   const [loads, setLoads] = useState([]);
@@ -29,7 +30,6 @@ function ShipperLoads() {
   const [openSnackbar, setOpenSnackbar] = useState(false);
   const [openTrackModal, setOpenTrackModal] = useState(false);
 
-  // Fetch loads posted by the shipper
   useEffect(() => {
     const fetchLoads = async () => {
       try {
@@ -39,21 +39,34 @@ function ShipperLoads() {
         });
         setLoads(response.data || []);
       } catch (err) {
-        console.error('Error fetching posted loads:', err);
-        setError('Failed to fetch posted loads.');
+        setError('Failed to fetch loads.');
       }
     };
 
     fetchLoads();
+
+    // Real-time updates setup (Socket.IO integration)
+    const socket = io(process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000');
+
+    socket.on('loadStatusUpdated', (update) => {
+      setLoads((prevLoads) =>
+        prevLoads.map((load) =>
+          load._id === update.loadId ? { ...load, status: update.status } : load
+        )
+      );
+      setOpenSnackbar(true);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
-  // Filter loads client-side based on status
-  const filteredLoads = loads.filter((load) => {
-    if (statusFilter === 'all') return true;
-    return load.status === statusFilter;
-  });
+  const filteredLoads = loads.filter((load) =>
+    statusFilter === 'all' ? true : load.status === statusFilter
+  );
 
-  // Handle tracking a load (for accepted loads)
   const handleTrackLoad = async (load) => {
     try {
       const token = localStorage.getItem('token');
@@ -65,11 +78,10 @@ function ShipperLoads() {
       setTrackingLoad(load);
       setOpenTrackModal(true);
     } catch (err) {
-      console.error('Error tracking load:', err);
       if (err.response?.status === 404) {
-        setError('No carrier location found. The carrier might not have set it yet.');
+        setError('No carrier location found.');
       } else if (err.response?.status === 400) {
-        setError('Load not accepted or missing data—cannot track.');
+        setError('Load not accepted or missing data.');
       } else {
         setError('Failed to track load.');
       }
@@ -82,7 +94,6 @@ function ShipperLoads() {
         Loads
       </Typography>
 
-      {/* Filter by Status */}
       <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle1">Filter by status:</Typography>
         <Select
@@ -109,12 +120,11 @@ function ShipperLoads() {
         onClose={() => setOpenSnackbar(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert severity="success" sx={{ width: '100%' }}>
-          Action completed successfully!
+        <Alert severity="info" sx={{ width: '100%' }}>
+          Load status updated in real-time!
         </Alert>
       </Snackbar>
 
-      {/* Loads List */}
       {filteredLoads.length > 0 ? (
         <Grid container spacing={2}>
           {filteredLoads.map((load) => (
@@ -138,7 +148,7 @@ function ShipperLoads() {
                 >
                   View Details
                 </Button>
-                {load.status === 'accepted' && (
+                {(load.status === 'accepted' || load.status === 'in-transit') && (
                   <Button
                     variant="contained"
                     color="secondary"
@@ -156,7 +166,6 @@ function ShipperLoads() {
         <Typography>No loads found for the selected filter.</Typography>
       )}
 
-      {/* View Details Modal */}
       {selectedLoad && (
         <LoadDetailsModal
           load={selectedLoad}
@@ -165,7 +174,6 @@ function ShipperLoads() {
         />
       )}
 
-      {/* Track Load Modal */}
       <Modal
         open={openTrackModal}
         onClose={() => setOpenTrackModal(false)}
@@ -181,7 +189,7 @@ function ShipperLoads() {
                 center={
                   carrierLocation
                     ? [carrierLocation.latitude, carrierLocation.longitude]
-                    : [39.8283, -98.5795] // default center: USA
+                    : [39.8283, -98.5795]
                 }
                 zoom={8}
                 style={{ height: '400px', width: '100%' }}
@@ -191,14 +199,13 @@ function ShipperLoads() {
                   <Marker
                     position={[carrierLocation.latitude, carrierLocation.longitude]}
                     icon={L.icon({
-                      iconUrl:
-                        'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+                      iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
                       iconSize: [30, 30],
                       iconAnchor: [15, 15],
                     })}
                   />
                 )}
-                {route && route.length > 0 ? (
+                {route?.length ? (
                   <Polyline positions={route} color="blue" weight={5} />
                 ) : (
                   <Typography sx={{ mt: 1 }}>No Route Found</Typography>

@@ -1,24 +1,36 @@
-// models/Load.js
-const mongoose = require("mongoose");
-const { Schema } = mongoose;
+const mongoose = require('mongoose');
 
-const loadSchema = new Schema({
+const LoadSchema = new mongoose.Schema({
   title: { type: String, required: true },
   origin: { type: String, required: true },
-  originLat: { type: Number, required: true },
-  originLng: { type: Number, required: true },
+  originLat: Number,
+  originLng: Number,
   destination: { type: String, required: true },
-  destinationLat: { type: Number, required: true },
-  destinationLng: { type: Number, required: true },
-  equipmentType: { type: String, required: true },
+  destinationLat: Number,
+  destinationLng: Number,
   rate: { type: Number, required: true },
-  postedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
-  acceptedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
-  status: {
-    type: String,
-    enum: ["open", "accepted", "delivered"],
-    default: "open",
+  equipmentType: { type: String, required: true },
+  pickupTimeWindow: {
+    start: Date,
+    end: Date,
   },
+  deliveryTimeWindow: {
+    start: Date,
+    end: Date,
+  },
+  loadWeight: Number,
+  loadDimensions: {
+    length: Number,
+    width: Number,
+    height: Number,
+  },
+  commodityType: String,
+  specialInstructions: String,
+  hazardousMaterial: Boolean,
+  status: { type: String, default: 'open' },
+  postedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 }, { timestamps: true });
 
-module.exports = mongoose.model("Load", loadSchema);
+module.exports = mongoose.model('Load', LoadSchema);
+

@@ -11,29 +11,45 @@ module.exports = (io) => {
 
   // ----------------------------------------
   // GET /api/loads - Return all loads (open + carrier's accepted)
-  // ----------------------------------------
-  router.get("/", auth, async (req, res) => {
-    try {
-      if (req.user.role !== "carrier") {
-        return res
-          .status(403)
-          .json({ error: "Access denied: Only carriers can view loads" });
-      }
-
-      // Fetch only open loads + loads accepted by this carrier
-      const loads = await Load.find({
-        $or: [
-          { status: "open" },
-          { acceptedBy: req.user.userId },
-        ],
-      });
-
-      res.json(loads);
-    } catch (err) {
-      console.error("Error fetching loads:", err);
-      res.status(500).json({ error: "Server error" });
+  // ---------------------------------------
+router.get("/", auth, async (req, res) => {
+  try {
+    if (req.user.role !== "carrier") {
+      return res.status(403).json({ error: "Access denied" });
     }
-  });
+
+    const { status, equipmentType, minRate, maxRate, pickupStart, pickupEnd, sortBy, sortOrder } = req.query;
+
+    let filter = {
+      $or: [
+        { status: "open" },
+        { acceptedBy: req.user.userId },
+      ],
+    };
+
+    if (status) filter.status = status;
+    if (equipmentType) filter.equipmentType = equipmentType;
+    if (minRate || maxRate) {
+      filter.rate = {};
+      if (minRate) filter.rate.$gte = Number(minRate);
+      if (maxRate) filter.rate.$lte = Number(maxRate);
+    }
+    if (pickupStart || pickupEnd) {
+      filter["pickupTimeWindow.start"] = {};
+      if (pickupStart) filter["pickupTimeWindow.start"].$gte = new Date(pickupStart);
+      if (pickupEnd) filter["pickupTimeWindow.start"].$lte = new Date(pickupEnd);
+    }
+
+    const sortCriteria = {};
+    if (sortBy) sortCriteria[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    const loads = await Load.find(filter).sort(sortCriteria);
+    res.json(loads);
+  } catch (err) {
+    res.status(500).json({ error: "Server error fetching loads" });
+  }
+});
+
 
   // ----------------------------------------
   // GET /api/loads/accepted (Paginated)
@@ -356,6 +372,42 @@ router.put("/:id/deliver", auth, async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// PUT /api/loads/:id/status - Update load status (accepted, in-transit, delivered)
+router.put("/:id/status", auth, async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    if (!["accepted", "in-transit", "delivered"].includes(status)) {
+      return res.status(400).json({ error: "Invalid status provided." });
+    }
+
+    const load = await Load.findById(req.params.id);
+    if (!load) {
+      return res.status(404).json({ error: "Load not found." });
+    }
+
+    if (req.user.role !== "carrier" || String(load.acceptedBy) !== req.user.userId) {
+      return res.status(403).json({ error: "Unauthorized action." });
+    }
+
+    load.status = status;
+    await load.save();
+
+    // ✅ Emit real-time update event to notify connected clients using io directly
+    io.emit("loadStatusUpdated", { 
+      loadId: load._id, 
+      status: load.status, 
+      acceptedBy: load.acceptedBy 
+    });
+
+    res.json({ message: `Load status updated to ${status}.`, load });
+  } catch (err) {
+    console.error("Error updating load status:", err);
+    res.status(500).json({ error: "Internal Server Error." });
+  }
+});
+
 
 
   return router;
