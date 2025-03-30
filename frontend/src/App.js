@@ -9,6 +9,7 @@ import CarrierDashboard from './pages/CarrierDashboard';
 import CarrierMyLoads from './pages/CarrierMyLoads'; // NEW PAGE
 import Profile from './pages/Profile';
 import PrivateRoute from './components/PrivateRoute';
+import DocumentsPage from './pages/DocumentsPage';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
         <Route path="/my-loads" element={<PrivateRoute><CarrierMyLoads/></PrivateRoute>} /> {/* NEW ROUTE */}
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/" />} /> {/* Ensure Navigate is imported */}
+        <Route path="/documents" element={<DocumentsPage />} />
       </Routes>
       <Footer />
     </Router>

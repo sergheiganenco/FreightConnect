@@ -2,102 +2,111 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const { Server } = require('socket.io');
 const axios = require('axios');
+const PDFDocument = require('pdfkit');
 
 const app = express();
 const server = http.createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: '*', // Allow all origins for development; restrict in production
-  },
-});
+// Socket.IO Configuration
+const io = new Server(server, { cors: { origin: '*' } });
 
 // Middleware
-app.use(cors({
-  origin: '*',
-  methods: 'GET,POST,PUT,DELETE',
-  allowedHeaders: 'Content-Type, Authorization',
-}));
+app.use(cors({ origin: '*', methods: 'GET,POST,PUT,DELETE', allowedHeaders: 'Content-Type, Authorization' }));
 app.use(express.json());
 
 // MongoDB Connection
-mongoose.set('strictQuery', false);
-mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+  .catch(err => console.error('MongoDB connection error:', err));
 
-// Import and use user routes
+// Verify uploads directory exists
+const uploadPath = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath);
+
+// Multer Storage Configuration
+const storage = multer.diskStorage({
+  destination: uploadPath,
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
+});
+const upload = multer({ storage });
+
+// File upload route
+app.post('/api/documents/upload', upload.single('file'), (req, res) => {
+  res.json({ message: 'File uploaded successfully', filePath: req.file.path });
+});
+
+app.use((req, res, next) => {
+  console.log('Received headers:', req.headers);  // explicitly log all headers
+  next();
+});
+
+// Static uploads serving
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/documents/uploads', express.static(path.join(__dirname, 'uploads')));
+
+
+
+// User Routes
 const userRoutes = require('./routes/userRoutes');
 app.use('/api/users', userRoutes);
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('API is running!');
-});
-
-// Import and use load routes, passing `io` for real-time notifications
+// Load Routes
 const loadRoutes = require('./routes/loadRoutes');
 app.use('/api/loads', (req, res, next) => {
-  req.io = io; // Attach io instance to req object
+  req.io = io;
   loadRoutes(io)(req, res, next);
 });
 
-// Handle Socket.IO connections
+// Document Routes
+const documentRoutes = require('./routes/documentRoutes');
+app.use('/api/documents', documentRoutes);
+
+// Chatbot Routes
+const chatbotRoutes = require('./routes/chatbot');
+app.use('/api/chatbot', chatbotRoutes);
+
+// Root Route
+app.get('/', (req, res) => res.send('API is running!'));
+
+// Socket.IO connection logic
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  // Listen for carrier location updates
-  socket.on("updateCarrierLocation", async ({ loadId, latitude, longitude }) => {
+  socket.on('updateCarrierLocation', async ({ loadId, latitude, longitude }) => {
     try {
       const Load = require('./models/Load');
-
-      // Update the carrier location in the database (persistent)
-      await Load.findByIdAndUpdate(loadId, {
-        carrierLocation: { latitude, longitude }
-      });
-
-      // Emit real-time location update to shippers tracking this specific load
+      await Load.findByIdAndUpdate(loadId, { carrierLocation: { latitude, longitude } });
       io.emit(`carrierLocationUpdate-${loadId}`, { latitude, longitude });
-
       console.log(`Updated location for Load ${loadId}: [${latitude}, ${longitude}]`);
     } catch (error) {
-      console.error("Error updating carrier location:", error);
+      console.error('Error updating carrier location:', error);
     }
   });
 
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
-  });
+  socket.on('disconnect', () => console.log(`User disconnected: ${socket.id}`));
 });
 
-// Proxy API for fetching route data
+// Route Proxy for fetching external routes
 app.get('/api/get-route', async (req, res) => {
   try {
     const { start, end } = req.query;
-    if (!start || !end) {
-      return res.status(400).json({ error: 'Missing start or end location' });
-    }
-
-    console.log(`Fetching route for: ${start} → ${end}`);
+    if (!start || !end) return res.status(400).json({ error: 'Missing start or end location' });
 
     const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${process.env.ORS_API_KEY}&start=${start}&end=${end}`;
-    console.log("Requesting ORS URL:", url);
-
     const response = await axios.get(url);
-    console.log('Route Data:', response.data);
 
     res.json(response.data);
   } catch (error) {
-    console.error('Error fetching route:', error.response?.data || error.message);
     res.status(500).json({ error: error.response?.data || 'Failed to fetch route' });
   }
 });
 
-// Start the server
+// Start Server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

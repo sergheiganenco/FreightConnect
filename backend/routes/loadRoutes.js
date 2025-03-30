@@ -408,6 +408,39 @@ router.put("/:id/status", auth, async (req, res) => {
   }
 });
 
+// Recommended Loads Route
+router.get('/recommended/:loadId', auth, async (req, res) => {
+  try {
+    const currentLoad = await Load.findById(req.params.loadId);
+    if (!currentLoad) {
+      return res.status(404).json({ error: "Load not found." });
+    }
+
+    // Find recommended loads based on destination and timing
+    const recommendedLoads = await Load.find({
+      origin: currentLoad.destination,
+      status: "open",
+      _id: { $ne: currentLoad._id },
+    }).limit(5);
+
+    res.json(recommendedLoads);
+  } catch (err) {
+    console.error("Error fetching recommended loads:", err);
+    res.status(500).json({ error: "Server error fetching recommendations." });
+  }
+});
+
+// backend/routes/chatbot.js
+router.post('/voice-command', auth, async (req, res) => {
+  const { command } = req.body;
+  console.log("Voice command received:", command);
+
+  if (command.includes('recommend')) {
+    res.json({ message: 'Here are some recommended loads for you.' });
+  } else {
+    res.json({ message: 'Command not recognized.' });
+  }
+});
 
 
   return router;
