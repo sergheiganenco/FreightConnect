@@ -10,6 +10,7 @@
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
     "cors": "^2.x",
+    "dayjs": "^1.11.13",
     "dotenv": "^16.4.7",
     "express": "^4.x",
     "jsonwebtoken": "^9.0.2",

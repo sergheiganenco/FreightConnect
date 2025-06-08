@@ -1,0 +1,476 @@
+/* ───────────────────────────────────────────────
+   Global marketing look (applies only to pages that
+   add class="page-marketing" to their <section>)
+   ─────────────────────────────────────────────── */
+
+/* 1) vivid background */
+.page-marketing {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    background: linear-gradient(135deg,#1f2dff 0%,#6a1fcf 40%,#e1129a 100%);
+    color: #ffffff;
+    font-family: 'Roboto', sans-serif;
+  }
+  
+  .page-marketing + footer {
+    display: none !important;
+  }
+
+  /* 2) NavBar override (transparent, no bullets) */
+  .navbar--marketing {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .navbar--marketing a,
+  .navbar--marketing .navbar-brand h1 {
+    color:#fff !important;
+  }
+  .navbar--marketing ul { list-style:none; margin:0; padding:0; display:flex; gap:32px; }
+  
+  /* 3) active underline */
+  .navbar--marketing a.active { border-bottom:2px solid #fff; padding-bottom:2px; }
+  
+  /* 4) glass panel */
+  .glass-box {
+    width: 100%;
+    max-width: 1100px;
+    padding: 96px 32px;
+    border-radius: 24px;
+    backdrop-filter: blur(24px);
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 8px 32px rgba(0,0,0,.25);
+  }
+  
+  /* 5) benefit cards */
+  .benefit-grid {
+    margin-top: 64px;
+    display: grid;
+    gap: 24px;
+    grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+  }
+  .card--marketing {
+    background: rgba(255,255,255,.9);
+    color: #111827;
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card--marketing .icon-box {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:48px;height:48px;
+    border-radius:12px;
+    background:#c7d2fe;
+    color:#4338ca;
+  }
+  
+  /* 6) purple button */
+  .btn-pink {
+    background:#c52c89;
+    color:#fff;
+    padding:14px 48px;
+    border-radius:999px;
+    font-weight:600;
+    text-decoration:none;
+  }
+  .btn-pink:hover { background:#d2419a; }
+  
+  /* About wrapper */
+.about-wrapper { max-width: 1000px; margin: 0 auto; text-align: center; }
+
+/* Stepper override */
+.MuiStepper-root { background: transparent !important; }
+
+/* Stats counter */
+.about-stats { display: flex; gap: 4rem; justify-content: center; margin-bottom: 2rem; }
+.about-stats div { color: #fff; }
+
+/* Team carousel cards */
+.team-card {
+  background: rgba(255,255,255,0.85);
+  padding: 24px;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.team-photo {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+
+/* founder strip */
+.founder-card {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    background: rgba(255,255,255,0.9);
+    color: #111827;
+    border-radius: 24px;
+    padding: 24px 32px;
+    max-width: 800px;
+    margin: 0 auto 2rem;
+  }
+.founder-card h3   { margin: 0 0 4px 0; font-size: 22px; }
+.founder-card span { color: #555; }
+
+/* Contact Page Styles */
+.contact-container {
+    max-width: 900px;
+    margin: 0 auto;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+  .contact-title {
+    font-size: 36px;
+    font-weight: 800;
+  }
+  .contact-subtitle {
+    font-size: 18px;
+    opacity: 0.9;
+  }
+  .contact-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+  /* Responsive: stack on small screens */
+  @media (max-width: 768px) {
+    .contact-content {
+      grid-template-columns: 1fr;
+    }
+  }
+  
+  .contact-info .info-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    color: #fff;
+  }
+  
+  .contact-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .contact-input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: none;
+    outline: none;
+    font-size: 15px;
+  }
+  
+  .contact-btn {
+    align-self: flex-end;
+    padding: 12px 32px;
+    font-size: 16px;
+  }
+  
+  .map-container {
+    height: 280px;
+    overflow: hidden;
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  }
+  .map-container iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+
+/* Features page tweaks */
+.features-wrapper {
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+  .features-title {
+    font-size: 2rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 48px;
+    color: #fff;
+  }
+  
+  /* Glassy feature cards with hover lift */
+  .feature-card {
+    background: rgba(255,255,255,0.8);
+    backdrop-filter: blur(12px);
+    border-radius: 16px;
+    padding: 24px;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .feature-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  }
+  
+  /* Text inside cards */
+  .feature-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #111827;
+    margin-top: 12px;
+  }
+  .feature-desc {
+    font-size: 0.875rem;
+    color: #4b5563;
+    margin-top: 8px;
+  }
+
+.accent-0 { border-left: 4px solid #22d3ee; }  /* sky-blue */
+.accent-1 { border-left: 4px solid #a78bfa; }  /* purple */
+.accent-2 { border-left: 4px solid #fbbf24; }  /* amber */
+.accent-3 { border-left: 4px solid #f472b6; }  /* pink */
+
+/* ---------- Hero styles ---------- */
+.hero { text-align: center; max-width: 720px; margin: 0 auto 48px; }
+.hero h1 { font-size: 48px; font-weight: 800; margin-bottom: 16px; }
+.hero p  { font-size: 18px; opacity: 0.9; margin-bottom: 24px; }
+
+/* ---------- Testimonials ---------- */
+.testimonials {
+  margin-top: 64px;
+  text-align: center;
+}
+.testimonials h2 {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 32px;
+  color: #111827;
+}
+.testimonial-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(auto-fit,minmax(280px,1fr));
+}
+.testimonial-card {
+  background: rgba(255,255,255,0.9);
+  color: #111827;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.testimonial-card p {
+  font-style: italic;
+  margin-bottom: 16px;
+}
+.testimonial-card footer {
+  text-align: right;
+  font-weight: 600;
+}
+
+/* ─── Login page overrides ─────────────────────────────────── */
+
+/* Center & size the glass panel */
+.login-wrapper {
+  max-width: 400px;
+  margin: auto;
+  padding: 48px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Titles */
+.login-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  text-align: center;
+}
+.login-subtitle {
+  text-align: center;
+  opacity: 0.9;
+  margin-bottom: 1rem;
+}
+
+/* Form layout */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.input-group {
+  position: relative;
+}
+.input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6b7280;
+}
+.toggle-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6b7280;
+  cursor: pointer;
+}
+
+/* Inputs */
+.login-form input {
+  width: 100%;
+  padding: 12px 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  outline: none;
+}
+.login-form input:focus {
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 2px rgba(167,139,250,0.3);
+}
+
+/* Submit button */
+.login-btn {
+  margin-top: 8px;
+  padding: 12px;
+  font-size: 1rem;
+}
+
+/* Error messages */
+.error {
+  color: #f87171;
+  font-size: 0.875rem;
+}
+
+/* Footer links under form */
+.login-links {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+.login-links a {
+  color: #fff;
+  text-decoration: underline;
+}
+.login-links a:hover {
+  opacity: 1;
+}
+
+/* ─── Shared Signup & Forgot Password Styles ─────────────────── */
+
+/* size & center the glass panel */
+.signup-wrapper,
+.forgot-wrapper {
+  max-width: 400px;
+  margin: auto;
+  padding: 48px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Titles */
+.auth-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+}
+.auth-subtitle {
+  text-align: center;
+  opacity: 0.9;
+  margin-bottom: 1rem;
+  color: #fff;
+}
+
+/* Form layout */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Input group with icons */
+.input-group {
+  position: relative;
+}
+.input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6b7280;
+}
+.toggle-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6b7280;
+  cursor: pointer;
+}
+
+/* Inputs */
+.auth-form input {
+  width: 100%;
+  padding: 12px 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  outline: none;
+}
+.auth-form input:focus {
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 2px rgba(167,139,250,0.3);
+}
+
+/* Submit button */
+.auth-btn {
+  margin-top: 8px;
+  padding: 12px;
+  font-size: 1rem;
+}
+
+/* Error messages */
+.error {
+  color: #f87171;
+  font-size: 0.875rem;
+}
+
+/* Links under the form */
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+.auth-links a {
+  color: #fff;
+  text-decoration: underline;
+}
+.auth-links a:hover {
+  opacity: 1;
+}
+
+/* ─── carrier-dashboard glass cards ── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.05);   /* subtle frosted */
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease;
+}
+.glass-card:hover {
+  transform: translateY(-4px);
+}

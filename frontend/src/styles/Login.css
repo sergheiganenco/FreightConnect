@@ -1,34 +1,92 @@
-body {
-  margin: 0;
-  font-family: 'Roboto', sans-serif;
-  background: linear-gradient(to bottom right, #e3f2fd, #90caf9);
+.page-login {
+  background: linear-gradient(to right, #3b82f6, #9333ea, #ec4899);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
 }
 
-h1, h2, h3, h4, h5 {
-  font-weight: bold;
-}
-
-.card-container {
+.glass-box.login-wrapper {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  padding: 3rem 2rem;
+  border-radius: 20px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  width: 100%;
   max-width: 400px;
-  margin: auto;
-  padding: 20px;
-  background: white;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  border-radius: 10px;
 }
 
-.card-container input {
-  padding: 10px;
-  margin-bottom: 15px;
+.login-title {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
 }
 
-.card-container button {
-  background-color: #1565c0;
-  color: white;
-  font-size: 16px;
+.login-subtitle {
+  text-align: center;
+  font-size: 1rem;
+  margin-top: 0.5rem;
+  margin-bottom: 1.5rem;
+  color: #f3e8ff;
+}
+
+.input-group {
+  position: relative;
+  margin-bottom: 1.25rem;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 0.75rem 2.5rem 0.75rem 2.5rem;
+  border-radius: 12px;
   border: none;
-  padding: 10px;
+  font-size: 1rem;
+}
+
+.input-icon,
+.toggle-icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9333ea;
+}
+
+.input-icon {
+  left: 0.75rem;
+}
+
+.toggle-icon {
+  right: 0.75rem;
   cursor: pointer;
-  border-radius: 5px;
+}
+
+.btn-gradient.login-btn {
+  background: linear-gradient(to right, #ec4899, #9333ea);
+  color: white;
+  width: 100%;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 12px;
   font-weight: bold;
+  font-size: 1rem;
+  margin-top: 0.5rem;
+  transition: background 0.3s ease;
+}
+
+.btn-gradient.login-btn:hover {
+  background: linear-gradient(to right, #f472b6, #8b5cf6);
+}
+
+.login-links {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+.login-links a {
+  color: white;
+  font-size: 0.875rem;
+  text-decoration: underline;
 }

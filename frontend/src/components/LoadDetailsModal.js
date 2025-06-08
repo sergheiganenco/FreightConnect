@@ -1,83 +1,120 @@
 // src/components/LoadDetailsModal.js
-import React, { useState, useEffect } from "react";
-import { Modal, Paper, Typography, Button } from "@mui/material";
-import { MapContainer, TileLayer, Marker, Polyline } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import api from "../services/api";
+import React, { useState, useEffect } from 'react';
+import {
+  Modal, Paper, Typography, Button, Stack, DialogActions,
+} from '@mui/material';
+import { MapContainer, TileLayer, Marker, Polyline } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import api from '../services/api';
+import socket from '../services/socket';              // ★ singleton client
+import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
 
-function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted }) {
-  const [route, setRoute] = useState([]);
-  const [distance, setDistance] = useState(null);
-  const [estimatedTime, setEstimatedTime] = useState(null);
-  const [successMessage, setSuccessMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
 
+export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted }) {
+  /* —— make a local copy so we can mutate status —— */
+  const [loadState, setLoadState] = useState(load);
+
+  const [route, setRoute]           = useState([]);
+  const [distance, setDistance]     = useState(null);
+  const [eta, setEta]               = useState(null);
+  const [errorMessage, setError]    = useState('');
+  const [successMessage, setOk]     = useState('');
+
+  /* —— subscribe to live status updates —— */
   useEffect(() => {
-    if (!load) return;
-    const fetchRoute = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const response = await api.get(`/loads/${load._id}/route`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.data && response.data.route) {
-          // Convert from [lng, lat] to [lat, lng] for Leaflet
-          const transformed = response.data.route.map(([lng, lat]) => [lat, lng]);
-          setRoute(transformed);
-          setDistance(response.data.distance);
-          setEstimatedTime(response.data.estimatedTime);
-        }
-      } catch (err) {
-        console.error("Error fetching route:", err);
-        setErrorMessage("Failed to fetch route data.");
+    const handler = ({ loadId, status }) => {
+      if (loadId === loadState._id) {
+        setLoadState((prev) => ({ ...prev, status }));
       }
     };
-    fetchRoute();
-  }, [load]);
+    socket.on('loadStatusUpdated', handler);
+    return () => socket.off('loadStatusUpdated', handler);
+  }, [loadState._id]);
 
-  const handleAcceptLoad = async () => {
+  /* —— fetch route on mount —— */
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const { data } = await api.get(`/loads/${loadState._id}/route`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (data?.route) {
+          const latLng = data.route.map(([lng, lat]) => [lat, lng]);
+          setRoute(latLng);
+          setDistance(data.distance);
+          setEta(data.estimatedTime);
+        }
+      } catch (err) {
+        console.error(err);
+        setError('Failed to fetch route.');
+      }
+    })();
+  }, [loadState._id]);
+
+  /* —— accept load —— */
+  const acceptLoad = async () => {
     try {
-      const token = localStorage.getItem("token");
-      await api.put(`/loads/${load._id}/accept`, {}, {
+      const token = localStorage.getItem('token');
+      await api.put(`/loads/${loadState._id}/accept`, {}, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setSuccessMessage("Load accepted successfully!");
-      // Notify parent so that the load is removed/updated in the list
-      if (onLoadAccepted) onLoadAccepted(load._id);
+      setLoadState((prev) => ({ ...prev, status: 'accepted' }));
+      setOk('Load accepted successfully!');
+      onLoadAccepted?.(loadState._id);
     } catch (err) {
-      console.error("Error accepting load:", err);
-      setErrorMessage("Could not accept load. Please try again.");
+      console.error(err);
+      setError('Could not accept load.');
     }
   };
 
-  return (
-    <Modal
-      open={!!load}
-      onClose={onClose}
-      sx={{ display: "flex", justifyContent: "center", alignItems: "center" }}
-    >
-      <Paper sx={{ p: 4, maxWidth: 800, width: "100%" }}>
-        <Typography variant="h6">Load Details</Typography>
-        <Typography><strong>Title:</strong> {load?.title}</Typography>
-        <Typography><strong>Origin:</strong> {load?.origin}</Typography>
-        <Typography><strong>Destination:</strong> {load?.destination}</Typography>
-        <Typography><strong>Rate:</strong> ${load?.rate}</Typography>
-        <Typography><strong>Status:</strong> {load?.status}</Typography>
-        <Typography sx={{ mt: 2 }}>
-          <strong>Distance (Origin → Destination):</strong>{" "}
-          {distance ? `${distance} miles` : "Calculating..."}
-        </Typography>
-        <Typography>
-          <strong>Estimated Time:</strong>{" "}
-          {estimatedTime ? `${estimatedTime} hours` : "Calculating..."}
-        </Typography>
+  /* —— date fmt helper —— */
+  const fmt = (d) =>
+    d
+      ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+      : 'TBD';
 
-        {route.length > 0 ? (
-          <MapContainer
-            center={route[0]}
-            zoom={6}
-            style={{ height: "400px", width: "100%", marginTop: "10px" }}
-          >
+  const pickup = loadState.pickupTimeWindow?.start || loadState.pickupStart
+    ? `${fmt(loadState.pickupTimeWindow?.start || loadState.pickupStart)}
+       → ${fmt(loadState.pickupTimeWindow?.end   || loadState.pickupEnd)}`
+    : 'TBD';
+
+  const delivery = loadState.deliveryTimeWindow?.start || loadState.deliveryStart
+    ? `${fmt(loadState.deliveryTimeWindow?.start || loadState.deliveryStart)}
+       → ${fmt(loadState.deliveryTimeWindow?.end   || loadState.deliveryEnd)}`
+    : 'TBD';
+
+  /* —— render —— */
+  return (
+    <Modal open={!!load} onClose={onClose}
+           sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+      <Paper sx={{ p: 4, maxWidth: 840, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+        {/* header + status */}
+        <Typography variant="h5" fontWeight={700} mb={1}>
+          {loadState.title}
+        </Typography>
+        <StatusChip status={loadState.status} sx={{ mb: 2 }} />
+
+        {/* details */}
+        <Stack spacing={0.5}>
+          <Typography><strong>Origin:</strong> {loadState.origin}</Typography>
+          <Typography><strong>Destination:</strong> {loadState.destination}</Typography>
+          <Typography><strong>Equipment:</strong> {loadState.equipmentType}</Typography>
+          <Typography><strong>Rate:</strong> ${loadState.rate}</Typography>
+
+          <Typography sx={{ mt: 1 }}><strong>Pickup Window:</strong> {pickup}</Typography>
+          <Typography><strong>Delivery Window:</strong> {delivery}</Typography>
+
+          <Typography sx={{ mt: 1 }}>
+            <strong>Distance:</strong> {distance ? `${distance} miles` : 'Calculating…'}
+          </Typography>
+          <Typography><strong>ETA:</strong> {eta ? `${eta} hours` : 'Calculating…'}</Typography>
+        </Stack>
+
+        {/* map */}
+        {route.length ? (
+          <MapContainer center={route[0]} zoom={6}
+                        style={{ height: 400, width: '100%', marginTop: 16 }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <Marker position={route[0]} />
             <Marker position={route[route.length - 1]} />
@@ -87,37 +124,38 @@ function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted }) {
           <Typography sx={{ mt: 2 }}>No route data available.</Typography>
         )}
 
-        {/* Only show Accept Load if the load is still open */}
-        {userRole === "carrier" && load?.status === "open" && (
-          <Button
-            variant="contained"
-            color="primary"
-            sx={{ mt: 2, mr: 2 }}
-            onClick={handleAcceptLoad}
-          >
-            Accept Load
-          </Button>
-        )}
+        {/* actions */}
+        {successMessage && (
+          <Typography color="success.main" sx={{ mt: 3 }}>{successMessage}</Typography>
+       )}
 
-        {/* If the load is already accepted, show a success message */}
-        {load?.status !== "open" && successMessage && (
-          <Typography color="green" sx={{ mt: 2 }}>
-            {successMessage}
-          </Typography>
-        )}
-
-        <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={onClose}>
-          Close
-        </Button>
+            <DialogActions
+               disableSpacing
+               sx={{
+                 position: 'sticky',
+                 bottom: 0,
+                 bgcolor: 'background.paper',
+                 pt: 2,
+               }}
+             >
+               <Button
+                 variant="contained"
+                 sx={{ mr: 2 }}
+                 disabled={loadState.status !== 'open'}
+                 onClick={acceptLoad}
+               >
+                 {loadState.status === 'open' ? 'Accept Load' : 'Accepted'}
+               </Button>
+            
+               <Button variant="contained" color="secondary" onClick={onClose}>
+                 Close
+               </Button>
+             </DialogActions>
 
         {errorMessage && (
-          <Typography color="error" sx={{ mt: 2 }}>
-            {errorMessage}
-          </Typography>
+          <Typography color="error" sx={{ mt: 2 }}>{errorMessage}</Typography>
         )}
       </Paper>
     </Modal>
   );
 }
-
-export default LoadDetailsModal;

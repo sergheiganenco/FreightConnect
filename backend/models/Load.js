@@ -30,7 +30,11 @@ const LoadSchema = new mongoose.Schema({
   status: { type: String, default: 'open' },
   postedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  assignedTruckId: { type: String, default: null },
+  deliveredAt: { type: Date, default: null },             // <-- NEW
+  completedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // <-- NEW
 }, { timestamps: true });
+
 
 module.exports = mongoose.model('Load', LoadSchema);
 

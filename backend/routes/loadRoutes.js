@@ -1,4 +1,4 @@
-// routes/loads.js
+
 module.exports = (io) => {
   const express = require("express");
   const router = express.Router();
@@ -50,6 +50,18 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
+// GET /api/loads/open - All open loads (not yet assigned)
+router.get("/open", auth, async (req, res) => {
+  try {
+    // Only show open, unassigned loads
+    const openLoads = await Load.find({ status: "open", assignedTruckId: null });
+    res.json(openLoads);
+  } catch (err) {
+    console.error("Error fetching open loads:", err);
+    res.status(500).json({ error: "Server error fetching open loads" });
+  }
+});
+
 
   // ----------------------------------------
   // GET /api/loads/accepted (Paginated)
@@ -88,6 +100,8 @@ router.get("/", auth, async (req, res) => {
   // GET /api/loads/posted - For Shippers
   // ----------------------------------------
   router.get("/posted", auth, async (req, res) => {
+    console.log("SHIPPER DEBUG req.user:", req.user); 
+    console.log("SHIPPER DEBUG headers:", req.headers);
     try {
       if (req.user.role !== "shipper") {
         return res
@@ -111,60 +125,67 @@ router.get("/", auth, async (req, res) => {
     }
   });
 
-  // ----------------------------------------
-  // POST /api/loads - Create a New Load
-  // ----------------------------------------
-  router.post("/", auth, async (req, res) => {
-    try {
-      const { title, origin, destination, rate, equipmentType } = req.body;
-      if (!title || !origin || !destination || !rate || !equipmentType) {
-        return res.status(400).json({ error: "All fields are required." });
-      }
-  
-      // If your user is a shipper
-      if (req.user.role !== "shipper") {
-        return res.status(403).json({ error: "Only shippers can post loads." });
-      }
-  
-      // Geocode using Nominatim
-      const fetchCoords = async (location) => {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`
-        );
-        const data = await response.json();
-        if (data.length > 0) {
-          return {
-            lat: parseFloat(data[0].lat),
-            lng: parseFloat(data[0].lon),
-          };
-        }
-        throw new Error(`Could not fetch coordinates for ${location}`);
-      };
-  
-      const originCoords = await fetchCoords(origin);
-      const destinationCoords = await fetchCoords(destination);
-  
-      const newLoad = new Load({
-        title,
-        origin,
-        originLat: originCoords.lat,
-        originLng: originCoords.lng,
-        destination,
-        destinationLat: destinationCoords.lat,
-        destinationLng: destinationCoords.lng,
-        equipmentType,
-        rate,
-        postedBy: req.user.userId,
-      });
-  
-      await newLoad.save();
-      return res.status(201).json(newLoad);
-    } catch (err) {
-      console.error("Error saving load:", err);
-      return res.status(500).json({ error: "Failed to post load." });
+ // POST /api/loads - Create a New Load
+// ----------------------------------------
+router.post('/', auth, async (req, res) => {
+  try {
+    const {
+      title,
+      origin,
+      destination,
+      rate,
+      equipmentType,
+
+      // NEW optional fields coming from the front-end form
+      pickupStart,
+      pickupEnd,
+      deliveryStart,
+      deliveryEnd,
+    } = req.body;
+
+    if (!title || !origin || !destination || !rate || !equipmentType) {
+      return res.status(400).json({ error: 'Title, origin, destination, rate and equipmentType are required.' });
     }
-  });
-  
+
+    if (req.user.role !== 'shipper') {
+      return res.status(403).json({ error: 'Only shippers can post loads.' });
+    }
+
+    // ---------- geocode -------------
+    const fetchCoords = async (location) => {
+      const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`);
+      const data = await resp.json();
+      if (!data.length) throw new Error(`Could not geocode ${location}`);
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    };
+
+    const originC      = await fetchCoords(origin);
+    const destinationC = await fetchCoords(destination);
+
+    // ---------- build & save ---------
+    const newLoad = new Load({
+      title,
+      origin,
+      originLat: originC.lat,
+      originLng: originC.lng,
+      destination,
+      destinationLat: destinationC.lat,
+      destinationLng: destinationC.lng,
+      rate,
+      equipmentType,
+      postedBy: req.user.userId,
+      // ✅ store the windows if provided
+      pickupTimeWindow: pickupStart && pickupEnd ? { start: pickupStart, end: pickupEnd } : undefined,
+      deliveryTimeWindow: deliveryStart && deliveryEnd ? { start: deliveryStart, end: deliveryEnd } : undefined,
+    });
+
+    await newLoad.save();
+    res.status(201).json(newLoad);
+  } catch (err) {
+    console.error('Error saving load:', err);
+    res.status(500).json({ error: 'Failed to post load.' });
+  }
+});
 
   // ----------------------------------------
   // PUT /api/loads/:id/accept - Accept a Load
@@ -195,6 +216,7 @@ router.get("/", auth, async (req, res) => {
   // GET /api/loads/my-loads - All loads accepted by this carrier
   // ----------------------------------------
   router.get("/my-loads", auth, async (req, res) => {
+    console.log("GET /my-loads route hit!"); 
     try {
       if (req.user.role !== "carrier") {
         return res
@@ -237,6 +259,15 @@ router.get("/", auth, async (req, res) => {
     }
   });
 
+  router.get("/:id", auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: "Load not found" });
+      res.json(load);
+    } catch (err) {
+      res.status(500).json({ error: "Server error fetching load by ID" });
+    }
+  });
   // ----------------------------------------
   // GET /api/loads/:id/tracking
 
@@ -430,6 +461,87 @@ router.get('/recommended/:loadId', auth, async (req, res) => {
   }
 });
 
+// PUT /api/loads/:id/pickup-window  { start, end }
+router.put('/:id/pickup-window', auth, async (req, res) => {
+  try {
+    const { start, end } = req.body;
+    if (!start || !end) return res.status(400).json({ error: 'start and end are required' });
+
+    const load = await Load.findByIdAndUpdate(
+      req.params.id,
+      { 'pickupTimeWindow.start': start, 'pickupTimeWindow.end': end },
+      { new: true, runValidators: true }
+    );
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+
+    res.json(load);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error updating window' });
+  }
+});
+
+// PUT /api/loads/:id/delivery-window   { start, end }
+router.put('/:id/delivery-window', auth, async (req, res) => {
+  try {
+    const { start, end } = req.body;
+    if (!start || !end) {
+      return res.status(400).json({ error: 'start and end are required' });
+    }
+
+    const load = await Load.findByIdAndUpdate(
+      req.params.id,
+      {
+        'deliveryTimeWindow.start': start,
+        'deliveryTimeWindow.end':   end,
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!load) {
+      return res.status(404).json({ error: 'Load not found' });
+    }
+
+    res.json(load);
+  } catch (err) {
+    console.error('Error updating delivery window:', err);
+    res.status(500).json({ error: 'Server error updating window' });
+  }
+});
+
+// PUT /api/loads/:id/assign-to-truck
+router.put("/:id/assign-to-truck", auth, async (req, res) => {
+  try {
+    // Carrier only
+    if (req.user.role !== "carrier") {
+      return res.status(403).json({ error: "Only carriers can assign loads to trucks" });
+    }
+    const { truckId } = req.body;
+    if (!truckId) {
+      return res.status(400).json({ error: "truckId is required" });
+    }
+
+    const load = await Load.findById(req.params.id);
+    if (!load) return res.status(404).json({ error: "Load not found" });
+
+    // Only allow assignment if load is open and not assigned
+    if (load.status !== "open" || load.assignedTruckId) {
+      return res.status(400).json({ error: "Load is not available for assignment" });
+    }
+
+    load.assignedTruckId = truckId;
+    load.status = "assigned";
+    await load.save();
+
+    res.json({ message: "Load assigned to truck", load });
+  } catch (err) {
+    console.error("Error assigning load to truck:", err);
+    res.status(500).json({ error: "Server error assigning load" });
+  }
+});
+
+
+
 // backend/routes/chatbot.js
 router.post('/voice-command', auth, async (req, res) => {
   const { command } = req.body;
@@ -441,6 +553,8 @@ router.post('/voice-command', auth, async (req, res) => {
     res.json({ message: 'Command not recognized.' });
   }
 });
+
+
 
 
   return router;

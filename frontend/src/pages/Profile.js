@@ -1,181 +1,191 @@
 import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Paper,
+  Typography,
+  Grid,
+  TextField,
+  Button,
+  CircularProgress,
+  Alert,
+  Stack,
+} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { TextField, Button, Typography, Grid, CircularProgress } from '@mui/material';
 import api from '../services/api';
+import '../styles/Dashboard.css';
 
 export default function Profile() {
+  const navigate = useNavigate();
+  const role = localStorage.getItem('role') || 'guest';
   const [user, setUser] = useState(null);
-  const [error, setError] = useState(null);
+  const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
   const [editable, setEditable] = useState(false);
-  const [updatedUser, setUpdatedUser] = useState({});
-  const navigate = useNavigate();
+  const [error, setError] = useState();
 
-  // Fetch user profile on mount
+  // Set dashboard background class
   useEffect(() => {
-    const fetchProfile = async () => {
+    document.body.classList.add('dashboard-page');
+    return () => {
+      document.body.classList.remove('dashboard-page');
+    };
+  }, []);
+
+  useEffect(() => {
+    (async () => {
       try {
         const token = localStorage.getItem('token');
-        if (!token) throw new Error('No token found');
-        const response = await api.get('/users/profile', {
+        const { data } = await api.get('/users/profile', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        setUser(response.data);
-        setUpdatedUser(response.data);
+        setUser(data);
+        setForm(data);
       } catch (err) {
-        console.error('Error fetching profile:', err.response?.data || err.message);
-        setError('Failed to fetch profile.');
+        setError('Could not load profile.');
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchProfile();
+    })();
   }, []);
 
-  // Save updated profile
   const handleSave = async () => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) throw new Error('No token found');
-      await api.put('/users/profile', updatedUser, {
+      await api.put('/users/profile', form, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      // Sync user with updated data
-      setUser(updatedUser);
+      setUser(form);
       setEditable(false);
       setError(null);
-    } catch (err) {
-      console.error('Error updating profile:', err.response?.data || err.message);
-      setError('Failed to update profile.');
+    } catch {
+      setError('Save failed. Try again.');
     }
   };
 
-  // Navigate back to the correct dashboard
-  const handleBackToDashboard = () => {
-    const role = localStorage.getItem('role');
-    console.log('Role in handleBackToDashboard:', role); // Debug log
-    if (role === 'carrier') {
-      navigate('/dashboard/carrier');
-    } else if (role === 'shipper') {
-      navigate('/dashboard/shipper');
-    } else {
-      navigate('/'); // fallback if no role found
-    }
+  const handleCancel = () => {
+    setForm(user);   // Reset form to original user data
+    setEditable(false);
+    setError(null);
   };
 
   if (loading) {
     return (
-      <div
-        style={{
+      <Box
+        sx={{
+          height: '75vh',
           display: 'flex',
-          justifyContent: 'center',
           alignItems: 'center',
-          height: '70vh',
+          justifyContent: 'center',
         }}
       >
-        <CircularProgress />
-      </div>
+        <CircularProgress color="secondary" />
+      </Box>
     );
   }
 
   return (
-    <div style={{ maxWidth: '800px', margin: '0 auto', padding: '20px' }}>
-      <Typography variant="h4" gutterBottom>
-        Profile
-      </Typography>
-
-      {error && (
-        <Typography color="error" style={{ marginBottom: '1rem' }}>
-          {error}
+    <Box className="dashboard-wrapper" sx={{ minHeight: '100vh' }}>
+      <Box sx={{ pt: 12, maxWidth: 700, mx: 'auto' }}>
+        <Typography variant="h5" fontWeight={700} mb={3} sx={{ color: '#fff' }}>
+          Profile
         </Typography>
-      )}
-
-      {user && (
-        <Grid container spacing={3}>
-          {/* Name Field */}
-          <Grid item xs={12}>
-            <TextField
-              label="Name"
-              variant="outlined"
-              fullWidth
-              value={updatedUser.name || ''}
-              onChange={(e) =>
-                setUpdatedUser({ ...updatedUser, name: e.target.value })
-              }
-              disabled={!editable}
-            />
-          </Grid>
-
-          {/* Email Field */}
-          <Grid item xs={12}>
-            <TextField
-              label="Email"
-              variant="outlined"
-              fullWidth
-              value={updatedUser.email || ''}
-              onChange={(e) =>
-                setUpdatedUser({ ...updatedUser, email: e.target.value })
-              }
-              disabled={!editable}
-            />
-          </Grid>
-
-          {/* Phone Field */}
-          <Grid item xs={12}>
-            <TextField
-              label="Phone"
-              variant="outlined"
-              fullWidth
-              value={updatedUser.phone || ''}
-              onChange={(e) =>
-                setUpdatedUser({ ...updatedUser, phone: e.target.value })
-              }
-              disabled={!editable}
-            />
-          </Grid>
-
-          {/* Company Name Field */}
-          <Grid item xs={12}>
-            <TextField
-              label="Company Name"
-              variant="outlined"
-              fullWidth
-              value={updatedUser.companyName || ''}
-              onChange={(e) =>
-                setUpdatedUser({ ...updatedUser, companyName: e.target.value })
-              }
-              disabled={!editable}
-            />
-          </Grid>
-
-          {/* Actions: Edit/Save and Back to Dashboard */}
-          <Grid item xs={12}>
-            {!editable ? (
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => setEditable(true)}
-                style={{ marginRight: '10px' }}
-              >
-                Edit Profile
-              </Button>
-            ) : (
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={handleSave}
-                style={{ marginRight: '10px' }}
-              >
-                Save Changes
-              </Button>
-            )}
-            <Button variant="outlined" onClick={handleBackToDashboard}>
-              Back to Dashboard
-            </Button>
-          </Grid>
-        </Grid>
-      )}
-    </div>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+        <Paper
+          className="glass-card"
+          sx={{
+            p: 4,
+            borderRadius: 4,
+            background: 'rgba(60, 30, 120, 0.35)',
+            boxShadow: '0 6px 32px 0 rgba(44,30,100,0.12)'
+          }}
+        >
+          <Stack spacing={3}>
+            <Grid container spacing={2}>
+              {[
+                ['Name', 'name'],
+                ['Email', 'email'],
+                ['Phone', 'phone'],
+                ['Company Name', 'companyName'],
+              ].map(([label, key]) => (
+                <Grid item xs={12} sm={6} key={key}>
+                  <TextField
+                    label={label}
+                    fullWidth
+                    variant="filled"
+                    value={form[key] || ''}
+                    disabled={!editable}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, [key]: e.target.value }))
+                    }
+                    slotProps={{
+                      input: {
+                        sx: {
+                          color: '#fff',
+                          fontWeight: 600,
+                          fontSize: '1.09rem',
+                          WebkitTextFillColor: '#fff',
+                        }
+                      },
+                      root: {
+                        sx: {
+                          bgcolor: 'rgba(30,30,50,0.65)',
+                          borderRadius: 2,
+                          boxShadow: '0 2px 10px 0 rgba(60,30,120,0.10)',
+                        }
+                      },
+                      label: {
+                        sx: {
+                          color: '#fff',
+                          fontWeight: 600,
+                          opacity: 1,
+                          fontSize: '1.03rem',
+                          '&.Mui-focused': {
+                            color: '#fff',
+                            opacity: 1,
+                          }
+                        }
+                      }
+                    }}
+                    InputProps={{
+                      disableUnderline: true
+                    }}
+                  />
+                </Grid>
+              ))}
+            </Grid>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              {!editable ? (
+                <Button
+                  className="btn-gradient"
+                  onClick={() => setEditable(true)}
+                >
+                  Edit Profile
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    className="btn-gradient"
+                    onClick={handleSave}
+                  >
+                    Save Changes
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    sx={{ color: '#fff', borderColor: '#fff' }}
+                    onClick={handleCancel}
+                  >
+                    Cancel
+                  </Button>
+                </>
+              )}
+            </Box>
+          </Stack>
+        </Paper>
+      </Box>
+    </Box>
   );
 }

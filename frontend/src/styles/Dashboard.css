@@ -1,11 +1,72 @@
-/* General container styles */
-.dashboard-container {
-  padding: 2rem;
-  background-color: #f4f8fc;
+/* ─────────────────────────────────────────────
+   GLOBAL DASHBOARD THEME
+   (applies when <body> has class="dashboard-page")
+   ──────────────────────────────────────────── */
+
+/* 1) full-screen background + font  */
+body.dashboard-page {
+  background: linear-gradient(135deg,#1f2dff 0%,#6a1fcf 40%,#e1129a 100%);
+  /* keep gradient fixed behind scroll */
+  background-attachment: fixed;
   min-height: 100vh;
+  font-family: 'Roboto', sans-serif;
+  color: #fff;
 }
 
-/* Form for posting loads */
+/* 2) hide the marketing footer while inside dashboards  */
+body.dashboard-page footer {
+  display: none !important;
+}
+
+/* 3) centred glass “workspace” wrapper  */
+.dashboard-wrapper {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(24px);
+  border-radius: 24px;
+}
+
+/* 4) glass cards reused in LoadGrid  */
+.glass-card {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+  transition: transform 0.2s ease;
+}
+.glass-card:hover { transform: translateY(-4px); }
+
+/* 5) gradient button (Apply, etc.) */
+.btn-gradient {
+  background: linear-gradient(90deg,#ec4899,#9333ea);
+  color:#fff;
+  border-radius: 9999px;
+  padding: 0.6rem 2rem;
+  font-weight:600;
+  border:none;
+  cursor:pointer;
+  transition: transform 0.15s;
+}
+.btn-gradient:hover { transform: scale(1.05); }
+
+/* 6) snackbar success tint to match theme */
+.snackbar-success {
+  background-color:#34d399; /* emerald */
+  color:#fff;
+  padding:1rem 1.5rem;
+  border-radius:12px;
+  box-shadow:0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* 7) keep your original utility styles
+      (post-load forms, grids, etc.)               */
+.dashboard-container {
+  padding: 2rem;
+  min-height: 100vh;
+}
 .post-load-form {
   margin-bottom: 2rem;
   background: #ffffff;
@@ -14,101 +75,49 @@
   box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.1);
   transition: transform 0.2s, box-shadow 0.2s;
 }
-
 .post-load-form:hover {
   transform: translateY(-2px);
   box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.15);
 }
-
-/* Filter bar styles */
-.filter-bar {
-  margin-bottom: 1.5rem;
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-}
-
-/* List container for loads */
-.loads-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.5rem;
-}
-
-/* Individual load item card */
+.filter-bar { margin-bottom:1.5rem; display:flex; gap:1rem; align-items:center; }
+.loads-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:1.5rem; }
 .load-item {
-  background: #ffffff;
-  padding: 1.5rem;
-  border-radius: 12px;
-  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
-  transition: transform 0.2s, box-shadow 0.2s;
+  background:#ffffff; padding:1.5rem; border-radius:12px;
+  box-shadow:0px 4px 8px rgba(0,0,0,0.1); transition:transform .2s, box-shadow .2s;
 }
-
 .load-item:hover {
-  transform: translateY(-4px);
-  box-shadow: 0px 8px 16px rgba(0, 0, 0, 0.15);
+  transform:translateY(-4px); box-shadow:0px 8px 16px rgba(0,0,0,0.15);
 }
+.load-item strong { font-size:1.1rem; color:#333; }
+.load-item span   { font-size:0.9rem; color:#666; }
 
-/* Typography for load details */
-.load-item strong {
-  font-size: 1.1rem;
-  color: #333;
-}
-
-.load-item span {
-  font-size: 0.9rem;
-  color: #666;
-}
-
-/* Button styles */
 button {
-  background-color: #007bff;
+  background-color:#007bff; color:white; padding:0.5rem 1rem; border:none;
+  border-radius:8px; font-size:1rem; cursor:pointer;
+  transition:background-color .2s, transform .2s;
+}
+button:hover   { background-color:#0056b3; transform:scale(1.05); }
+button:active  { transform:scale(0.98); }
+
+body.dashboard-page, .dashboard-page {
+  background: linear-gradient(135deg, #1f2dff 0%, #6a1fcf 40%, #e1129a 100%) !important;
+  background-attachment: fixed;
+  min-height: 100vh;
+  font-family: 'Roboto', sans-serif;
   color: white;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background-color 0.2s, transform 0.2s;
 }
 
-button:hover {
-  background-color: #0056b3;
-  transform: scale(1.05);
-}
 
-button:active {
-  transform: scale(0.98);
+.glass-load-card {
+  /* see sx above, or for fallback: */
+  background: rgba(32, 21, 65, 0.93);
+  border-radius: 18px;
+  box-shadow: 0 4px 24px #6a1fcf33;
+  border: 1.5px solid rgba(255,255,255,0.10);
+  border-left: 5px solid #51e5ff;
+  color: #fff;
+  transition: box-shadow 0.15s, border-left 0.15s;
 }
-
-/* Snackbar styles */
-.snackbar-success {
-  background-color: #4caf50;
-  color: white;
-  padding: 1rem;
-  border-radius: 8px;
-  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
-  animation: fadeIn 0.3s ease-out, fadeOut 0.3s ease-in 3s;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeOut {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(10px);
-  }
+.glass-load-card:hover {
+  box-shadow: 0 8px 32px #6a1fcf55;
 }

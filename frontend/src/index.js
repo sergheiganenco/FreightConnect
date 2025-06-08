@@ -1,15 +1,33 @@
+// ── src/index.js ───────────────────────────────────────────────
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ThemeProvider } from '@mui/material/styles';
+
+import { ThemeProvider, CssBaseline } from '@mui/material';
+import theme from './components/theme';
 import App from './App';
-import theme from '../src/components/theme'; // your theme configuration
+
+// ① React-Query
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+import './styles/marketing.css';
+import './styles/Navbar.css';
+import './index.css';
+import './styles/Login.css';
+import './styles/Dashboard.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
+
+// ② create a single client for the whole app
+const queryClient = new QueryClient();
+
 root.render(
   <React.StrictMode>
-    {/* Provide your custom theme to all child components */}
     <ThemeProvider theme={theme}>
-      <App />
+      <CssBaseline />
+      
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

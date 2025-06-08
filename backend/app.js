@@ -16,6 +16,15 @@ const server = http.createServer(app);
 // Socket.IO Configuration
 const io = new Server(server, { cors: { origin: '*' } });
 
+
+app.use(cors({
+  origin: 'http://localhost:3000', // or '*' for dev, but restrict in prod
+  credentials: true,
+}));
+
+const { setIO } = require('./utils/socket');
+setIO(io);
+
 // Middleware
 app.use(cors({ origin: '*', methods: 'GET,POST,PUT,DELETE', allowedHeaders: 'Content-Type, Authorization' }));
 app.use(express.json());
@@ -26,12 +35,12 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.error('MongoDB connection error:', err));
 
 // Verify uploads directory exists
-const uploadPath = path.join(__dirname, 'uploads');
+const uploadPath = path.join(__dirname, 'public', 'documents', 'uploads');
 if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath);
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
-  destination: uploadPath,
+  destination: uploadPath, // will be 'public/documents/uploads'
   filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
 });
 const upload = multer({ storage });
@@ -47,8 +56,7 @@ app.use((req, res, next) => {
 });
 
 // Static uploads serving
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/documents/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/documents/uploads', express.static(path.join(__dirname, 'public/documents/uploads')));
 
 
 
@@ -57,11 +65,8 @@ const userRoutes = require('./routes/userRoutes');
 app.use('/api/users', userRoutes);
 
 // Load Routes
-const loadRoutes = require('./routes/loadRoutes');
-app.use('/api/loads', (req, res, next) => {
-  req.io = io;
-  loadRoutes(io)(req, res, next);
-});
+const loadRoutes = require('./routes/loadRoutes')(io); // call with io ONCE
+app.use('/api/loads', loadRoutes); // use as router middleware
 
 // Document Routes
 const documentRoutes = require('./routes/documentRoutes');
@@ -106,6 +111,10 @@ app.get('/api/get-route', async (req, res) => {
     res.status(500).json({ error: error.response?.data || 'Failed to fetch route' });
   }
 });
+// Route for Fleet Analytics
+const fleetAnalyticsRoutes = require('./routes/fleetAnalyticsRoutes');
+app.use('/api/fleet/analytics', fleetAnalyticsRoutes);
+
 
 // Start Server
 const PORT = process.env.PORT || 5000;

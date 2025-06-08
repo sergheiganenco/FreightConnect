@@ -1,3 +1,4 @@
+// src/components/Navbar.js
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -5,60 +6,78 @@ import {
   Toolbar,
   Typography,
   Button,
+  Box,
   IconButton,
   Menu,
   MenuItem,
-  Box,
+  Chip
 } from '@mui/material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import '../styles/Navbar.css';
 
-function Navbar() {
+export default function Navbar() {
   const [anchorEl, setAnchorEl] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
   const token = localStorage.getItem('token');
-  const role = localStorage.getItem('role');
+  const role  = localStorage.getItem('role');     // "carrier" | "shipper" | "admin"
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('role');
-    navigate('/');
+    navigate('/home');
   };
 
-  const handleMenuOpen = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
+  const handleMenuOpen  = (e) => setAnchorEl(e.currentTarget);
+  const handleMenuClose = () => setAnchorEl(null);
 
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-  };
+  const isAuthPage = ['/login','/signup'].includes(location.pathname);
 
-  const isLoginOrSignup = location.pathname === '/' || location.pathname === '/signup';
+  // Correct profile route for all roles, fallback if role is missing
+  const handleProfile = () => {
+    if (role === "carrier" || role === "shipper" || role === "admin") {
+      navigate(`/dashboard/${role}/profile`);
+    } else {
+      navigate('/profile'); // fallback for unexpected cases
+    }
+    handleMenuClose();
+  };
 
   return (
-    <AppBar position="static" sx={{ marginBottom: 2 }}>
-      <Toolbar>
-        <Typography
-          variant="h6"
-          sx={{ flexGrow: 1, cursor: 'pointer' }}
-          onClick={() => {
-            if (token) {
-              if (role === 'carrier') {
-                navigate('/dashboard/carrier');
-              } else {
-                navigate('/dashboard/shipper');
-              }
-            } else {
-              navigate('/');
-            }
-          }}
-        >
-          FreightConnect
-        </Typography>
+    <AppBar
+      position="absolute"
+      elevation={0}
+      sx={{
+        background: 'transparent',
+        color: 'white',
+        py: 2
+      }}
+    >
+      <Toolbar sx={{ justifyContent: 'space-between' }}>
+        {/* Branding + role badge */}
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Typography
+            variant="h6"
+            sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+            onClick={() => navigate('/home')}
+          >
+            FreightConnect
+          </Typography>
+          {token && role && (
+            <Chip
+              label={role.toUpperCase()}
+              size="small"
+              variant="outlined"
+              sx={{
+                ml: 1,
+                color: 'white',
+                borderColor: 'rgba(255,255,255,0.7)'
+              }}
+            />
+          )}
+        </Box>
 
-        {!isLoginOrSignup && token && (
+        {token ? (
           <Box>
             <IconButton color="inherit" onClick={handleMenuOpen}>
               <AccountCircleIcon />
@@ -67,25 +86,46 @@ function Navbar() {
               anchorEl={anchorEl}
               open={Boolean(anchorEl)}
               onClose={handleMenuClose}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top',    horizontal: 'right' }}
             >
-              <MenuItem onClick={() => { navigate('/profile'); handleMenuClose(); }}>Profile</MenuItem>
-              {role === 'carrier' && (
-                <MenuItem onClick={() => { navigate('/my-loads'); handleMenuClose(); }}>My Loads</MenuItem>
-              )}
-              <MenuItem onClick={handleLogout}>Logout</MenuItem>
+              <MenuItem onClick={handleProfile}>Profile</MenuItem>
+              {/* For admin: add future admin-only links here */}
+              <MenuItem
+                onClick={() => {
+                  handleLogout();
+                  handleMenuClose();
+                }}
+              >
+                Logout
+              </MenuItem>
             </Menu>
           </Box>
-        )}
-
-        {!token && !isLoginOrSignup && (
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button color="inherit" onClick={() => navigate('/')}>Login</Button>
-            <Button color="inherit" onClick={() => navigate('/signup')}>Sign Up</Button>
-          </Box>
+        ) : (
+          !isAuthPage && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Button onClick={() => navigate('/home')}     color="inherit">Home</Button>
+              <Button onClick={() => navigate('/about')}    color="inherit">About</Button>
+              <Button onClick={() => navigate('/features')} color="inherit">Features</Button>
+              <Button onClick={() => navigate('/contact')}  color="inherit">Contact</Button>
+              <Button onClick={() => navigate('/login')}    color="inherit">Login</Button>
+              <Button
+                onClick={() => navigate('/signup')}
+                sx={{
+                  backgroundColor: '#ffffff22',
+                  color: 'white',
+                  px: 2,
+                  borderRadius: '12px',
+                  fontWeight: 600,
+                  '&:hover': { backgroundColor: '#ffffff44' },
+                }}
+              >
+                Sign Up
+              </Button>
+            </Box>
+          )
         )}
       </Toolbar>
     </AppBar>
   );
 }
-
-export default Navbar;

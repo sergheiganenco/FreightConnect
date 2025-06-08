@@ -1,0 +1,18 @@
+.documents-root {
+  padding: 2rem 0 0 0;
+}
+.documents-title {
+  color: #722ed1;
+  font-weight: 900;
+  margin-left: 1.5rem;
+}
+.documents-card {
+  background: #fff;
+  border-radius: 1.5rem;
+  box-shadow: 0 4px 24px rgba(94, 53, 177, 0.07);
+  transition: box-shadow 0.2s;
+  margin-bottom: 1.6rem;
+}
+.documents-card:hover {
+  box-shadow: 0 8px 32px rgba(114, 46, 209, 0.16);
+}

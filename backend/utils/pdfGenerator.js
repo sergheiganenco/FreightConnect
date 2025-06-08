@@ -2,32 +2,32 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 
-exports.generateRateConfirmation = (load, carrier) => {
+exports.generateBOL = (load) => {
   return new Promise((resolve, reject) => {
+    const dir = path.join(__dirname, '../public/documents/uploads');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    const filePath = path.join(dir, `${load._id}-bol.pdf`);
     const doc = new PDFDocument();
-    const filePath = path.join(__dirname, '../uploads', `RateConfirmation_${load._id}.pdf`);
-    const writeStream = fs.createWriteStream(filePath);
+    const stream = fs.createWriteStream(filePath);
 
-    doc.pipe(writeStream);
+    doc.pipe(stream);
 
-    doc.fontSize(18).text('Rate Confirmation', { align: 'center' }).moveDown();
-
+    doc.fontSize(18).text('Bill of Lading', { align: 'center' }).moveDown();
     doc.fontSize(12)
       .text(`Load ID: ${load._id}`)
       .text(`Title: ${load.title}`)
-      .text(`Carrier: ${carrier.name}`)
       .text(`Origin: ${load.origin}`)
       .text(`Destination: ${load.destination}`)
       .text(`Rate: $${load.rate}`)
       .text(`Pickup Date: ${load.pickupDate}`)
       .text(`Delivery Date: ${load.deliveryDate}`)
-      .text(`Equipment: ${load.equipmentType}`)
       .moveDown()
       .text("Terms and conditions apply.", { align: 'left' });
 
     doc.end();
 
-    writeStream.on('finish', () => resolve(filePath));
-    writeStream.on('error', reject);
+    stream.on('finish', () => resolve(filePath));
+    stream.on('error', reject);
   });
 };

@@ -1,110 +1,128 @@
-import React, { useState, useEffect } from 'react';
+// ── src/pages/CarrierMyLoads.js ─────────────────────────────────
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Typography,
   Box,
   Paper,
-  Button,
-  MenuItem,
   Grid,
   CircularProgress,
   Snackbar,
   Alert,
+  MenuItem,
   FormControl,
   InputLabel,
   Select,
+  Skeleton,
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useTheme } from '@mui/material/styles';
 import api from '../services/api';
+import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
+import LoadDetailsModal from '../components/LoadDetailsModal';
 
-function CarrierMyLoads() {
+export default function CarrierMyLoads({ embedded = false }) {
+  const theme = useTheme();
+
+  /* ── state ────────────────────────────────────────────────── */
   const [loads, setLoads] = useState([]);
-  const [filteredLoads, setFilteredLoads] = useState([]);
+  const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const navigate = useNavigate();
+  const [snack, setSnack] = useState(false);
 
-  // Fetch loads on component mount
+  // state for modal
+  const [selected, setSelected] = useState(null);
+
+  /* ── fetch loads once ─────────────────────────────────────── */
   useEffect(() => {
-    const fetchMyLoads = async () => {
+    (async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await api.get('/loads/my-loads', {
+        const { data } = await api.get('/loads/my-loads', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        setLoads(response.data);
-        setFilteredLoads(response.data);
+        setLoads(data);
       } catch (err) {
         setError('Failed to fetch loads. Please try again later.');
-        console.error('Error fetching loads:', err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchMyLoads();
+    })();
   }, []);
 
-  // Filter loads based on status
-  useEffect(() => {
-    if (statusFilter === 'all') {
-      setFilteredLoads(loads);
-    } else {
-      setFilteredLoads(loads.filter((load) => load.status === statusFilter));
-    }
-  }, [statusFilter, loads]);
+  /* ── sort helper ──────────────────────────────────────────── */
+  const sortLoads = (list) => {
+    const rank = { accepted: 0, 'in-transit': 1, delivered: 2 };
+    return [...list].sort((a, b) => {
+      const rA = rank[a.status] ?? 99;
+      const rB = rank[b.status] ?? 99;
+      if (rA !== rB) return rA - rB;
+      if (a.status === 'delivered' && b.status === 'delivered') {
+        const dateA = new Date(a.deliveredAt || a.updatedAt || 0).getTime();
+        const dateB = new Date(b.deliveredAt || b.updatedAt || 0).getTime();
+        return dateB - dateA;
+      }
+      return 0;
+    });
+  };
 
-  // Handle status change for a load
-  const handleStatusChange = async (loadId, newStatus) => {
+  /* ── filtered + sorted list (memoised) ────────────────────── */
+  const viewLoads = useMemo(() => {
+    const base =
+      statusFilter === 'all'
+        ? loads
+        : loads.filter((l) => l.status === statusFilter);
+    return sortLoads(base);
+  }, [loads, statusFilter]);
+
+  /* ── update status on dropdown change ─────────────────────── */
+  const updateStatus = async (id, newStatus) => {
     try {
       const token = localStorage.getItem('token');
       await api.put(
-        `/loads/${loadId}/status`,
+        `/loads/${id}/status`,
         { status: newStatus },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setLoads((prev) =>
-        prev.map((load) => (load._id === loadId ? { ...load, status: newStatus } : load))
+        prev.map((l) =>
+          l._id === id
+            ? { ...l, status: newStatus, updatedAt: new Date().toISOString() }
+            : l
+        )
       );
-      setSnackbarOpen(true);
+      setSnack(true);
     } catch (err) {
-      setError('Failed to update load status. Please try again.');
-      console.error('Status update error:', err);
+      setError('Failed to update status.');
+      console.error(err);
     }
   };
 
-  // Close Snackbar
-  const handleSnackbarClose = () => {
-    setSnackbarOpen(false);
+  /* ── accent colours for card strips ───────────────────────── */
+  const accent = {
+    accepted: '#a78bfa',
+    'in-transit': '#fbbf24',
+    delivered: '#34d399',
+    open: '#22d3ee',
   };
 
+  /* ── UI ───────────────────────────────────────────────────── */
   return (
-    <Box sx={{ maxWidth: 1200, margin: '0 auto', p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        My Loads
-      </Typography>
+    <Box sx={{ maxWidth: 1000, mx: 'auto', pt: embedded ? 0 : 2 }}>
+      {!embedded && (
+        <Typography variant="h4" fontWeight={700} mb={2}>
+          My Loads
+        </Typography>
+      )}
 
-      {/* Back to Dashboard Button */}
-      <Button
-        variant="contained"
-        color="secondary"
-        onClick={() => navigate('/dashboard/carrier')}
-        sx={{ mb: 3 }}
-      >
-        Back to Dashboard
-      </Button>
-
-      {/* Status Filter */}
-      <Box sx={{ mb: 3 }}>
-        <FormControl variant="outlined" sx={{ minWidth: 180 }}>
-          <InputLabel>Filter by Status</InputLabel>
+      {/* filter dropdown */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel>Status</InputLabel>
           <Select
+            label="Status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            label="Filter by Status"
-            size="small"
-            sx={{ backgroundColor: '#f0f4f8', borderRadius: 2 }}
           >
             <MenuItem value="all">All</MenuItem>
             <MenuItem value="accepted">Accepted</MenuItem>
@@ -114,97 +132,138 @@ function CarrierMyLoads() {
         </FormControl>
       </Box>
 
-      {/* Error Message */}
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
         </Alert>
       )}
 
-      {/* Loading State */}
       {loading ? (
-        <Box display="flex" justifyContent="center" alignItems="center" height="200px">
-          <CircularProgress />
-          <Typography variant="body1" sx={{ ml: 2 }}>
-            Loading loads...
-          </Typography>
-        </Box>
+        <Grid container spacing={2}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Grid item xs={12} md={6} key={i}>
+              <Skeleton
+                variant="rectangular"
+                height={120}
+                sx={{ borderRadius: 2, bgcolor: 'rgba(255,255,255,0.08)' }}
+              />
+            </Grid>
+          ))}
+        </Grid>
       ) : (
-        /* Loads List */
-        <Grid container spacing={3}>
-          {filteredLoads.length > 0 ? (
-            filteredLoads.map((load) => (
-              <Grid item xs={12} key={load._id}>
+        <Grid container spacing={2}>
+          {viewLoads.length ? (
+            viewLoads.map((l) => (
+              <Grid item xs={12} md={6} key={l._id}>
                 <Paper
+                  className="glass-card"
                   sx={{
-                    p: 3,
-                    backgroundColor: load.status === 'delivered' ? '#e8f5e9' : '#ffffff',
-                    borderRadius: 3,
-                    boxShadow: 3,
+                    p: 2,
+                    borderLeft: `6px solid ${accent[l.status] || accent.open}`,
+                    cursor: 'pointer'
                   }}
+                  onClick={() => setSelected(l)}
                 >
-                  <Typography variant="h6" gutterBottom>
-                    {load.title} — {load.origin} to {load.destination}
-                  </Typography>
-                  <Typography variant="body1" gutterBottom>
-                    <strong>Rate:</strong> ${load.rate}
-                  </Typography>
-                  <Typography variant="body1" gutterBottom>
-                    <strong>Status:</strong> {load.status}
+                  <Box
+                    display="flex"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    mb={1}
+                  >
+                    <Typography fontWeight={600}>
+                      {l.origin} → {l.destination}
+                    </Typography>
+                    <FormControl
+                      size="small"
+                      sx={{ minWidth: 140 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Select
+                        value={l.status}
+                        onChange={(e) => updateStatus(l._id, e.target.value)}
+                      >
+                        <MenuItem value="accepted">Accepted</MenuItem>
+                        <MenuItem value="in-transit">In Transit</MenuItem>
+                        <MenuItem value="delivered">Delivered</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+
+                  <Typography variant="body2" color="text.secondary" mb={1}>
+                    Rate: ${l.rate.toLocaleString()}
                   </Typography>
 
-                  {/* Status Change Dropdown */}
-                  {load.status !== 'delivered' && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="subtitle2" gutterBottom>
-                        Update Status:
+                  {l.status === 'delivered' && (
+                    <Box
+                      sx={{
+                        mt: 1,
+                        px: 1.5,
+                        py: 0.5,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        bgcolor: 'rgba(52,211,153,0.15)',
+                        borderRadius: 1,
+                      }}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#34d399"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <Typography
+                        variant="body2"
+                        sx={{ color: '#34d399', fontWeight: 600 }}
+                      >
+                        Delivered
                       </Typography>
-                      <FormControl variant="outlined" sx={{ minWidth: 150 }}>
-                        <Select
-                          value={load.status}
-                          onChange={(e) => handleStatusChange(load._id, e.target.value)}
-                          variant="outlined"
-                          size="small"
-                          sx={{ backgroundColor: '#eef4ff', borderRadius: 2 }}
-                        >
-                          <MenuItem value="accepted">Accepted</MenuItem>
-                          <MenuItem value="in-transit">In Transit</MenuItem>
-                          <MenuItem value="delivered">Delivered</MenuItem>
-                        </Select>
-                      </FormControl>
                     </Box>
                   )}
 
-                  {/* Delivered Message */}
-                  {load.status === 'delivered' && (
-                    <Typography color="success.main" sx={{ mt: 2 }}>
-                      Load delivered successfully
-                    </Typography>
+                  {l.status !== 'delivered' && (
+                    <StatusChip status={l.status} />
                   )}
                 </Paper>
               </Grid>
             ))
           ) : (
-            <Typography variant="body1" sx={{ mt: 2 }}>
-              No loads found.
-            </Typography>
+            <Typography>No loads match this filter.</Typography>
           )}
         </Grid>
       )}
 
-      {/* Success Snackbar */}
+      {/* success snackbar */}
       <Snackbar
-        open={snackbarOpen}
+        open={snack}
         autoHideDuration={3000}
-        onClose={handleSnackbarClose}
+        onClose={() => setSnack(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
         <Alert severity="success" sx={{ width: '100%' }}>
-          Load status updated successfully!
+          Status updated!
         </Alert>
       </Snackbar>
+
+      {/* details modal */}
+      {selected && (
+        <LoadDetailsModal
+          load={selected}
+          userRole="carrier"
+          onClose={() => setSelected(null)}
+          onLoadAccepted={(id) => {
+            // remove from list immediately if you like:
+            setLoads((prev) => prev.filter((l) => l._id !== id));
+            setSelected(null);
+          }}
+        />
+      )}
     </Box>
   );
 }
-
-export default CarrierMyLoads;
