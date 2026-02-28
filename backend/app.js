@@ -151,8 +151,12 @@ io.on('connection', (socket) => {
   socket.on('updateCarrierLocation', async ({ loadId, latitude, longitude }) => {
     try {
       const Load = require('./models/Load');
-      await Load.findByIdAndUpdate(loadId, { carrierLocation: { latitude, longitude } });
-      io.emit(`carrierLocationUpdate-${loadId}`, { latitude, longitude });
+      const load = await Load.findByIdAndUpdate(loadId, { carrierLocation: { latitude, longitude } }, { new: false });
+      // Emit only to the shipper of this load (and the carrier themselves)
+      if (load?.postedBy) {
+        io.to(`user_${load.postedBy}`).emit(`carrierLocationUpdate-${loadId}`, { latitude, longitude });
+      }
+      io.to(`user_${socket.userId}`).emit(`carrierLocationUpdate-${loadId}`, { latitude, longitude });
     } catch (error) {
       console.error('Error updating carrier location:', error);
     }

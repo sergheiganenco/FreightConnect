@@ -29,7 +29,7 @@ import AdminProfile from './pages/admin/AdminProfile';
 import DocumentsSection from './features/carrierDashboard/sections/DocumentsSection';
 import CarrierLoadBoardSection from './features/carrierDashboard/sections/CarrierLoadBoardSection';
 import CarrierFleet from './pages/carrier/CarrierFleet';
-import PrivateRoute from './components/PrivateRoute';
+import { RoleRoute } from './components/PrivateRoute';
 import CarrierLiveMap from './pages/carrier/CarrierLiveMap';
 import FleetMap from './pages/FleetMap';
 import CarrierAnalytics from './pages/carrier/CarrierAnalytics';
@@ -79,7 +79,7 @@ function App() {
         <Route path="/signup" element={<Signup />} />
 
         {/* Protected Shipper Dashboards */}
-        <Route path="/dashboard/shipper" element={<PrivateRoute><ChatProvider><ShipperDashboard /></ChatProvider></PrivateRoute>}>
+        <Route path="/dashboard/shipper" element={<RoleRoute role="shipper"><ChatProvider><ShipperDashboard /></ChatProvider></RoleRoute>}>
           <Route path="loads" element={<ShipperLoadBoardSection />} />
           <Route path="post-load" element={<ShipperPostLoad />} />
           <Route path="documents" element={<ShipperDocuments />} />
@@ -95,7 +95,7 @@ function App() {
         </Route>
 
         {/* Carrier Dashboard */}
-        <Route path="/dashboard/carrier/*" element={<PrivateRoute><ChatProvider><CarrierDashboard /></ChatProvider></PrivateRoute>}>
+        <Route path="/dashboard/carrier/*" element={<RoleRoute role="carrier"><ChatProvider><CarrierDashboard /></ChatProvider></RoleRoute>}>
           <Route index element={<Navigate to="loads" replace />} />
           <Route path="loads" element={<CarrierLoadBoardSection />} />
           <Route path="documents" element={<DocumentsSection />} />
@@ -118,7 +118,7 @@ function App() {
         </Route>
 
         {/* Enhanced Admin Dashboard */}
-        <Route path="/dashboard/admin/*" element={<PrivateRoute><AdminDashboard /></PrivateRoute>}>
+        <Route path="/dashboard/admin/*" element={<RoleRoute role="admin"><AdminDashboard /></RoleRoute>}>
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<AdminOverview />} />
           <Route path="loads" element={<AdminLoads />} />

@@ -192,8 +192,8 @@ export default function ChatProvider({ children }) {
       }));
     });
 
-    // New channel created for this user
-    s.on(`chat:channelCreated:${userId}`, () => {
+    // New channel created for this user (delivered via personal room user_${userId})
+    s.on('chat:channelCreated', () => {
       fetchChannels();
     });
 
@@ -222,7 +222,7 @@ export default function ChatProvider({ children }) {
       s.off('messageDeleted');
       s.off('userTyping');
       s.off('userStoppedTyping');
-      s.off(`chat:channelCreated:${userId}`);
+      s.off('chat:channelCreated');
       s.off('newLoadMatch');
       s.off('bid:new');
       s.off('bid:accepted');

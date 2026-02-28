@@ -308,6 +308,15 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   // ----------------------------------------
   router.put("/:id/accept", auth, async (req, res) => {
     try {
+      // Require carrier to be verified before accepting loads
+      const carrier = await User.findById(req.user.userId).select('verification');
+      if (carrier?.verification?.status !== 'verified') {
+        return res.status(403).json({
+          error: 'Complete carrier verification before accepting loads',
+          verificationStatus: carrier?.verification?.status || 'unverified',
+        });
+      }
+
       // Atomic: only succeeds if load is still open and not yet accepted
       const load = await Load.findOneAndUpdate(
         { _id: req.params.id, status: "open", acceptedBy: null },
@@ -354,8 +363,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
             messageType: "system",
             readBy: [],
           });
-          // Notify shipper
-          io.emit(`chat:channelCreated:${load.postedBy}`, { channel });
+          // Notify shipper via their personal room
+          io.to(`user_${load.postedBy}`).emit('chat:channelCreated', { channel });
         }
       } catch (chatErr) {
         console.error("Failed to create load thread (non-fatal):", chatErr);
