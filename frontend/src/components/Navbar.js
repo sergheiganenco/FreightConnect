@@ -13,6 +13,7 @@ import {
   Chip
 } from '@mui/material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import { disconnectSocket } from '../services/socket';
 
 export default function Navbar() {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -23,6 +24,7 @@ export default function Navbar() {
   const role  = localStorage.getItem('role');     // "carrier" | "shipper" | "admin"
 
   const handleLogout = () => {
+    disconnectSocket();
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     navigate('/home');

@@ -21,6 +21,7 @@ function weekOfYear(date) {
 
 // ── GET /api/carrier/analytics ────────────────────────────────────────────────
 router.get('/', auth, async (req, res) => {
+  if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
   try {
     const carrierId = req.user.userId;
 
@@ -157,6 +158,7 @@ router.get('/', auth, async (req, res) => {
 
 // ── GET /api/carrier/analytics/trucks — fleet list for filter dropdown ────────
 router.get('/trucks', auth, async (req, res) => {
+  if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
   try {
     const user = await User.findById(req.user.userId).select('fleet').lean();
     res.json((user?.fleet || []).map(t => ({
@@ -172,6 +174,7 @@ router.get('/trucks', auth, async (req, res) => {
 
 // ── GET /api/carrier/analytics/routes — filter dropdown ──────────────────────
 router.get('/routes', auth, async (req, res) => {
+  if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
   try {
     const loads = await Load.find({ acceptedBy: req.user.userId })
       .select('origin destination')
@@ -187,6 +190,7 @@ router.get('/routes', auth, async (req, res) => {
 
 // ── GET /api/carrier/analytics/companies — company info for filter ────────────
 router.get('/companies', auth, async (req, res) => {
+  if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
   try {
     const user = await User.findById(req.user.userId).select('companyName companyId').lean();
     res.json([{ _id: user?.companyId, name: user?.companyName || '—' }]);

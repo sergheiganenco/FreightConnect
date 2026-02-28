@@ -142,9 +142,16 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
 });
 
 // ------------------------------
-// Secure File Access (with path traversal protection)
-router.get('/test-pdf/:filename', (req, res) => {
-  const filePath = path.join(uploadsDir, req.params.filename);
+// Secure File Access — requires auth + path traversal protection
+router.get('/test-pdf/:filename', auth, (req, res) => {
+  // Strip any directory components — only the bare filename is allowed
+  const safeName = path.basename(req.params.filename);
+  const filePath = path.join(uploadsDir, safeName);
+
+  // Verify the resolved path stays within uploadsDir
+  if (!filePath.startsWith(uploadsDir + path.sep) && filePath !== uploadsDir) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
   if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
   res.setHeader('Content-Type', 'application/pdf');
   res.sendFile(filePath);

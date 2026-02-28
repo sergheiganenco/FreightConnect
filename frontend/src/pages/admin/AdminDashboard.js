@@ -21,6 +21,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SideNav from '../../features/adminDashboard/section/components/SideNav';
 import NotificationBell from '../../features/shared/NotificationBell';
+import { disconnectSocket } from '../../services/socket';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -147,6 +148,7 @@ export default function AdminDashboard() {
         </MenuItem>
         <MenuItem
           onClick={() => {
+            disconnectSocket();
             localStorage.clear();
             navigate("/");
           }}

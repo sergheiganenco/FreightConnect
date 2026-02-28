@@ -20,6 +20,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
 import SideNav from '../../features/shipperDashboard/sections/components/SideNav';
 import NotificationBell from '../../features/shared/NotificationBell';
+import { disconnectSocket } from '../../services/socket';
 
 // Utility to highlight nav based on route:
 const sectionFromPath = (pathname) => {
@@ -129,7 +130,7 @@ export default function ShipperDashboard() {
         <MenuItem onClick={() => { navigate('/dashboard/shipper/profile'); setAnchorEl(null); }}>
           Profile
         </MenuItem>
-        <MenuItem onClick={() => { localStorage.clear(); navigate('/'); }}>
+        <MenuItem onClick={() => { disconnectSocket(); localStorage.clear(); navigate('/'); }}>
           Logout
         </MenuItem>
       </Menu>

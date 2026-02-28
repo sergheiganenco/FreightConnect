@@ -419,7 +419,7 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
   // GET /api/loads/get-route - Simple route from start->end via ORS
   // (You might not use this if you do /:id/route)
   // ----------------------------------------
-  router.get("/get-route", async (req, res) => {
+  router.get("/get-route", auth, async (req, res) => {
     try {
       const { start, end } = req.query;
       if (!start || !end) {

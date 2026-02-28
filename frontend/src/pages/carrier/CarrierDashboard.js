@@ -22,6 +22,7 @@ import SideNav from '../../features/carrierDashboard/sections/components/SideNav
 import LogisticsAssistant from '../../components/LogisticsAssistant';
 import { DashboardProvider } from '../../features/carrierDashboard/sections/context/DashboardContext';
 import NotificationBell from '../../features/shared/NotificationBell';
+import { disconnectSocket } from '../../services/socket';
 
 export default function CarrierDashboard() {
   const navigate = useNavigate();
@@ -126,7 +127,7 @@ export default function CarrierDashboard() {
           <MenuItem onClick={() => { navigate('/dashboard/carrier/profile'); setAnchorEl(null); }}>
             Profile
           </MenuItem>
-          <MenuItem onClick={() => { localStorage.clear(); navigate('/'); }}>
+          <MenuItem onClick={() => { disconnectSocket(); localStorage.clear(); navigate('/'); }}>
             Logout
           </MenuItem>
         </Menu>

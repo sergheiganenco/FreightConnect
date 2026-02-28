@@ -11,6 +11,7 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const PDFDocument = require('pdfkit');
+const helmet = require('helmet');
 
 const errorHandler = require('./middlewares/errorHandler');
 const { apiLimiter } = require('./middlewares/rateLimiter');
@@ -26,6 +27,9 @@ if (missing.length) {
 
 const app = express();
 const server = http.createServer(app);
+
+// Security headers
+app.use(helmet());
 
 // CORS — single configuration driven by environment variable
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -199,7 +203,7 @@ io.on('connection', (socket) => {
 });
 
 // Route Proxy for fetching external routes
-app.get('/api/get-route', async (req, res) => {
+app.get('/api/get-route', auth, async (req, res) => {
   try {
     const { start, end } = req.query;
     if (!start || !end) return res.status(400).json({ error: 'Missing start or end location' });
