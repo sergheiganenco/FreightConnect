@@ -76,6 +76,14 @@ const LoadSchema = new mongoose.Schema({
   }],
 }, { timestamps: true });
 
+// Indexes for common query patterns
+LoadSchema.index({ status: 1, createdAt: -1 });
+LoadSchema.index({ postedBy: 1, status: 1 });
+LoadSchema.index({ acceptedBy: 1, status: 1 });
+LoadSchema.index({ equipmentType: 1, status: 1 });
+LoadSchema.index({ 'pickupTimeWindow.start': 1 });
+LoadSchema.index({ originLat: 1, originLng: 1 });
+LoadSchema.index({ destinationLat: 1, destinationLng: 1 });
 
 module.exports = mongoose.model('Load', LoadSchema);
 

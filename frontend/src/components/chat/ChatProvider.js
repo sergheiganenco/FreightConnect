@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import axios from 'axios';
 import { Snackbar, Alert, Typography } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import socket from '../../services/socket';
+import { getSocket } from '../../services/socket';
 
 const ChatContext = createContext(null);
 
@@ -65,7 +65,7 @@ export default function ChatProvider({ children }) {
   // ── Open a channel ─────────────────────────────────────────────
   const openChannel = useCallback((channelId) => {
     setActiveChannelId(channelId);
-    socket.emit('joinChannel', { channelId });
+    getSocket()?.emit('joinChannel', { channelId });
     fetchMessages(channelId);
     // Mark as read
     if (token) {
@@ -106,10 +106,10 @@ export default function ChatProvider({ children }) {
 
   // ── Typing indicators ──────────────────────────────────────────
   const emitTyping = useCallback((channelId) => {
-    socket.emit('typing', { channelId });
+    getSocket()?.emit('typing', { channelId });
     clearTimeout(typingTimers.current[channelId]);
     typingTimers.current[channelId] = setTimeout(() => {
-      socket.emit('stopTyping', { channelId });
+      getSocket()?.emit('stopTyping', { channelId });
     }, 2000);
   }, []);
 
@@ -122,8 +122,11 @@ export default function ChatProvider({ children }) {
 
     fetchChannels();
 
+    const s = getSocket();
+    if (!s) return;
+
     // New message arrives
-    socket.on('newMessage', (message) => {
+    s.on('newMessage', (message) => {
       const { channelId } = message;
       setMessages((prev) => {
         const existing = prev[channelId] || [];
@@ -150,7 +153,7 @@ export default function ChatProvider({ children }) {
     });
 
     // Message edited
-    socket.on('messageEdited', (updated) => {
+    s.on('messageEdited', (updated) => {
       setMessages((prev) => {
         const list = prev[updated.channelId] || [];
         return {
@@ -163,7 +166,7 @@ export default function ChatProvider({ children }) {
     });
 
     // Message deleted
-    socket.on('messageDeleted', ({ messageId, channelId }) => {
+    s.on('messageDeleted', ({ messageId, channelId }) => {
       setMessages((prev) => {
         const list = prev[channelId] || [];
         return {
@@ -176,13 +179,13 @@ export default function ChatProvider({ children }) {
     });
 
     // Typing
-    socket.on('userTyping', ({ channelId, userId: typingId }) => {
+    s.on('userTyping', ({ channelId, userId: typingId }) => {
       setTypingUsers((prev) => ({
         ...prev,
         [channelId]: [...new Set([...(prev[channelId] || []), typingId])],
       }));
     });
-    socket.on('userStoppedTyping', ({ channelId, userId: typingId }) => {
+    s.on('userStoppedTyping', ({ channelId, userId: typingId }) => {
       setTypingUsers((prev) => ({
         ...prev,
         [channelId]: (prev[channelId] || []).filter((id) => id !== typingId),
@@ -190,41 +193,41 @@ export default function ChatProvider({ children }) {
     });
 
     // New channel created for this user
-    socket.on(`chat:channelCreated:${userId}`, () => {
+    s.on(`chat:channelCreated:${userId}`, () => {
       fetchChannels();
     });
 
     // New load match notification for carriers
-    socket.on('newLoadMatch', (data) => {
+    s.on('newLoadMatch', (data) => {
       setMatchAlert(data);
     });
 
     // Bid event notifications
-    socket.on('bid:new', ({ loadTitle, amount }) => {
+    s.on('bid:new', ({ loadTitle, amount }) => {
       setBidAlert({ loadTitle, amount, action: 'new' });
     });
-    socket.on('bid:accepted', ({ loadTitle, finalAmount }) => {
+    s.on('bid:accepted', ({ loadTitle, finalAmount }) => {
       setBidAlert({ loadTitle, amount: finalAmount, action: 'accepted' });
     });
-    socket.on('bid:rejected', ({ loadTitle }) => {
+    s.on('bid:rejected', ({ loadTitle }) => {
       setBidAlert({ loadTitle, action: 'rejected' });
     });
-    socket.on('bid:countered', ({ loadTitle, counterAmount }) => {
+    s.on('bid:countered', ({ loadTitle, counterAmount }) => {
       setBidAlert({ loadTitle, amount: counterAmount, action: 'countered' });
     });
 
     return () => {
-      socket.off('newMessage');
-      socket.off('messageEdited');
-      socket.off('messageDeleted');
-      socket.off('userTyping');
-      socket.off('userStoppedTyping');
-      socket.off(`chat:channelCreated:${userId}`);
-      socket.off('newLoadMatch');
-      socket.off('bid:new');
-      socket.off('bid:accepted');
-      socket.off('bid:rejected');
-      socket.off('bid:countered');
+      s.off('newMessage');
+      s.off('messageEdited');
+      s.off('messageDeleted');
+      s.off('userTyping');
+      s.off('userStoppedTyping');
+      s.off(`chat:channelCreated:${userId}`);
+      s.off('newLoadMatch');
+      s.off('bid:new');
+      s.off('bid:accepted');
+      s.off('bid:rejected');
+      s.off('bid:countered');
     };
   }, [token, userId, fetchChannels, activeChannelId]);
 

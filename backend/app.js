@@ -13,6 +13,8 @@ const axios = require('axios');
 const PDFDocument = require('pdfkit');
 
 const errorHandler = require('./middlewares/errorHandler');
+const { apiLimiter } = require('./middlewares/rateLimiter');
+const auth = require('./middlewares/authMiddleware');
 
 // ── Startup validation ────────────────────────────────────────────────────────
 const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'];
@@ -82,8 +84,11 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25 MB cap
 
-// File upload route
-app.post('/api/documents/upload', upload.single('file'), (req, res) => {
+// Apply rate limiter to all API routes
+app.use('/api/', apiLimiter);
+
+// File upload route — requires auth
+app.post('/api/documents/upload', auth, upload.single('file'), (req, res) => {
   res.json({ message: 'File uploaded successfully', filePath: req.file.path });
 });
 

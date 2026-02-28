@@ -79,7 +79,7 @@ function App() {
         <Route path="/signup" element={<Signup />} />
 
         {/* Protected Shipper Dashboards */}
-        <Route path="/dashboard/shipper" element={<ChatProvider><ShipperDashboard /></ChatProvider>}>
+        <Route path="/dashboard/shipper" element={<PrivateRoute><ChatProvider><ShipperDashboard /></ChatProvider></PrivateRoute>}>
           <Route path="loads" element={<ShipperLoadBoardSection />} />
           <Route path="post-load" element={<ShipperPostLoad />} />
           <Route path="documents" element={<ShipperDocuments />} />

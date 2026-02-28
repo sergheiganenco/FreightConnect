@@ -304,21 +304,26 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
 });
 
   // ----------------------------------------
-  // PUT /api/loads/:id/accept - Accept a Load
+  // PUT /api/loads/:id/accept - Accept a Load (atomic — prevents double-accept)
   // ----------------------------------------
   router.put("/:id/accept", auth, async (req, res) => {
     try {
-      const load = await Load.findById(req.params.id);
+      // Atomic: only succeeds if load is still open and not yet accepted
+      const load = await Load.findOneAndUpdate(
+        { _id: req.params.id, status: "open", acceptedBy: null },
+        { $set: { status: "accepted", acceptedBy: req.user.userId } },
+        { new: true }
+      );
+
       if (!load) {
-        return res.status(404).json({ error: "Load not found" });
+        const exists = await Load.findById(req.params.id);
+        if (!exists) return res.status(404).json({ error: "Load not found" });
+        return res.status(409).json({ error: "Load is no longer available — already accepted by another carrier" });
       }
+
       if (!load.originLat || !load.originLng || !load.destinationLat || !load.destinationLng) {
         return res.status(400).json({ error: "Load is missing required location coordinates" });
       }
-
-      load.acceptedBy = req.user.userId;
-      load.status = "accepted";
-      await load.save();
 
       // Auto-generate Rate Confirmation (non-blocking)
       autoGenerateRateCon(load._id, req.user.userId, load.postedBy);
@@ -367,7 +372,6 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   // GET /api/loads/my-loads - All loads accepted by this carrier
   // ----------------------------------------
   router.get("/my-loads", auth, async (req, res) => {
-    console.log("GET /my-loads route hit!"); 
     try {
       if (req.user.role !== "carrier") {
         return res
@@ -385,7 +389,6 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
 
   // For shippers to view their own loads
 router.get("/shipper-my-loads", auth, async (req, res) => {
-  console.log("GET /shipper-my-loads route hit!");
   try {
     if (req.user.role !== "shipper") {
       return res
@@ -421,7 +424,6 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
 
       const url = `https://api.openrouteservice.org/v2/directions/driving-hgv?api_key=${apiKey}&start=${start}&end=${end}`;
 
-      console.log(`Fetching route from ${start} to ${end}`);
       const response = await axios.get(url);
       res.json(response.data);
     } catch (error) {
@@ -472,8 +474,6 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
       const url = `https://api.openrouteservice.org/v2/directions/driving-hgv?api_key=${process.env.ORS_API_KEY}&start=${carrier.location.longitude},${carrier.location.latitude}&end=${load.destinationLng},${load.destinationLat}`;
 
   
-      console.log("Fetching route:", url);
-  
       const orsResponse = await axios.get(url);
       if (!orsResponse.data || !orsResponse.data.features) {
         return res.status(400).json({ error: "No valid route found" });
@@ -519,7 +519,6 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
       }
 
       const routeUrl = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${load.originLng},${load.originLat}&end=${load.destinationLng},${load.destinationLat}`;
-      console.log(`Fetching route: ${routeUrl}`);
 
       const response = await axios.get(routeUrl);
       if (!response.data || !response.data.features) {
@@ -593,14 +592,31 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(403).json({ error: "Unauthorized action." });
     }
 
+    // Enforce valid status transitions
+    const VALID_TRANSITIONS = {
+      'accepted':   ['in-transit'],
+      'in-transit': ['delivered'],
+    };
+    const allowed = VALID_TRANSITIONS[load.status] || [];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({
+        error: `Cannot change status from "${load.status}" to "${status}"`,
+      });
+    }
+
     load.status = status;
     await load.save();
 
-    // ✅ Emit real-time update event to notify connected clients using io directly
-    io.emit("loadStatusUpdated", { 
-      loadId: load._id, 
-      status: load.status, 
-      acceptedBy: load.acceptedBy 
+    // Emit only to the shipper and carrier involved — not all connected users
+    io.to(`user_${load.postedBy}`).emit("loadStatusUpdated", {
+      loadId: load._id,
+      status: load.status,
+      acceptedBy: load.acceptedBy,
+    });
+    io.to(`user_${load.acceptedBy}`).emit("loadStatusUpdated", {
+      loadId: load._id,
+      status: load.status,
+      acceptedBy: load.acceptedBy,
     });
 
     res.json({ message: `Load status updated to ${status}.`, load });
@@ -830,7 +846,6 @@ router.put('/:id/stops/:stopIndex/status', auth, async (req, res) => {
 // backend/routes/chatbot.js
 router.post('/voice-command', auth, async (req, res) => {
   const { command } = req.body;
-  console.log("Voice command received:", command);
 
   if (command.includes('recommend')) {
     res.json({ message: 'Here are some recommended loads for you.' });
