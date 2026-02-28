@@ -6,6 +6,8 @@ const puppeteer = require('puppeteer');
 const multer = require('multer');
 const auth = require('../middlewares/authMiddleware');
 const Load = require('../models/Load');
+const User = require('../models/User');
+const { generateBOL, generateRateConfirmation } = require('../utils/pdfGenerator');
 
 const router = express.Router();
 
@@ -192,5 +194,117 @@ router.post('/generate-invoice', auth, async (req, res) => {
 });
 
 
+
+// ────────────────────────────────────────────────────────────────────────────
+// GET /api/documents/load/:loadId
+// Returns all document paths for a load (checks DB first, then filesystem)
+// ────────────────────────────────────────────────────────────────────────────
+router.get('/load/:loadId', auth, async (req, res) => {
+  try {
+    const load = await Load.findById(req.params.loadId);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+
+    // Access control: only participants or admin
+    const uid = req.user.userId;
+    const role = req.user.role;
+    if (
+      role !== 'admin' &&
+      load.postedBy?.toString() !== uid &&
+      load.acceptedBy?.toString() !== uid
+    ) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const BASE = process.env.BACKEND_URL || 'http://localhost:5000';
+
+    // Build response from stored DB paths (auto-generated docs)
+    const docs = {
+      rateConfirmation: load.documents?.rateConfirmation
+        ? { url: BASE + load.documents.rateConfirmation, status: 'Uploaded' }
+        : null,
+      bol: load.documents?.bol
+        ? { url: BASE + load.documents.bol, status: 'Uploaded' }
+        : null,
+      pod: load.documents?.pod
+        ? { url: BASE + load.documents.pod, status: 'Uploaded' }
+        : null,
+    };
+
+    res.json({ loadId: req.params.loadId, status: load.status, docs });
+  } catch (err) {
+    console.error('Fetch load docs error:', err);
+    res.status(500).json({ error: 'Failed to fetch documents' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /api/documents/generate/:loadId/:type
+// Manually (re)generate a document — type: 'bol' | 'ratecon'
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/generate/:loadId/:type', auth, async (req, res) => {
+  try {
+    const { loadId, type } = req.params;
+    const load = await Load.findById(loadId);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+
+    const uid = req.user.userId;
+    const role = req.user.role;
+    if (
+      role !== 'admin' &&
+      load.postedBy?.toString() !== uid &&
+      load.acceptedBy?.toString() !== uid
+    ) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const carrier = load.acceptedBy
+      ? await User.findById(load.acceptedBy).select('name email companyName mcNumber dotNumber verification')
+      : null;
+    const shipper = await User.findById(load.postedBy).select('name email companyName');
+
+    let filePath;
+    if (type === 'bol') {
+      if (load.status !== 'delivered') return res.status(409).json({ error: 'BOL can only be generated after delivery' });
+      filePath = await generateBOL(load, carrier, shipper);
+      await Load.findByIdAndUpdate(loadId, { 'documents.bol': filePath });
+    } else if (type === 'ratecon') {
+      if (!load.acceptedBy) return res.status(409).json({ error: 'Load has not been accepted yet' });
+      filePath = await generateRateConfirmation(load, carrier, shipper);
+      await Load.findByIdAndUpdate(loadId, { 'documents.rateConfirmation': filePath });
+    } else {
+      return res.status(400).json({ error: 'Unknown document type. Use bol or ratecon.' });
+    }
+
+    const BASE = process.env.BACKEND_URL || 'http://localhost:5000';
+    res.json({ url: BASE + filePath });
+  } catch (err) {
+    console.error('Manual doc generate error:', err);
+    res.status(500).json({ error: 'Failed to generate document' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /api/documents/pod/:loadId — upload POD and save path to Load
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/pod/:loadId', auth, upload.single('file'), async (req, res) => {
+  try {
+    const load = await Load.findById(req.params.loadId);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const newFileName = req.params.loadId + '-pod.pdf';
+    const destPath = path.join(uploadsDir, newFileName);
+    fs.renameSync(req.file.path, destPath);
+
+    const podPath = '/documents/uploads/' + newFileName;
+    await Load.findByIdAndUpdate(req.params.loadId, { 'documents.pod': podPath });
+
+    const BASE = process.env.BACKEND_URL || 'http://localhost:5000';
+    res.json({ url: BASE + podPath });
+  } catch (err) {
+    console.error('POD upload error:', err);
+    res.status(500).json({ error: 'Failed to upload POD' });
+  }
+});
 
 module.exports = router;

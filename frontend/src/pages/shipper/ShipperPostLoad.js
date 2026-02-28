@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   TextField, Button, Grid, Typography, Box, Paper, Snackbar, Alert, Select, MenuItem,
-  FormControl, InputLabel, FormControlLabel, Switch, Divider, Chip
+  FormControl, InputLabel, FormControlLabel, Switch, Divider, Chip, IconButton
 } from "@mui/material";
 import Autocomplete from "@mui/material/Autocomplete";
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
@@ -9,6 +9,9 @@ import PlaceIcon from '@mui/icons-material/Place';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import StopIcon from '@mui/icons-material/Stop';
 import api from '../../services/api';
 import cities from '../../data/usCities.json';
 
@@ -81,6 +84,30 @@ export default function ShipperPostLoad() {
     rateConfirmationUpload: [],
     customsDocsUpload: [],
   });
+
+  // ── Multi-Stop state ────────────────────────────────────────────────────────
+  const [stops, setStops] = useState([]);
+
+  const addStop = () => {
+    setStops(prev => [...prev, {
+      sequence: prev.length + 1,
+      type: 'delivery',
+      address: '',
+      timeWindowStart: '',
+      timeWindowEnd: '',
+      contactName: '',
+      contactPhone: '',
+      notes: '',
+    }]);
+  };
+
+  const updateStop = (index, field, value) => {
+    setStops(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s));
+  };
+
+  const removeStop = (index) => {
+    setStops(prev => prev.filter((_, i) => i !== index).map((s, i) => ({ ...s, sequence: i + 1 })));
+  };
 
   const handleChange = (field, value, maxLen) => {
     setNewLoad((prev) => ({
@@ -168,11 +195,23 @@ export default function ShipperPostLoad() {
           "Authorization": `Bearer ${token}`,
         };
       } else {
-        payload = { ...newLoad };
+        payload = {
+          ...newLoad,
+          stops: stops.length > 0 ? stops.map(s => ({
+            sequence: s.sequence,
+            type: s.type,
+            address: s.address,
+            timeWindow: s.timeWindowStart ? { start: s.timeWindowStart, end: s.timeWindowEnd || undefined } : undefined,
+            contactName: s.contactName || undefined,
+            contactPhone: s.contactPhone || undefined,
+            notes: s.notes || undefined,
+          })) : undefined,
+        };
         headers = { "Authorization": `Bearer ${token}` };
       }
       await api.post("/loads", payload, { headers });
       setNewLoad(initialLoad);
+      setStops([]);
       setError("");
       setFieldErrors({});
       setUploadNames({
@@ -492,6 +531,123 @@ export default function ShipperPostLoad() {
             />
           </Grid>
         </Grid>
+
+        {/* ── Intermediate Stops ─────────────────────────────────────────────── */}
+        <SectionHeader icon={<StopIcon fontSize="large" sx={{ color: "#fb923c" }} />} label="Intermediate Stops" />
+        <Typography variant="body2" color="rgba(255,255,255,0.72)" mb={2}>
+          Optional. Add pickup or delivery stops between the origin and final destination.
+        </Typography>
+
+        {stops.map((stop, idx) => (
+          <Box
+            key={idx}
+            sx={{
+              mb: 2,
+              p: 2,
+              borderRadius: 3,
+              bgcolor: 'rgba(255,255,255,0.07)',
+              border: '1.5px solid rgba(255,255,255,0.13)',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5, gap: 1 }}>
+              <Typography fontWeight={700} color="#fb923c">Stop {stop.sequence}</Typography>
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <Select
+                  value={stop.type}
+                  onChange={e => updateStop(idx, 'type', e.target.value)}
+                  sx={{ color: '#fff', '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.25)' } }}
+                >
+                  <MenuItem value="pickup">Pickup</MenuItem>
+                  <MenuItem value="delivery">Delivery</MenuItem>
+                </Select>
+              </FormControl>
+              <Box flex={1} />
+              <IconButton size="small" onClick={() => removeStop(idx)} sx={{ color: '#f87171' }}>
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Box>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Address"
+                  required
+                  fullWidth
+                  size="small"
+                  value={stop.address}
+                  onChange={e => updateStop(idx, 'address', e.target.value)}
+                  placeholder="e.g. 123 Main St, Chicago, IL"
+                />
+              </Grid>
+              <Grid item xs={12} sm={3}>
+                <TextField
+                  label="Time Window Start"
+                  type="datetime-local"
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                  value={stop.timeWindowStart}
+                  onChange={e => updateStop(idx, 'timeWindowStart', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12} sm={3}>
+                <TextField
+                  label="Time Window End"
+                  type="datetime-local"
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                  value={stop.timeWindowEnd}
+                  onChange={e => updateStop(idx, 'timeWindowEnd', e.target.value)}
+                  helperText="Optional"
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  label="Contact Name"
+                  fullWidth
+                  size="small"
+                  value={stop.contactName}
+                  onChange={e => updateStop(idx, 'contactName', e.target.value)}
+                  helperText="Optional"
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  label="Contact Phone"
+                  fullWidth
+                  size="small"
+                  value={stop.contactPhone}
+                  onChange={e => updateStop(idx, 'contactPhone', e.target.value)}
+                  helperText="Optional"
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  label="Notes"
+                  fullWidth
+                  size="small"
+                  value={stop.notes}
+                  onChange={e => updateStop(idx, 'notes', e.target.value)}
+                  helperText="Optional"
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        ))}
+
+        <Button
+          startIcon={<AddCircleOutlineIcon />}
+          onClick={addStop}
+          sx={{
+            mb: 3,
+            color: '#fb923c',
+            borderColor: 'rgba(251,146,60,0.5)',
+            '&:hover': { borderColor: '#fb923c', bgcolor: 'rgba(251,146,60,0.08)' },
+          }}
+          variant="outlined"
+        >
+          Add Intermediate Stop
+        </Button>
 
         {/* Rate, Payment, Marketplace, Attachments, Advanced */}
         <SectionHeader icon={<LocalShippingIcon fontSize="large" sx={{ color: "#fbbf24" }} />} label="Cargo & Equipment" />

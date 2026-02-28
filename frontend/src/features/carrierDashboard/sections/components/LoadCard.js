@@ -5,6 +5,8 @@ import { motion } from 'framer-motion';
 import { useTheme } from '@mui/material/styles';
 import StatusChip from './StatusChip';
 
+
+
 export default function LoadCard({ load, onClick }) {
   const theme = useTheme();
 

@@ -2,36 +2,94 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { body } = require("express-validator");
 const User = require("../models/User");
 const Load = require("../models/Load");
 const auth = require("../middlewares/authMiddleware");
+const validate = require("../middlewares/validate");
+const { authLimiter } = require("../middlewares/rateLimiter");
 
 const router = express.Router();
 const { getIO } = require('../utils/socket');
+const { notifyUserSafe } = require('../utils/notifyUser');
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
+const Company = require('../models/Company');
+const companyNormalize = require('../utils/companyNormalize');
+const { generateBOL } = require('../utils/pdfGenerator');
+
 
 
 // ----------------------
 // 1) Signup Route
-// ----------------------
-router.post("/signup", async (req, res) => {
+
+const signupValidation = [
+  body("name").trim().notEmpty().withMessage("Name is required"),
+  body("email").isEmail().normalizeEmail().withMessage("Valid email is required"),
+  body("password").isLength({ min: 8 }).withMessage("Password must be at least 8 characters"),
+  body("role").isIn(["carrier", "shipper", "admin"]).withMessage("Role must be carrier, shipper, or admin"),
+  body("companyName")
+    .if(body("role").isIn(["carrier", "shipper"]))
+    .trim()
+    .notEmpty()
+    .withMessage("Company name is required for carriers and shippers"),
+];
+
+router.post("/signup", authLimiter, signupValidation, validate, async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, companyName } = req.body;
+
+    // 1. Input validation
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    if ((role === "carrier" || role === "shipper") && !companyName) {
+      return res.status(400).json({ error: "Company Name is required" });
+    }
+
+    // 2. Check for existing user by email
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: "User already exists with this email" });
     }
 
+    // 3. Normalize company name, handle company upsert
+    let company = null;
+    let companyId = null;
+    if ((role === "carrier" || role === "shipper") && companyName) {
+      const normName = companyNormalize(companyName);
+      if (!normName) return res.status(400).json({ error: "Invalid company name" });
+
+      company = await Company.findOneAndUpdate(
+        { normalized: normName },
+        {
+          $setOnInsert: {
+            name: companyName,
+            normalized: normName,
+            type: role,
+            status: "active"
+          }
+        },
+        { upsert: true, new: true }
+      );
+      companyId = company._id;
+    }
+
+    // 4. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // 5. Create and save user (linked to company if set)
     const newUser = new User({
       name,
       email,
       password: hashedPassword,
       role,
+      companyName: companyName || undefined,
+      companyId: companyId || undefined
     });
-
     await newUser.save();
 
+    // 6. Respond
     return res.status(201).json({
       message: "User created successfully",
       user: {
@@ -39,33 +97,35 @@ router.post("/signup", async (req, res) => {
         name: newUser.name,
         email: newUser.email,
         role: newUser.role,
-      },
+        companyName: newUser.companyName,
+        companyId: newUser.companyId
+      }
     });
   } catch (err) {
     console.error("Error in /signup:", err);
+    if (err.code === 11000) {
+      return res.status(400).json({ error: "A company with this normalized name already exists." });
+    }
     return res.status(500).json({ error: "Server error" });
   }
 });
-
 // ----------------------
 // 2) Login Route
 // ----------------------
-router.post("/login", async (req, res) => {
+const loginValidation = [
+  body("email").isEmail().normalizeEmail().withMessage("Valid email is required"),
+  body("password").notEmpty().withMessage("Password is required"),
+];
+
+router.post("/login", authLimiter, loginValidation, validate, async (req, res) => {
   const { email, password } = req.body;
   try {
-    const user = await User.findOne({ email }).select('+password'); 
-    console.log("==== LOGIN DEBUG ====");
-    console.log("Login email from frontend:", email);
-    console.log("Login password from frontend:", password);
+    const user = await User.findOne({ email }).select('+password');
     if (!user) {
-      console.log("No user found with email", email);
       return res.status(401).json({ error: "Invalid email or password" });
     }
-    console.log("User found:", user.email);
-    console.log("Stored hash:", user.password);
 
     const isMatch = await bcrypt.compare(password, user.password);
-    console.log("Password match result:", isMatch);
 
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid email or password" });
@@ -102,41 +162,86 @@ router.get("/whoami", auth, (req, res) => {
 
 // ----------------------
 // 4) Get User Profile
-// ----------------------
-router.get('/profile', auth, async (req, res) => {
+// GET user profile
+router.get('/me', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('-password');
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
   } catch (err) {
-    console.error("Error in GET /user/profile:", err);
     res.status(500).json({ error: "Failed to fetch profile" });
   }
 });
-
-// ----------------------
-// 5) Update User Profile
-// ----------------------
-router.put("/profile", auth, async (req, res) => {
+// PUT user profile
+router.put('/me', auth, async (req, res) => {
   try {
-    const { name, email, phone, companyName } = req.body; // <-- add new fields
+    const { name, email, phone, companyName, mcNumber, dotNumber, type } = req.body;
     const user = await User.findById(req.user.userId);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    user.name = name ?? user.name;
+    user.email = email ?? user.email;
+    user.phone = phone ?? user.phone;
+    user.companyName = companyName ?? user.companyName;
+    if (typeof mcNumber !== 'undefined') user.mcNumber = mcNumber;
+    if (typeof dotNumber !== 'undefined') user.dotNumber = dotNumber;
+
+    let company = null;
+    if (companyName) {
+      const norm = companyNormalize(companyName);
+
+      // Try to find by normalized name
+      company = await Company.findOne({ normalized: norm });
+
+      if (!company) {
+        // Create new company if not found
+        company = await Company.create({
+          name: companyName,
+          normalized: norm,
+          mcNumber,
+          dotNumber,
+          type: type || undefined,
+          status: 'active'
+        });
+      } else if (company.name !== companyName) {
+        // If name was changed but normalized matches (e.g. LLC added/removed)
+        company.name = companyName;
+        if (typeof mcNumber !== 'undefined') company.mcNumber = mcNumber;
+        if (typeof dotNumber !== 'undefined') company.dotNumber = dotNumber;
+        if (typeof type !== 'undefined') company.type = type;
+        await company.save();
+      }
+      user.companyId = company._id;
+      user.companyName = company.name;
     }
 
-    user.name = name || user.name;
-    user.email = email || user.email;
-    user.phone = phone || user.phone;               // <-- add this line
-    user.companyName = companyName || user.companyName; // <-- and this line
-
     const updatedUser = await user.save();
-    res.json({ message: "Profile updated successfully", user: updatedUser });
+    res.json(updatedUser);
   } catch (err) {
-    console.error("Error in /profile PUT:", err);
+    console.error("PUT /me error:", err);
     res.status(500).json({ error: "Failed to update profile" });
+  }
+});
+
+router.post('/me/upload-doc', auth, upload.single('file'), async (req, res) => {
+  try {
+    const docType = req.body.docType; // "insurance", "authority", "business_license", etc.
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    // Save file info to user.documents
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.documents) user.documents = {};
+    user.documents[docType] = {
+      url: `/uploads/${req.file.filename}`, // Or your cloud storage url
+      uploaded: true,
+      name: req.file.originalname
+    };
+    await user.save();
+    res.json(user.documents[docType]);
+  } catch (err) {
+    console.error("Upload doc error:", err);
+    res.status(500).json({ error: "Failed to upload document" });
   }
 });
 
@@ -282,6 +387,43 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
 
     await user.save();
     await load.save();
+
+    // Notify shipper that carrier is in transit
+    notifyUserSafe(load.postedBy?.toString(), {
+      type: 'load:status',
+      title: 'Carrier is on the way!',
+      body: `"${load.title}" — ${load.origin} → ${load.destination}`,
+      link: '/dashboard/shipper/loads',
+      metadata: { loadId: load._id, status: 'in-transit' },
+    });
+
+    // Post system message to load thread on dispatch
+    try {
+      const Channel = require("../models/Channel");
+      const Message = require("../models/Message");
+      const channelId = `load_${load._id}`;
+      const channel = await Channel.findOne({ channelId });
+      if (channel) {
+        const driverInfo = truck.driverName ? ` Driver: ${truck.driverName}.` : "";
+        await Message.create({
+          channelType: "load_thread",
+          channelId,
+          sender: null,
+          content: `🚚 Carrier dispatched.${driverInfo} Truck ID: ${truck.truckId}.`,
+          messageType: "system",
+          readBy: [],
+        });
+        const io = getIO();
+        if (io) io.to(channelId).emit("newMessage", {
+          channelId,
+          content: `🚚 Carrier dispatched.${driverInfo}`,
+          messageType: "system",
+          createdAt: new Date(),
+        });
+      }
+    } catch (chatErr) {
+      console.error("Failed to post dispatch system message (non-fatal):", chatErr);
+    }
 
     // 6. Enrich fleet with assigned load details for frontend
     const updatedUser = await User.findById(req.user.userId);
@@ -454,16 +596,69 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
     truck.assignedLoadId = null;
 
     load.status = "delivered";
-    load.deliveredAt = new Date();        // (add this field to your Load model if desired)
-    load.completedBy = user._id;          // For audit trail
+    load.deliveredAt = new Date();
+    load.completedBy = user._id;
     load.assignedTruckId = null;
 
     await user.save();
     await load.save();
 
-    // 5. Optional: trigger invoice or notification logic here
+    // 5. Auto-generate BOL (non-blocking)
+    try {
+      const shipper = await User.findById(load.postedBy).select('name email companyName');
+      const bolPath = await generateBOL(load, user, shipper);
+      await Load.findByIdAndUpdate(load._id, { 'documents.bol': bolPath });
+      const io = getIO();
+      if (io) {
+        io.to(`user_${load.acceptedBy}`).emit('doc:generated', { loadId: load._id, type: 'bol', path: bolPath });
+        io.to(`user_${load.postedBy}`).emit('doc:generated', { loadId: load._id, type: 'bol', path: bolPath });
+      }
+    } catch (bolErr) {
+      console.error('BOL auto-generate failed (non-fatal):', bolErr.message);
+    }
 
-    // 6. Enrich the updated fleet with assigned load details
+    // 6. Notify shipper of delivery
+    notifyUserSafe(load.postedBy?.toString(), {
+      type: 'load:status',
+      title: 'Your load has been delivered!',
+      body: `"${load.title}" — ${load.origin} → ${load.destination}`,
+      link: '/dashboard/shipper/loads',
+      metadata: { loadId: load._id, status: 'delivered' },
+    });
+
+    // 7. Post system message to load thread and lock it after 7 days
+    try {
+      const Channel = require("../models/Channel");
+      const Message = require("../models/Message");
+      const channelId = `load_${load._id}`;
+      const channel = await Channel.findOne({ channelId });
+      if (channel) {
+        const archiveAfter = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        await Channel.findOneAndUpdate(
+          { channelId },
+          { archiveAfter, lastMessageAt: new Date(), lastMessagePreview: "Load delivered" }
+        );
+        await Message.create({
+          channelType: "load_thread",
+          channelId,
+          sender: null,
+          content: `✓ Load delivered at ${new Date().toLocaleString()}. This chat will lock in 7 days.`,
+          messageType: "system",
+          readBy: [],
+        });
+        const io = getIO();
+        if (io) io.to(channelId).emit("newMessage", {
+          channelId,
+          content: `✓ Load delivered at ${new Date().toLocaleString()}.`,
+          messageType: "system",
+          createdAt: new Date(),
+        });
+      }
+    } catch (chatErr) {
+      console.error("Failed to post delivery system message (non-fatal):", chatErr);
+    }
+
+    // 8. Enrich the updated fleet with assigned load details
     const updatedUser = await User.findById(req.user.userId);
     const LoadModel = require("../models/Load");
     const fleetWithAssignedLoads = await Promise.all(
@@ -480,11 +675,51 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
       })
     );
 
-    // 7. Emit live update (socket.io)
+    // 7. Auto-release escrow payment (non-blocking)
+    try {
+      const Payment = require('../models/Payment');
+      const Invoice = require('../models/Invoice');
+      const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
+      if (payment) {
+        payment.status = 'released';
+        payment.releasedAt = new Date();
+        await payment.save();
+        // Generate invoice
+        const existing = await Invoice.findOne({ loadId: load._id });
+        if (!existing) {
+          await Invoice.create({
+            loadId: load._id,
+            shipperId: payment.shipperId,
+            carrierId: payment.carrierId,
+            subtotal: payment.amount,
+            platformFee: payment.platformFee,
+            total: payment.amount,
+            status: 'paid',
+            paidAt: new Date(),
+            issuedAt: new Date(),
+            stripePaymentIntentId: payment.stripePaymentIntentId,
+            lineItems: [{
+              description: `Freight: ${load.title} (${load.origin} → ${load.destination})`,
+              quantity: 1,
+              unitAmount: payment.amount,
+              total: payment.amount,
+            }],
+          });
+        }
+        const io = getIO();
+        if (io) {
+          io.to(`user_${payment.carrierId}`).emit('payment:released', { loadId: load._id, amount: payment.carrierPayout });
+          io.to(`user_${payment.shipperId}`).emit('payment:released', { loadId: load._id, amount: payment.amount });
+        }
+      }
+    } catch (payErr) {
+      console.error('Auto-release payment error (non-fatal):', payErr.message);
+    }
+
+    // 8. Emit live update (socket.io)
     const io = getIO();
     if (io) io.emit("fleetUpdated", { userId: user._id });
 
-    // 8. Respond
     res.json({
       message: "Load marked as delivered.",
       fleet: fleetWithAssignedLoads,
@@ -578,6 +813,31 @@ router.put("/fleet/:truckId/availability", auth, async (req, res) => {
 
 
 
+
+// ----------------------------------------
+// PUT /api/users/me/preferences — save carrier matching preferences
+// ----------------------------------------
+router.put('/me/preferences', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') {
+      return res.status(403).json({ error: 'Only carriers can set matching preferences' });
+    }
+    const { equipmentTypes, preferredLanes, preferredRegions, minRate, maxMileage, homeBase } = req.body;
+    const update = {};
+    if (equipmentTypes !== undefined) update['preferences.equipmentTypes'] = equipmentTypes;
+    if (preferredLanes !== undefined) update['preferences.preferredLanes'] = preferredLanes;
+    if (preferredRegions !== undefined) update['preferences.preferredRegions'] = preferredRegions;
+    if (minRate !== undefined) update['preferences.minRate'] = Number(minRate);
+    if (maxMileage !== undefined) update['preferences.maxMileage'] = maxMileage ? Number(maxMileage) : null;
+    if (homeBase !== undefined) update['preferences.homeBase'] = homeBase;
+
+    const user = await User.findByIdAndUpdate(req.user.userId, { $set: update }, { new: true });
+    res.json({ preferences: user.preferences });
+  } catch (err) {
+    console.error('Error saving preferences:', err);
+    res.status(500).json({ error: 'Failed to save preferences' });
+  }
+});
 
 // Export the router
 module.exports = router;

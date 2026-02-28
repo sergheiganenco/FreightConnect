@@ -30,10 +30,14 @@ export default function Login() {
       localStorage.setItem('token', token);
       localStorage.setItem('role', user.role);
 
-      if (user.role === 'carrier') {
+      if (user.role === 'admin') {
+        navigate('/dashboard/admin');
+      } else if (user.role === 'carrier') {
         navigate('/dashboard/carrier');
-      } else {
+      } else if (user.role === 'shipper') {
         navigate('/dashboard/shipper');
+      } else {
+        navigate('/');
       }
     } catch (err) {
       setError('api', {

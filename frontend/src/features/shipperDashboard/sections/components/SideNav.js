@@ -1,32 +1,44 @@
 // src/features/shipperDashboard/sections/components/SideNav.js
 import React from "react";
-import { Tooltip } from "@mui/material";
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';   // Loads
-import AddBoxIcon from '@mui/icons-material/AddBox';                // Post Load
-import DescriptionIcon from '@mui/icons-material/Description';      // Documents
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';  // Profile
+import { Tooltip, Badge } from "@mui/material";
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import AddBoxIcon from '@mui/icons-material/AddBox';
+import DescriptionIcon from '@mui/icons-material/Description';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import ChatIcon from '@mui/icons-material/Chat';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import CodeIcon from '@mui/icons-material/Code';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import { useChatContext } from '../../../../components/chat/ChatProvider';
+
+function ChatNavItem() {
+  let unread = 0;
+  try {
+    const ctx = useChatContext();
+    unread = ctx?.totalUnread || 0;
+  } catch { /* ChatProvider not mounted yet */ }
+  return (
+    <Badge badgeContent={unread || null} color="error" max={9}>
+      <ChatIcon fontSize="medium" />
+    </Badge>
+  );
+}
 
 const navItems = [
-  {
-    key: "loads",
-    label: "Loads",
-    icon: <LocalShippingIcon fontSize="medium" />,
-  },
-  {
-    key: "post-load",
-    label: "Post Load",
-    icon: <AddBoxIcon fontSize="medium" />,
-  },
-  {
-    key: "documents",
-    label: "Documents",
-    icon: <DescriptionIcon fontSize="medium" />,
-  },
-  {
-    key: "profile",
-    label: "Profile",
-    icon: <AccountCircleIcon fontSize="medium" />,
-  },
+  { key: "loads",     label: "Loads",     icon: <LocalShippingIcon fontSize="medium" /> },
+  { key: "post-load", label: "Post Load", icon: <AddBoxIcon fontSize="medium" /> },
+  { key: "contracts",    label: "Contracts",    icon: <AssignmentIcon fontSize="medium" /> },
+  { key: "appointments", label: "Appointments", icon: <CalendarMonthIcon fontSize="medium" /> },
+  { key: "documents",    label: "Documents",    icon: <DescriptionIcon fontSize="medium" /> },
+  { key: "analytics", label: "Analytics", icon: <BarChartIcon /> },
+  { key: "payments",  label: "Payments",  icon: <AccountBalanceWalletIcon fontSize="medium" /> },
+  { key: "tax",       label: "Tax",       icon: <ReceiptLongIcon fontSize="medium" /> },
+  { key: "edi",       label: "EDI",       icon: <CodeIcon fontSize="medium" /> },
+  { key: "chat",      label: "Messages",  icon: <ChatNavItem /> },
+  { key: "profile",   label: "Profile",   icon: <AccountCircleIcon fontSize="medium" /> },
 ];
 
 export default function SideNav({ current, collapsed, onSelect }) {

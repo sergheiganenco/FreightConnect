@@ -121,3 +121,14 @@ body.dashboard-page, .dashboard-page {
 .glass-load-card:hover {
   box-shadow: 0 8px 32px #6a1fcf55;
 }
+
+body.dashboard-page, .dashboard-page, #root {
+  background: linear-gradient(135deg, #1f2dff 0%, #6a1fcf 40%, #e1129a 100%) !important;
+  background-attachment: fixed !important;
+  background-size: cover !important;
+  background-repeat: no-repeat !important;
+  min-height: 100vh !important;
+  min-width: 100vw !important;
+  font-family: 'Roboto', sans-serif;
+  color: white;
+}

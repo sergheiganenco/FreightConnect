@@ -3,52 +3,98 @@ module.exports = (io) => {
   const express = require("express");
   const router = express.Router();
   const fetch = require("node-fetch");
+  const { body } = require("express-validator");
   const auth = require("../middlewares/authMiddleware");
+  const validate = require("../middlewares/validate");
   const Load = require("../models/Load");
   const axios = require("axios");
   require("dotenv").config();
   const User = require("../models/User");
+  const { generateRateConfirmation } = require("../utils/pdfGenerator");
+
+  // ── Helper: auto-generate Rate Confirmation (non-blocking) ─────────────────
+  async function autoGenerateRateCon(loadId, carrierId, shipperId) {
+    try {
+      const [load, carrier, shipper] = await Promise.all([
+        Load.findById(loadId),
+        User.findById(carrierId).select('name email companyName mcNumber dotNumber verification'),
+        User.findById(shipperId).select('name email companyName'),
+      ]);
+      if (!load || !carrier || !shipper) return;
+      const filePath = await generateRateConfirmation(load, carrier, shipper);
+      await Load.findByIdAndUpdate(loadId, { 'documents.rateConfirmation': filePath });
+      try { io.to(`user_${carrierId}`).emit('doc:generated', { loadId, type: 'rateConfirmation', path: filePath }); } catch (_) {}
+      try { io.to(`user_${shipperId}`).emit('doc:generated', { loadId, type: 'rateConfirmation', path: filePath }); } catch (_) {}
+    } catch (err) {
+      console.error('[RateCon] Auto-generate failed (non-fatal):', err.message);
+    }
+  }
 
   // ----------------------------------------
   // GET /api/loads - Return all loads (open + carrier's accepted)
   // ---------------------------------------
-router.get("/", auth, async (req, res) => {
-  try {
-    if (req.user.role !== "carrier") {
-      return res.status(403).json({ error: "Access denied" });
+  router.get("/", auth, async (req, res) => {
+    try {
+      const { status, equipmentType, minRate, maxRate, pickupStart, pickupEnd, sortBy, sortOrder } = req.query;
+  
+      let filter = {};
+  
+      // ---- Carrier: open loads and loads accepted by this carrier
+      if (req.user.role === "carrier") {
+        filter = {
+          $or: [
+            { status: "open" },
+            { acceptedBy: req.user.userId },
+          ],
+        };
+      }
+  
+      // ---- Shipper: loads posted by this shipper
+      else if (req.user.role === "shipper") {
+        filter = { postedBy: req.user.userId };
+      }
+  
+      // ---- Admin: see ALL loads (no filter = all docs)
+      // You can apply more admin-specific filtering if needed
+  
+      // --- Shared filters ---
+      if (status && status !== "all") {
+        if (req.user.role === "carrier") {
+          // For carriers, scope status filter within their visible loads only
+          filter.$or = [
+            { status, acceptedBy: req.user.userId },
+            // also keep open loads visible unless filtering to non-open status
+            ...(status === "open" ? [] : [{ status: "open" }]),
+          ];
+        } else {
+          filter.status = status;
+        }
+      }
+      if (equipmentType) filter.equipmentType = equipmentType;
+      if (minRate || maxRate) {
+        filter.rate = {};
+        if (minRate) filter.rate.$gte = Number(minRate);
+        if (maxRate) filter.rate.$lte = Number(maxRate);
+      }
+      if (pickupStart || pickupEnd) {
+        filter["pickupTimeWindow.start"] = {};
+        if (pickupStart) filter["pickupTimeWindow.start"].$gte = new Date(pickupStart);
+        if (pickupEnd) filter["pickupTimeWindow.start"].$lte = new Date(pickupEnd);
+      }
+  
+      // --- Sorting ---
+      const sortCriteria = {};
+      if (sortBy) sortCriteria[sortBy] = sortOrder === "desc" ? -1 : 1;
+      else sortCriteria.createdAt = -1;
+  
+      const loads = await Load.find(filter).sort(sortCriteria);
+      res.json(loads);
+    } catch (err) {
+      console.error("Error fetching loads:", err);
+      res.status(500).json({ error: "Server error fetching loads" });
     }
-
-    const { status, equipmentType, minRate, maxRate, pickupStart, pickupEnd, sortBy, sortOrder } = req.query;
-
-    let filter = {
-      $or: [
-        { status: "open" },
-        { acceptedBy: req.user.userId },
-      ],
-    };
-
-    if (status) filter.status = status;
-    if (equipmentType) filter.equipmentType = equipmentType;
-    if (minRate || maxRate) {
-      filter.rate = {};
-      if (minRate) filter.rate.$gte = Number(minRate);
-      if (maxRate) filter.rate.$lte = Number(maxRate);
-    }
-    if (pickupStart || pickupEnd) {
-      filter["pickupTimeWindow.start"] = {};
-      if (pickupStart) filter["pickupTimeWindow.start"].$gte = new Date(pickupStart);
-      if (pickupEnd) filter["pickupTimeWindow.start"].$lte = new Date(pickupEnd);
-    }
-
-    const sortCriteria = {};
-    if (sortBy) sortCriteria[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    const loads = await Load.find(filter).sort(sortCriteria);
-    res.json(loads);
-  } catch (err) {
-    res.status(500).json({ error: "Server error fetching loads" });
-  }
-});
+  });
+  
 
 // GET /api/loads/open - All open loads (not yet assigned)
 router.get("/open", auth, async (req, res) => {
@@ -100,8 +146,6 @@ router.get("/open", auth, async (req, res) => {
   // GET /api/loads/posted - For Shippers
   // ----------------------------------------
   router.get("/posted", auth, async (req, res) => {
-    console.log("SHIPPER DEBUG req.user:", req.user); 
-    console.log("SHIPPER DEBUG headers:", req.headers);
     try {
       if (req.user.role !== "shipper") {
         return res
@@ -125,9 +169,40 @@ router.get("/open", auth, async (req, res) => {
     }
   });
 
+  // ----------------------------------------
+  // GET /api/loads/recommended — ranked open loads for the requesting carrier
+  // ----------------------------------------
+  router.get('/recommended', auth, async (req, res) => {
+    try {
+      if (req.user.role !== 'carrier') {
+        return res.status(403).json({ error: 'Only carriers can view recommended loads' });
+      }
+      const { findMatchesForCarrier } = require('../services/matchingService');
+      const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+      const matches = await findMatchesForCarrier(req.user.userId, limit);
+      res.json(matches); // [{load, score}]
+    } catch (err) {
+      console.error('Error fetching recommended loads:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
  // POST /api/loads - Create a New Load
 // ----------------------------------------
-router.post('/', auth, async (req, res) => {
+const createLoadValidation = [
+  body("title").trim().notEmpty().withMessage("Title is required"),
+  body("origin").trim().notEmpty().withMessage("Origin is required"),
+  body("destination").trim().notEmpty().withMessage("Destination is required"),
+  body("rate")
+    .isFloat({ gt: 0 })
+    .withMessage("Rate must be a positive number"),
+  body("equipmentType")
+    .trim()
+    .notEmpty()
+    .withMessage("Equipment type is required"),
+];
+
+router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   try {
     const {
       title,
@@ -141,6 +216,15 @@ router.post('/', auth, async (req, res) => {
       pickupEnd,
       deliveryStart,
       deliveryEnd,
+
+      // Reefer / temperature control
+      temperatureMin,
+      temperatureMax,
+      temperatureUnit,
+      reeferNotes,
+
+      // Multi-stop
+      stops: rawStops,
     } = req.body;
 
     if (!title || !origin || !destination || !rate || !equipmentType) {
@@ -177,10 +261,42 @@ router.post('/', auth, async (req, res) => {
       // ✅ store the windows if provided
       pickupTimeWindow: pickupStart && pickupEnd ? { start: pickupStart, end: pickupEnd } : undefined,
       deliveryTimeWindow: deliveryStart && deliveryEnd ? { start: deliveryStart, end: deliveryEnd } : undefined,
+      // ✅ reefer settings (convert F→C if needed)
+      reefer: equipmentType === 'Reefer' && (temperatureMin !== undefined || temperatureMax !== undefined)
+        ? {
+            enabled: true,
+            targetMinC: temperatureUnit === 'F'
+              ? Math.round((parseFloat(temperatureMin) - 32) * 5 / 9 * 10) / 10
+              : parseFloat(temperatureMin),
+            targetMaxC: temperatureUnit === 'F'
+              ? Math.round((parseFloat(temperatureMax) - 32) * 5 / 9 * 10) / 10
+              : parseFloat(temperatureMax),
+            alertOnDeviation: true,
+            notes: reeferNotes || undefined,
+          }
+        : undefined,
     });
+
+    // Geocode intermediate stops asynchronously — do not block response
+    if (Array.isArray(rawStops) && rawStops.length > 0) {
+      newLoad.stops = rawStops.map((s, i) => ({
+        sequence: s.sequence ?? i + 1,
+        type: s.type || 'delivery',
+        address: s.address,
+        timeWindow: s.timeWindow || {},
+        contactName: s.contactName || undefined,
+        contactPhone: s.contactPhone || undefined,
+        notes: s.notes || undefined,
+        status: 'pending',
+      }));
+    }
 
     await newLoad.save();
     res.status(201).json(newLoad);
+
+    // Async: notify matched carriers — non-blocking
+    const { notifyMatchedCarriers } = require('../services/matchingService');
+    notifyMatchedCarriers(newLoad, io);
   } catch (err) {
     console.error('Error saving load:', err);
     res.status(500).json({ error: 'Failed to post load.' });
@@ -196,15 +312,50 @@ router.post('/', auth, async (req, res) => {
       if (!load) {
         return res.status(404).json({ error: "Load not found" });
       }
-      // If load is missing lat/lng => 400
       if (!load.originLat || !load.originLng || !load.destinationLat || !load.destinationLng) {
         return res.status(400).json({ error: "Load is missing required location coordinates" });
       }
-  
+
       load.acceptedBy = req.user.userId;
       load.status = "accepted";
       await load.save();
-  
+
+      // Auto-generate Rate Confirmation (non-blocking)
+      autoGenerateRateCon(load._id, req.user.userId, load.postedBy);
+
+      // Auto-create a load_thread channel between carrier and shipper
+      try {
+        const Channel = require("../models/Channel");
+        const Message = require("../models/Message");
+        const channelId = `load_${load._id}`;
+        const existing = await Channel.findOne({ channelId });
+        if (!existing) {
+          const channel = await Channel.create({
+            channelType: "load_thread",
+            channelId,
+            loadId: load._id,
+            participants: [
+              { user: req.user.userId, role: "carrier" },
+              { user: load.postedBy, role: "shipper" },
+            ],
+            lastMessageAt: new Date(),
+            lastMessagePreview: "Carrier accepted this load",
+          });
+          await Message.create({
+            channelType: "load_thread",
+            channelId,
+            sender: null,
+            content: `✓ Carrier accepted this load. You can now communicate directly here.`,
+            messageType: "system",
+            readBy: [],
+          });
+          // Notify shipper
+          io.emit(`chat:channelCreated:${load.postedBy}`, { channel });
+        }
+      } catch (chatErr) {
+        console.error("Failed to create load thread (non-fatal):", chatErr);
+      }
+
       res.json({ message: "Load accepted successfully", load });
     } catch (err) {
       console.error("Error accepting load:", err);
@@ -231,6 +382,26 @@ router.post('/', auth, async (req, res) => {
       res.status(500).json({ error: "Server error" });
     }
   });
+
+  // For shippers to view their own loads
+router.get("/shipper-my-loads", auth, async (req, res) => {
+  console.log("GET /shipper-my-loads route hit!");
+  try {
+    if (req.user.role !== "shipper") {
+      return res
+        .status(403)
+        .json({ error: "Only shippers can view this data" });
+    }
+
+    // If your Load model stores a reference to shipper by userId:
+    const loads = await Load.find({ shipperId: req.user.userId });
+    res.json(loads);
+  } catch (err) {
+    console.error("Error fetching shipper loads:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 
   // ----------------------------------------
   // GET /api/loads/get-route - Simple route from start->end via ORS
@@ -541,6 +712,120 @@ router.put("/:id/assign-to-truck", auth, async (req, res) => {
 });
 
 
+
+// ── Multi-Stop Endpoints ────────────────────────────────────────────────────
+
+// GET /api/loads/:id/stops
+router.get('/:id/stops', auth, async (req, res) => {
+  try {
+    const load = await Load.findById(req.params.id).select('stops origin destination status postedBy acceptedBy');
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    res.json({ stops: load.stops || [], origin: load.origin, destination: load.destination });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error fetching stops' });
+  }
+});
+
+// PUT /api/loads/:id/stops — shipper replaces stops array (only allowed before accepted)
+router.put('/:id/stops', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'shipper') {
+      return res.status(403).json({ error: 'Only shippers can update stops' });
+    }
+    const load = await Load.findById(req.params.id);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (String(load.postedBy) !== req.user.userId) {
+      return res.status(403).json({ error: 'Not your load' });
+    }
+    if (load.status !== 'open') {
+      return res.status(400).json({ error: 'Stops can only be edited while the load is open' });
+    }
+
+    const { stops } = req.body;
+    if (!Array.isArray(stops)) return res.status(400).json({ error: 'stops must be an array' });
+
+    // Geocode any stops missing coordinates
+    const fetch = require('node-fetch');
+    const fetchCoords = async (addr) => {
+      try {
+        const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`);
+        const data = await resp.json();
+        if (data.length) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } catch (_) {}
+      return { lat: null, lng: null };
+    };
+
+    const enriched = await Promise.all(stops.map(async (s, i) => {
+      const coords = (s.lat && s.lng) ? { lat: s.lat, lng: s.lng } : await fetchCoords(s.address);
+      return {
+        sequence: s.sequence ?? i + 1,
+        type: s.type,
+        address: s.address,
+        lat: coords.lat,
+        lng: coords.lng,
+        timeWindow: s.timeWindow || {},
+        contactName: s.contactName || undefined,
+        contactPhone: s.contactPhone || undefined,
+        notes: s.notes || undefined,
+        status: 'pending',
+      };
+    }));
+
+    load.stops = enriched;
+    await load.save();
+    res.json({ stops: load.stops });
+  } catch (err) {
+    console.error('Error updating stops:', err);
+    res.status(500).json({ error: 'Server error updating stops' });
+  }
+});
+
+// PUT /api/loads/:id/stops/:stopIndex/status — carrier updates a stop status
+router.put('/:id/stops/:stopIndex/status', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') {
+      return res.status(403).json({ error: 'Only carriers can update stop status' });
+    }
+    const load = await Load.findById(req.params.id);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (String(load.acceptedBy) !== req.user.userId) {
+      return res.status(403).json({ error: 'Not your load' });
+    }
+
+    const idx = parseInt(req.params.stopIndex, 10);
+    if (isNaN(idx) || idx < 0 || idx >= load.stops.length) {
+      return res.status(400).json({ error: 'Invalid stop index' });
+    }
+
+    const { status } = req.body;
+    const allowed = ['arrived', 'departed', 'skipped'];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: `Status must be one of: ${allowed.join(', ')}` });
+    }
+
+    const stop = load.stops[idx];
+    stop.status = status;
+    if (status === 'arrived') stop.arrivedAt = new Date();
+    if (status === 'departed') stop.departedAt = new Date();
+    load.markModified('stops');
+    await load.save();
+
+    // Emit real-time update
+    try {
+      io.to(`user_${load.postedBy}`).emit('stop:statusUpdated', {
+        loadId: load._id,
+        stopIndex: idx,
+        status,
+        address: stop.address,
+      });
+    } catch (_) {}
+
+    res.json({ stop: load.stops[idx] });
+  } catch (err) {
+    console.error('Error updating stop status:', err);
+    res.status(500).json({ error: 'Server error updating stop status' });
+  }
+});
 
 // backend/routes/chatbot.js
 router.post('/voice-command', auth, async (req, res) => {

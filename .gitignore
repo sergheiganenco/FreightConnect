@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# Build outputs
+frontend/build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploads (keep structure, ignore files)
+backend/public/documents/uploads/*
+!backend/public/documents/uploads/.gitkeep
+
+# Claude Code session files
+.claude/

@@ -7,6 +7,7 @@ import {
   IconButton,
   Typography,
   Drawer,
+  Chip,
   Menu,
   MenuItem,
   useMediaQuery,
@@ -15,13 +16,22 @@ import { useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
 import SideNav from '../../features/shipperDashboard/sections/components/SideNav';
+import NotificationBell from '../../features/shared/NotificationBell';
 
-// If you want to highlight the active section based on route:
+// Utility to highlight nav based on route:
 const sectionFromPath = (pathname) => {
   if (pathname.includes('/post-load')) return 'post-load';
+  if (pathname.includes('/contracts')) return 'contracts';
+  if (pathname.includes('/appointments')) return 'appointments';
   if (pathname.includes('/documents')) return 'documents';
+  if (pathname.includes('/analytics')) return 'analytics';
+  if (pathname.includes('/payments')) return 'payments';
+  if (pathname.includes('/tax')) return 'tax';
+  if (pathname.includes('/edi')) return 'edi';
+  if (pathname.includes('/chat')) return 'chat';
   if (pathname.includes('/profile')) return 'profile';
   return 'loads';
 };
@@ -44,7 +54,6 @@ export default function ShipperDashboard() {
   useEffect(() => {
     setDrawerOpen(mdUp);
     if (!mdUp) setCollapsed(false);
-    // Match carrier: set body class for CSS background fallback
     document.body.classList.add('dashboard-page');
     return () => document.body.classList.remove('dashboard-page');
   }, [mdUp]);
@@ -81,20 +90,30 @@ export default function ShipperDashboard() {
             </IconButton>
           )}
 
-          <Typography variant="h6" fontWeight={700} mr={2} letterSpacing={1}>
+          <Typography variant="h6" fontWeight={700} mr={2}>
             FreightConnect
           </Typography>
 
-          <Box sx={{ flex: 1 }} />
+          <Chip
+            size="small"
+            label="SHIPPER"
+            sx={{
+              mr: 'auto',
+              bgcolor: 'rgba(99,102,241,0.88)', // purple/blue background
+              color: '#fff',
+              fontWeight: 700,
+              letterSpacing: 1,
+            }}
+          />
 
-          <IconButton onClick={e => setAnchorEl(e.currentTarget)} sx={{ ml: 1 }}>
-            {/* Optional: Add user avatar or icon here if needed */}
-            <ChevronRightIcon />
+          <NotificationBell />
+          <IconButton onClick={e => setAnchorEl(e.currentTarget)}>
+            <AccountCircleIcon />
           </IconButton>
         </Toolbar>
       </AppBar>
 
-      {/* Profile/Logout Menu (optional, can remove if not needed) */}
+      {/* Profile/Logout Menu */}
       <Menu
         anchorEl={anchorEl}
         open={profMenuOpen}
@@ -141,7 +160,14 @@ export default function ShipperDashboard() {
           onSelect={key => {
             if (key === 'loads') navigate('/dashboard/shipper/loads');
             else if (key === 'post-load') navigate('/dashboard/shipper/post-load');
+            else if (key === 'contracts') navigate('/dashboard/shipper/contracts');
+            else if (key === 'appointments') navigate('/dashboard/shipper/appointments');
             else if (key === 'documents') navigate('/dashboard/shipper/documents');
+            else if (key === 'analytics') navigate('/dashboard/shipper/analytics');
+            else if (key === 'payments') navigate('/dashboard/shipper/payments');
+            else if (key === 'tax') navigate('/dashboard/shipper/tax');
+            else if (key === 'edi') navigate('/dashboard/shipper/edi');
+            else if (key === 'chat') navigate('/dashboard/shipper/chat');
             else if (key === 'profile') navigate('/dashboard/shipper/profile');
             if (!mdUp) setDrawerOpen(false);
           }}

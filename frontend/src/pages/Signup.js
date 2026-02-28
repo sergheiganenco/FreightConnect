@@ -12,12 +12,12 @@ import {
   Snackbar,
   Alert
 } from '@mui/material';
-import { User, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Lock, Eye, EyeOff, Info } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { motion } from 'framer-motion';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
-import '../styles/Login.css'; // reuses your gradient + glass styles
+import '../styles/Login.css'; // reuse your gradient + glass styles
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -32,7 +32,7 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [snack, setSnack] = useState({ open: false, message: '' });
 
-  // keep RHF in sync with our toggle
+  // Keep RHF in sync with toggle
   useEffect(() => {
     setValue('role', role, { shouldValidate: true });
   }, [role, setValue]);
@@ -46,12 +46,9 @@ export default function Signup() {
       });
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
-      console.error('Signup failed:', err.response?.data || err.message);
       setSnack({
         open: true,
-        message:
-          err.response?.data?.error ||
-          'Signup failed. Please try again later.'
+        message: err.response?.data?.error || 'Signup failed. Please try again later.'
       });
     }
   };
@@ -112,9 +109,7 @@ export default function Signup() {
                 type="hidden"
                 {...register('role', { required: 'Role is required' })}
               />
-              {errors.role && (
-                <p className="error">{errors.role.message}</p>
-              )}
+              {errors.role && <p className="error">{errors.role.message}</p>}
 
               {/* Name */}
               <div className="input-group">
@@ -143,6 +138,27 @@ export default function Signup() {
                 />
               </div>
               {errors.email && <p className="error">{errors.email.message}</p>}
+
+              {/* Company Name */}
+              {["shipper", "carrier"].includes(role) && (
+                <>
+                  <div className="input-group">
+                    <User className="input-icon" />
+                    <input
+                      type="text"
+                      placeholder="Company Name"
+                      {...register('companyName', {
+                        required: 'Company Name is required'
+                      })}
+                    />
+                  </div>
+                  {errors.companyName && <p className="error">{errors.companyName.message}</p>}
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8, color: '#7d76ac', fontSize: '0.93em' }}>
+                    <Info size={16} style={{ marginRight: 5 }} />
+                    If your company is already in our system, enter the same name to join. If not, a new company will be created.
+                  </div>
+                </>
+              )}
 
               {/* Password */}
               <div className="input-group">
