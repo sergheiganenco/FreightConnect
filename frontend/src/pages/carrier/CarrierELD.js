@@ -45,14 +45,15 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorIcon from '@mui/icons-material/Error';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TimerIcon from '@mui/icons-material/Timer';
+import { semantic, brand, surface } from '../../theme/tokens';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const STATUSES = [
-  { key: 'OFF_DUTY',            label: 'Off Duty',          short: 'OFF',  color: '#6b7280', icon: <HotelIcon /> },
-  { key: 'SLEEPER_BERTH',       label: 'Sleeper Berth',     short: 'SB',   color: '#8b5cf6', icon: <NightShelterIcon /> },
-  { key: 'DRIVING',             label: 'Driving',           short: 'D',    color: '#10b981', icon: <DirectionsCarIcon /> },
-  { key: 'ON_DUTY_NOT_DRIVING', label: 'On Duty (Not Drv)', short: 'ON',   color: '#f59e0b', icon: <WorkIcon /> },
+  { key: 'OFF_DUTY',            label: 'Off Duty',          short: 'OFF',  color: semantic.muted, icon: <HotelIcon /> },
+  { key: 'SLEEPER_BERTH',       label: 'Sleeper Berth',     short: 'SB',   color: brand.primary, icon: <NightShelterIcon /> },
+  { key: 'DRIVING',             label: 'Driving',           short: 'D',    color: semantic.success, icon: <DirectionsCarIcon /> },
+  { key: 'ON_DUTY_NOT_DRIVING', label: 'On Duty (Not Drv)', short: 'ON',   color: semantic.warning, icon: <WorkIcon /> },
 ];
 
 function statusMeta(key) {
@@ -80,20 +81,20 @@ function pct(used, total) {
 function HosGauge({ label, used, total, color }) {
   const remaining = total - (used || 0);
   const p = pct(used, total);
-  const barColor = p >= 90 ? '#ef4444' : p >= 70 ? '#f59e0b' : color;
+  const barColor = p >= 90 ? semantic.error : p >= 70 ? semantic.warning : color;
 
   return (
     <Card
       sx={{
-        bgcolor: 'rgba(124,140,248,0.10)',
-        border: '1.5px solid rgba(255,255,255,0.10)',
+        bgcolor: surface.indigoTint,
+        border: `1.5px solid ${surface.glassBorder}`,
         borderRadius: 3,
         p: 2,
         textAlign: 'center',
         minWidth: 160,
       }}
     >
-      <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 0.5 }}>
+      <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', mb: 0.5 }}>
         {label}
       </Typography>
       <Box sx={{ position: 'relative', display: 'inline-flex', mb: 1 }}>
@@ -121,7 +122,7 @@ function HosGauge({ label, used, total, color }) {
       <Typography variant="body2" sx={{ color: barColor, fontWeight: 700 }}>
         {fmtMinutes(remaining)} left
       </Typography>
-      <Typography variant="caption" sx={{ color: '#6b7280' }}>
+      <Typography variant="caption" sx={{ color: semantic.muted }}>
         of {fmtMinutes(total)}
       </Typography>
     </Card>
@@ -169,7 +170,7 @@ function Timeline({ events = [], liveActiveMinutes }) {
               position: 'absolute',
               left: `${(h / 24) * 100}%`,
               transform: 'translateX(-50%)',
-              color: '#6b7280',
+              color: semantic.muted,
               fontSize: '0.65rem',
             }}
           >
@@ -214,7 +215,7 @@ function Timeline({ events = [], liveActiveMinutes }) {
         {STATUSES.map(s => (
           <Box key={s.key} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Box sx={{ width: 12, height: 12, bgcolor: s.color, borderRadius: 0.5 }} />
-            <Typography variant="caption" sx={{ color: '#9ca3af' }}>{s.short}</Typography>
+            <Typography variant="caption" sx={{ color: semantic.muted }}>{s.short}</Typography>
           </Box>
         ))}
       </Box>
@@ -339,11 +340,11 @@ export default function CarrierELD() {
     <Box>
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <TimerIcon sx={{ color: '#818cf8', fontSize: 32 }} />
+        <TimerIcon sx={{ color: brand.indigoLight, fontSize: 32 }} />
         <Typography variant="h5" fontWeight={700} sx={{ color: '#fff' }}>
           ELD / Hours of Service
         </Typography>
-        <IconButton onClick={fetchAll} size="small" sx={{ ml: 'auto', color: '#9ca3af' }}>
+        <IconButton onClick={fetchAll} size="small" sx={{ ml: 'auto', color: semantic.muted }}>
           <RefreshIcon />
         </IconButton>
       </Box>
@@ -351,7 +352,7 @@ export default function CarrierELD() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {/* Current Status */}
-      <Card sx={{ bgcolor: 'rgba(124,140,248,0.10)', border: '1.5px solid rgba(255,255,255,0.12)', borderRadius: 3, mb: 3 }}>
+      <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassBadge}`, borderRadius: 3, mb: 3 }}>
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
             <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#e5e7eb' }}>
@@ -363,13 +364,13 @@ export default function CarrierELD() {
               sx={{ bgcolor: currentMeta.color, color: '#fff', fontWeight: 700, fontSize: '0.9rem', px: 1 }}
             />
             {today?.liveActiveMinutes > 0 && (
-              <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+              <Typography variant="caption" sx={{ color: semantic.muted }}>
                 Active for {fmtMinutes(today.liveActiveMinutes)}
               </Typography>
             )}
           </Box>
 
-          <Typography variant="body2" sx={{ color: '#9ca3af', mb: 1.5 }}>Change Status:</Typography>
+          <Typography variant="body2" sx={{ color: semantic.muted, mb: 1.5 }}>Change Status:</Typography>
           <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
             {STATUSES.map(s => (
               <StatusButton
@@ -391,7 +392,7 @@ export default function CarrierELD() {
             label="Drive Time (11h limit)"
             used={driveUsed}
             total={660}
-            color="#10b981"
+            color={semantic.success}
           />
         </Grid>
         <Grid item xs={12} sm={4}>
@@ -399,7 +400,7 @@ export default function CarrierELD() {
             label="On-Duty Window (14h)"
             used={onDutyUsed}
             total={840}
-            color="#f59e0b"
+            color={semantic.warning}
           />
         </Grid>
         <Grid item xs={12} sm={4}>
@@ -407,26 +408,26 @@ export default function CarrierELD() {
             label="Cycle (70h / 8-day)"
             used={cycleUsedMins}
             total={4200}
-            color="#6366f1"
+            color={brand.indigo}
           />
         </Grid>
       </Grid>
 
       {/* Today's remaining detail */}
-      <Card sx={{ bgcolor: 'rgba(124,140,248,0.08)', border: '1.5px solid rgba(255,255,255,0.08)', borderRadius: 3, mb: 3 }}>
+      <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassHover}`, borderRadius: 3, mb: 3 }}>
         <CardContent>
           <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 1.5 }}>
             Today's HOS Detail
           </Typography>
           <Grid container spacing={2}>
             {[
-              { label: 'Driving', mins: today?.totals?.drivingMinutes || 0, color: '#10b981' },
-              { label: 'On-Duty (not drv)', mins: today?.totals?.onDutyNotDrivingMinutes || 0, color: '#f59e0b' },
-              { label: 'Sleeper', mins: today?.totals?.sleeperMinutes || 0, color: '#8b5cf6' },
-              { label: 'Off Duty', mins: today?.totals?.offDutyMinutes || 0, color: '#6b7280' },
+              { label: 'Driving', mins: today?.totals?.drivingMinutes || 0, color: semantic.success },
+              { label: 'On-Duty (not drv)', mins: today?.totals?.onDutyNotDrivingMinutes || 0, color: semantic.warning },
+              { label: 'Sleeper', mins: today?.totals?.sleeperMinutes || 0, color: brand.primary },
+              { label: 'Off Duty', mins: today?.totals?.offDutyMinutes || 0, color: semantic.muted },
             ].map(row => (
               <Grid item xs={6} sm={3} key={row.label}>
-                <Typography variant="caption" sx={{ color: '#9ca3af' }}>{row.label}</Typography>
+                <Typography variant="caption" sx={{ color: semantic.muted }}>{row.label}</Typography>
                 <Typography variant="body1" sx={{ color: row.color, fontWeight: 700 }}>
                   {fmtMinutes(row.mins)}
                 </Typography>
@@ -434,29 +435,29 @@ export default function CarrierELD() {
             ))}
           </Grid>
 
-          <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1.5 }} />
+          <Divider sx={{ borderColor: surface.glassHover, my: 1.5 }} />
 
           <Grid container spacing={2}>
             <Grid item xs={6} sm={3}>
-              <Typography variant="caption" sx={{ color: '#9ca3af' }}>Drive Remaining</Typography>
-              <Typography variant="body1" sx={{ color: '#10b981', fontWeight: 700 }}>
+              <Typography variant="caption" sx={{ color: semantic.muted }}>Drive Remaining</Typography>
+              <Typography variant="body1" sx={{ color: semantic.success, fontWeight: 700 }}>
                 {fmtMinutes(today?.remaining?.driveMinutes ?? 660)}
               </Typography>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Typography variant="caption" sx={{ color: '#9ca3af' }}>On-Duty Remaining</Typography>
-              <Typography variant="body1" sx={{ color: '#f59e0b', fontWeight: 700 }}>
+              <Typography variant="caption" sx={{ color: semantic.muted }}>On-Duty Remaining</Typography>
+              <Typography variant="body1" sx={{ color: semantic.warning, fontWeight: 700 }}>
                 {fmtMinutes(today?.remaining?.onDutyMinutes ?? 840)}
               </Typography>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Typography variant="caption" sx={{ color: '#9ca3af' }}>Cycle Remaining</Typography>
-              <Typography variant="body1" sx={{ color: '#6366f1', fontWeight: 700 }}>
+              <Typography variant="caption" sx={{ color: semantic.muted }}>Cycle Remaining</Typography>
+              <Typography variant="body1" sx={{ color: brand.indigo, fontWeight: 700 }}>
                 {summary ? `${summary.remainingCycleHours}h` : '--'}
               </Typography>
             </Grid>
             <Grid item xs={6} sm={3}>
-              <Typography variant="caption" sx={{ color: '#9ca3af' }}>Cycle Used</Typography>
+              <Typography variant="caption" sx={{ color: semantic.muted }}>Cycle Used</Typography>
               <Typography variant="body1" sx={{ color: '#e5e7eb', fontWeight: 700 }}>
                 {summary ? `${summary.usedOnDutyHours}h / 70h` : '--'}
               </Typography>
@@ -466,7 +467,7 @@ export default function CarrierELD() {
       </Card>
 
       {/* Timeline */}
-      <Card sx={{ bgcolor: 'rgba(124,140,248,0.08)', border: '1.5px solid rgba(255,255,255,0.08)', borderRadius: 3, mb: 3 }}>
+      <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassHover}`, borderRadius: 3, mb: 3 }}>
         <CardContent>
           <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 2 }}>
             Today's Timeline
@@ -485,8 +486,8 @@ export default function CarrierELD() {
             {today.violations.map((v, i) => (
               <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 {v.severity === 'violation'
-                  ? <ErrorIcon sx={{ color: '#ef4444', fontSize: 20 }} />
-                  : <WarningAmberIcon sx={{ color: '#f59e0b', fontSize: 20 }} />}
+                  ? <ErrorIcon sx={{ color: semantic.error, fontSize: 20 }} />
+                  : <WarningAmberIcon sx={{ color: semantic.warning, fontSize: 20 }} />}
                 <Typography variant="body2" sx={{ color: v.severity === 'violation' ? '#fca5a5' : '#fde68a' }}>
                   {v.message}
                 </Typography>
@@ -495,7 +496,7 @@ export default function CarrierELD() {
                   size="small"
                   sx={{
                     ml: 'auto',
-                    bgcolor: v.severity === 'violation' ? '#ef4444' : '#f59e0b',
+                    bgcolor: v.severity === 'violation' ? semantic.error : semantic.warning,
                     color: '#fff',
                     fontSize: '0.7rem',
                     fontWeight: 700,
@@ -508,7 +509,7 @@ export default function CarrierELD() {
       )}
 
       {/* 8-Day Log History */}
-      <Card sx={{ bgcolor: 'rgba(124,140,248,0.08)', border: '1.5px solid rgba(255,255,255,0.08)', borderRadius: 3 }}>
+      <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassHover}`, borderRadius: 3 }}>
         <CardContent>
           <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 2 }}>
             8-Day Log History
@@ -518,7 +519,7 @@ export default function CarrierELD() {
               <TableHead>
                 <TableRow>
                   {['Date', 'Driving', 'On-Duty', 'Violations', 'Certified', ''].map(h => (
-                    <TableCell key={h} sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.08)', fontWeight: 600 }}>
+                    <TableCell key={h} sx={{ color: semantic.muted, borderColor: surface.glassHover, fontWeight: 600 }}>
                       {h}
                     </TableCell>
                   ))}
@@ -530,37 +531,37 @@ export default function CarrierELD() {
                   const onDutyH = Math.round(((log.totals?.drivingMinutes || 0) + (log.totals?.onDutyNotDrivingMinutes || 0)) / 60 * 10) / 10;
                   const isToday = log.date === todayDate;
                   return (
-                    <TableRow key={log._id || log.date} hover sx={{ '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}>
-                      <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
+                    <TableRow key={log._id || log.date} hover sx={{ '&:hover': { bgcolor: surface.glassLight } }}>
+                      <TableCell sx={{ color: '#e5e7eb', borderColor: surface.glass }}>
                         {log.date}
-                        {isToday && <Chip label="today" size="small" sx={{ ml: 1, bgcolor: '#6366f1', color: '#fff', fontSize: '0.65rem' }} />}
+                        {isToday && <Chip label="today" size="small" sx={{ ml: 1, bgcolor: brand.indigo, color: '#fff', fontSize: '0.65rem' }} />}
                       </TableCell>
-                      <TableCell sx={{ color: '#10b981', borderColor: 'rgba(255,255,255,0.06)' }}>
+                      <TableCell sx={{ color: semantic.success, borderColor: surface.glass }}>
                         {driveH}h
                       </TableCell>
-                      <TableCell sx={{ color: '#f59e0b', borderColor: 'rgba(255,255,255,0.06)' }}>
+                      <TableCell sx={{ color: semantic.warning, borderColor: surface.glass }}>
                         {onDutyH}h
                       </TableCell>
-                      <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                      <TableCell sx={{ borderColor: surface.glass }}>
                         {(log.violations || []).length > 0 ? (
                           <Chip
                             label={(log.violations || []).length}
                             size="small"
                             icon={<ErrorIcon sx={{ fontSize: '14px !important' }} />}
-                            sx={{ bgcolor: '#ef4444', color: '#fff', fontWeight: 700 }}
+                            sx={{ bgcolor: semantic.error, color: '#fff', fontWeight: 700 }}
                           />
                         ) : (
-                          <Typography variant="caption" sx={{ color: '#6b7280' }}>None</Typography>
+                          <Typography variant="caption" sx={{ color: semantic.muted }}>None</Typography>
                         )}
                       </TableCell>
-                      <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                      <TableCell sx={{ borderColor: surface.glass }}>
                         {log.certified ? (
-                          <Chip icon={<VerifiedIcon />} label="Certified" size="small" sx={{ bgcolor: '#10b981', color: '#fff', fontWeight: 700 }} />
+                          <Chip icon={<VerifiedIcon />} label="Certified" size="small" sx={{ bgcolor: semantic.success, color: '#fff', fontWeight: 700 }} />
                         ) : (
-                          <Typography variant="caption" sx={{ color: '#6b7280' }}>Pending</Typography>
+                          <Typography variant="caption" sx={{ color: semantic.muted }}>Pending</Typography>
                         )}
                       </TableCell>
-                      <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                      <TableCell sx={{ borderColor: surface.glass }}>
                         {!log.certified && !isToday && (
                           <Button
                             size="small"
@@ -568,7 +569,7 @@ export default function CarrierELD() {
                             startIcon={<VerifiedIcon />}
                             onClick={() => certifyLog(log.date)}
                             disabled={certifyLoading}
-                            sx={{ borderColor: '#10b981', color: '#10b981', fontSize: '0.75rem' }}
+                            sx={{ borderColor: semantic.success, color: semantic.success, fontSize: '0.75rem' }}
                           >
                             Certify
                           </Button>
@@ -579,7 +580,7 @@ export default function CarrierELD() {
                 })}
                 {logs.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} sx={{ color: '#6b7280', textAlign: 'center', py: 3 }}>
+                    <TableCell colSpan={6} sx={{ color: semantic.muted, textAlign: 'center', py: 3 }}>
                       No log history found
                     </TableCell>
                   </TableRow>
@@ -592,30 +593,30 @@ export default function CarrierELD() {
 
       {/* 70h Cycle Detail */}
       {summary && (
-        <Card sx={{ bgcolor: 'rgba(124,140,248,0.08)', border: '1.5px solid rgba(255,255,255,0.08)', borderRadius: 3, mt: 3 }}>
+        <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassHover}`, borderRadius: 3, mt: 3 }}>
           <CardContent>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 1.5 }}>
               70-Hour Cycle Detail (last 8 days)
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-              <Typography variant="body2" sx={{ color: '#9ca3af', minWidth: 120 }}>On-Duty Used:</Typography>
+              <Typography variant="body2" sx={{ color: semantic.muted, minWidth: 120 }}>On-Duty Used:</Typography>
               <LinearProgress
                 variant="determinate"
                 value={pct(summary.usedOnDutyHours * 60, 4200)}
-                sx={{ flex: 1, height: 10, borderRadius: 5, bgcolor: 'rgba(255,255,255,0.1)', '& .MuiLinearProgress-bar': { bgcolor: '#6366f1' } }}
+                sx={{ flex: 1, height: 10, borderRadius: 5, bgcolor: surface.glassBorder, '& .MuiLinearProgress-bar': { bgcolor: brand.indigo } }}
               />
-              <Typography variant="body2" sx={{ color: '#6366f1', fontWeight: 700, minWidth: 60 }}>
+              <Typography variant="body2" sx={{ color: brand.indigo, fontWeight: 700, minWidth: 60 }}>
                 {summary.usedOnDutyHours}h / 70h
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Typography variant="body2" sx={{ color: '#9ca3af', minWidth: 120 }}>Drive Used:</Typography>
+              <Typography variant="body2" sx={{ color: semantic.muted, minWidth: 120 }}>Drive Used:</Typography>
               <LinearProgress
                 variant="determinate"
                 value={pct(summary.usedDriveHours * 60, 4200)}
-                sx={{ flex: 1, height: 10, borderRadius: 5, bgcolor: 'rgba(255,255,255,0.1)', '& .MuiLinearProgress-bar': { bgcolor: '#10b981' } }}
+                sx={{ flex: 1, height: 10, borderRadius: 5, bgcolor: surface.glassBorder, '& .MuiLinearProgress-bar': { bgcolor: semantic.success } }}
               />
-              <Typography variant="body2" sx={{ color: '#10b981', fontWeight: 700, minWidth: 60 }}>
+              <Typography variant="body2" sx={{ color: semantic.success, fontWeight: 700, minWidth: 60 }}>
                 {summary.usedDriveHours}h
               </Typography>
             </Box>
@@ -633,7 +634,7 @@ export default function CarrierELD() {
           Change Status to: {statusMeta(pendingStatus).label}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, p: 1.5, bgcolor: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, p: 1.5, bgcolor: surface.glass, borderRadius: 2 }}>
             <Box sx={{ color: statusMeta(pendingStatus).color }}>{statusMeta(pendingStatus).icon}</Box>
             <Typography sx={{ color: statusMeta(pendingStatus).color, fontWeight: 700 }}>
               {statusMeta(pendingStatus).label}
@@ -646,8 +647,8 @@ export default function CarrierELD() {
             size="small"
             value={statusOdometer}
             onChange={e => setStatusOdometer(e.target.value)}
-            sx={{ mb: 2, input: { color: '#fff' }, label: { color: '#9ca3af' }, '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } } }}
-            InputProps={{ endAdornment: <Typography variant="caption" sx={{ color: '#6b7280' }}>mi</Typography> }}
+            sx={{ mb: 2, input: { color: '#fff' }, label: { color: semantic.muted }, '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } } }}
+            InputProps={{ endAdornment: <Typography variant="caption" sx={{ color: semantic.muted }}>mi</Typography> }}
           />
           <TextField
             label="Notes (optional)"
@@ -657,11 +658,11 @@ export default function CarrierELD() {
             rows={2}
             value={statusNote}
             onChange={e => setStatusNote(e.target.value)}
-            sx={{ input: { color: '#fff' }, label: { color: '#9ca3af' }, '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' }, color: '#fff' } }}
+            sx={{ input: { color: '#fff' }, label: { color: semantic.muted }, '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' }, color: '#fff' } }}
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setStatusDialog(false)} sx={{ color: '#9ca3af' }}>Cancel</Button>
+          <Button onClick={() => setStatusDialog(false)} sx={{ color: semantic.muted }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={submitStatus}

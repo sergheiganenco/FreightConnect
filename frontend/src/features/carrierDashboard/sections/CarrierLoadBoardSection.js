@@ -11,9 +11,10 @@ import FilterDrawer from './components/FilterDrawer';
 import LoadGrid from './components/LoadGrid';
 import LoadDetailsModal from '../../../components/LoadDetailsModal';
 import api from '../../../services/api';
+import { semantic, surface, text as T, brand, tint, gradient } from '../../../theme/tokens';
 
 function MatchScoreBadge({ score }) {
-  const color = score >= 70 ? '#34d399' : score >= 40 ? '#fbbf24' : '#ef4444';
+  const color = score >= 70 ? semantic.success : score >= 40 ? semantic.warning : semantic.error;
   return (
     <Tooltip title={`Match score: ${score}/100`} arrow>
       <Chip
@@ -91,9 +92,9 @@ export default function CarrierLoadBoardSection() {
         onChange={(_, v) => setTab(v)}
         sx={{
           mb: 2,
-          '& .MuiTab-root': { color: 'rgba(255,255,255,0.5)', textTransform: 'none', fontWeight: 600 },
-          '& .Mui-selected': { color: '#fff' },
-          '& .MuiTabs-indicator': { background: 'linear-gradient(90deg,#6a1fcf,#e1129a)' },
+          '& .MuiTab-root': { color: T.secondary, textTransform: 'none', fontWeight: 600 },
+          '& .Mui-selected': { color: T.primary },
+          '& .MuiTabs-indicator': { background: gradient.primary },
         }}
       >
         <Tab label="All Loads" />
@@ -134,12 +135,12 @@ export default function CarrierLoadBoardSection() {
             </Box>
           )}
           {recError && (
-            <Typography sx={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', py: 4 }}>
+            <Typography sx={{ color: T.muted, textAlign: 'center', py: 4 }}>
               {recError}
             </Typography>
           )}
           {!recLoading && !recError && recommended.length === 0 && (
-            <Typography sx={{ color: 'rgba(255,255,255,0.35)', textAlign: 'center', py: 4 }}>
+            <Typography sx={{ color: T.hint, textAlign: 'center', py: 4 }}>
               No recommendations yet. Set your preferences in Profile → Matching Preferences.
             </Typography>
           )}
@@ -157,20 +158,20 @@ export default function CarrierLoadBoardSection() {
                     py: 1.5,
                     mb: 1,
                     borderRadius: 2,
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: surface.glassLight,
+                    border: `1px solid ${surface.glassHover}`,
                     cursor: 'pointer',
-                    '&:hover': { background: 'rgba(106,31,207,0.12)', borderColor: 'rgba(106,31,207,0.35)' },
+                    '&:hover': { background: tint(brand.primary, 0.12), borderColor: tint(brand.primary, 0.35) },
                   }}
                 >
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography variant="body2" fontWeight={700} noWrap>{load.title}</Typography>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
+                    <Typography variant="caption" sx={{ color: T.muted }}>
                       {load.origin} → {load.destination}
                     </Typography>
                   </Box>
                   <Stack direction="row" alignItems="center" spacing={1.5} sx={{ ml: 2 }}>
-                    <Typography variant="body2" fontWeight={700} sx={{ color: '#34d399', whiteSpace: 'nowrap' }}>
+                    <Typography variant="body2" fontWeight={700} sx={{ color: semantic.success, whiteSpace: 'nowrap' }}>
                       ${load.rate?.toLocaleString()}
                     </Typography>
                     <MatchScoreBadge score={score} />

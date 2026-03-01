@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { disconnectSocket } from '../services/socket';
+import { text as T, surface, tint } from '../theme/tokens';
 
 export default function Navbar() {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -51,7 +52,7 @@ export default function Navbar() {
       elevation={0}
       sx={{
         background: 'transparent',
-        color: 'white',
+        color: T.primary,
         py: 2
       }}
     >
@@ -72,8 +73,8 @@ export default function Navbar() {
               variant="outlined"
               sx={{
                 ml: 1,
-                color: 'white',
-                borderColor: 'rgba(255,255,255,0.7)'
+                color: T.primary,
+                borderColor: T.strong
               }}
             />
           )}
@@ -114,12 +115,12 @@ export default function Navbar() {
               <Button
                 onClick={() => navigate('/signup')}
                 sx={{
-                  backgroundColor: '#ffffff22',
-                  color: 'white',
+                  backgroundColor: surface.glassBadge,
+                  color: T.primary,
                   px: 2,
                   borderRadius: '12px',
                   fontWeight: 600,
-                  '&:hover': { backgroundColor: '#ffffff44' },
+                  '&:hover': { backgroundColor: tint('#ffffff', 0.25) },
                 }}
               >
                 Sign Up

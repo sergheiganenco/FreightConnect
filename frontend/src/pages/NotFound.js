@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import SearchOffIcon from '@mui/icons-material/SearchOff';
 import HomeIcon from '@mui/icons-material/Home';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { brand, gradient, surface } from '../theme/tokens';
 
 export default function NotFound() {
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ export default function NotFound() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #1f2dff 0%, #6a1fcf 40%, #e1129a 100%)',
+        background: gradient.dashboardBg,
         p: 2,
       }}
     >
@@ -31,12 +32,12 @@ export default function NotFound() {
           boxShadow: '0 24px 80px rgba(31,45,255,0.18)',
         }}
       >
-        <SearchOffIcon sx={{ fontSize: 72, color: '#6366f1', mb: 2, opacity: 0.85 }} />
+        <SearchOffIcon sx={{ fontSize: 72, color: brand.indigo, mb: 2, opacity: 0.85 }} />
 
         <Typography
           variant="h1"
           fontWeight={900}
-          sx={{ fontSize: { xs: '4rem', md: '6rem' }, color: '#6366f1', lineHeight: 1 }}
+          sx={{ fontSize: { xs: '4rem', md: '6rem' }, color: brand.indigo, lineHeight: 1 }}
         >
           404
         </Typography>
@@ -55,11 +56,11 @@ export default function NotFound() {
             startIcon={<HomeIcon />}
             onClick={() => navigate('/')}
             sx={{
-              bgcolor: '#6366f1',
+              bgcolor: brand.indigo,
               fontWeight: 700,
               borderRadius: 9999,
               px: 3,
-              '&:hover': { bgcolor: '#4f46e5' },
+              '&:hover': { bgcolor: brand.indigo },
             }}
           >
             Go Home
@@ -69,12 +70,12 @@ export default function NotFound() {
             startIcon={<ArrowBackIcon />}
             onClick={() => navigate(-1)}
             sx={{
-              borderColor: '#6366f1',
-              color: '#6366f1',
+              borderColor: brand.indigo,
+              color: brand.indigo,
               fontWeight: 700,
               borderRadius: 9999,
               px: 3,
-              '&:hover': { bgcolor: 'rgba(99,102,241,0.06)', borderColor: '#4f46e5' },
+              '&:hover': { bgcolor: surface.indigoTintLight, borderColor: brand.indigo },
             }}
           >
             Go Back

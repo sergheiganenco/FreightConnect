@@ -9,12 +9,10 @@ import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { surface, chart, gradient, semantic } from '../../theme/tokens';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const token = () => localStorage.getItem('token');
-
-const CARD_BG = 'rgba(35,13,71,0.88)';
-const GLASS = 'rgba(255,255,255,0.06)';
 
 const STATUS_CONFIG = {
   pending:   { label: 'Pending',    color: 'default' },
@@ -26,10 +24,10 @@ const STATUS_CONFIG = {
 
 function SummaryCard({ icon, label, value, sub, color }) {
   return (
-    <Card sx={{ flex: 1, minWidth: 160, background: CARD_BG, borderRadius: 3, border: '1px solid rgba(255,255,255,0.10)' }}>
+    <Card sx={{ flex: 1, minWidth: 160, background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
       <CardContent>
         <Stack direction="row" alignItems="center" spacing={1.5} mb={1}>
-          <Box sx={{ color: color || '#a082e0', display: 'flex' }}>{icon}</Box>
+          <Box sx={{ color: color || chart.purple, display: 'flex' }}>{icon}</Box>
           <Typography variant="body2" color="text.secondary">{label}</Typography>
         </Stack>
         <Typography variant="h5" fontWeight={700} color="#fff">{value}</Typography>
@@ -129,7 +127,7 @@ export default function CarrierPayments() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {/* ── Stripe Connect Status ────────────────────────────────────── */}
-      <Card sx={{ mb: 3, background: CARD_BG, borderRadius: 3, border: '1px solid rgba(255,255,255,0.10)' }}>
+      <Card sx={{ mb: 3, background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
         <CardContent>
           <Typography variant="subtitle1" fontWeight={700} mb={1.5}>Payout Account</Typography>
           {stripeLoading ? (
@@ -163,7 +161,7 @@ export default function CarrierPayments() {
                 size="small"
                 onClick={handleStripeOnboard}
                 disabled={onboarding}
-                sx={{ background: 'linear-gradient(90deg,#6a1fcf,#e1129a)' }}
+                sx={{ background: gradient.primary }}
               >
                 Continue Setup
               </Button>
@@ -180,7 +178,7 @@ export default function CarrierPayments() {
                 size="small"
                 onClick={handleStripeOnboard}
                 disabled={onboarding}
-                sx={{ background: 'linear-gradient(90deg,#6a1fcf,#e1129a)' }}
+                sx={{ background: gradient.primary }}
               >
                 {onboarding ? 'Redirecting…' : 'Connect Bank Account'}
               </Button>
@@ -196,26 +194,26 @@ export default function CarrierPayments() {
           label="Total Earned"
           value={fmt(earned)}
           sub={`from ${payments.filter(p => p.status === 'released').length} loads`}
-          color="#3ec17c"
+          color={chart.green}
         />
         <SummaryCard
           icon={<HourglassEmptyIcon />}
           label="In Escrow"
           value={fmt(inEscrow)}
           sub="awaiting delivery confirmation"
-          color="#ffd86b"
+          color={chart.gold}
         />
         <SummaryCard
           icon={<CheckCircleOutlineIcon />}
           label="Pending Payments"
           value={pending}
           sub="payment intents not yet captured"
-          color="#a082e0"
+          color={chart.purple}
         />
       </Stack>
 
       {/* ── Payment History ─────────────────────────────────────────── */}
-      <Card sx={{ background: CARD_BG, borderRadius: 3, border: '1px solid rgba(255,255,255,0.10)' }}>
+      <Card sx={{ background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
         <CardContent>
           <Typography variant="subtitle1" fontWeight={700} mb={2}>
             Payment History
@@ -235,7 +233,7 @@ export default function CarrierPayments() {
             </Box>
           ) : (
             <>
-              <TableContainer component={Paper} sx={{ background: GLASS, borderRadius: 2 }}>
+              <TableContainer component={Paper} sx={{ background: surface.glass, borderRadius: 2 }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
@@ -268,7 +266,7 @@ export default function CarrierPayments() {
                           </TableCell>
                           <TableCell align="right">
                             <Tooltip title={`Platform fee: ${fmt(p.platformFee)}`}>
-                              <Typography variant="body2" fontWeight={700} color="#3ec17c">
+                              <Typography variant="body2" fontWeight={700} color={chart.green}>
                                 {fmt(p.carrierPayout)}
                               </Typography>
                             </Tooltip>

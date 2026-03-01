@@ -1,6 +1,6 @@
-// src/features/adminDashboard/sections/components/SideNav.js
 import React from "react";
 import { List, ListItemButton, ListItemIcon, ListItemText } from "@mui/material";
+import { surface, text as T } from '../../../../theme/tokens';
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
@@ -29,11 +29,11 @@ export default function SideNav({ current, collapsed, onSelect }) {
             borderRadius: 3,
             minHeight: 44,
             px: collapsed ? 1 : 2,
-            bgcolor: current === item.key ? "rgba(240,76,167,0.12)" : "transparent",
+            bgcolor: current === item.key ? surface.pinkTint : "transparent",
           }}
           onClick={() => onSelect(item.key)}
         >
-          <ListItemIcon sx={{ color: "#fff", minWidth: 40 }}>{item.icon}</ListItemIcon>
+          <ListItemIcon sx={{ color: T.primary, minWidth: 40 }}>{item.icon}</ListItemIcon>
           {!collapsed && (
             <ListItemText
               primary={item.label}

@@ -25,8 +25,46 @@ const LoadSchema = new mongoose.Schema({
     height: Number,
   },
   commodityType: String,
+  commodityCategory: String,
   specialInstructions: String,
   hazardousMaterial: Boolean,
+  hazmatClass: String,
+  hazmatPackingGroup: String,
+  dangerousGoodsUN: String,
+
+  // ── Enterprise / extended fields ──────────────────────────────────────────
+  paymentTerms: String,
+  currency: { type: String, default: 'USD' },
+  specialHandling: [String],
+  accessorials: [String],
+  insuranceRequired: Number,
+  cargoValue: Number,
+  loadVisibility: { type: String, default: 'public', enum: ['public', 'preferred', 'private'] },
+  allowCarrierBidding: { type: Boolean, default: true },
+  expirationDateTime: Date,
+  notes: String,
+  carrierInstructions: String,
+  documentsRequired: [String],
+
+  // ── Reference numbers ─────────────────────────────────────────────────────
+  poNumber: String,
+  shipperReferenceNumber: String,
+  consigneeReference: String,
+
+  // ── Overweight acknowledgment ─────────────────────────────────────────────
+  overweightAcknowledged: { type: Boolean, default: false },
+  overweightPermitNumber: String,
+
+  // ── Pickup / delivery facility details ────────────────────────────────────
+  pickupFacilityName: String,
+  pickupAddress: String,
+  pickupContactName: String,
+  pickupContactPhone: String,
+  deliveryFacilityName: String,
+  deliveryAddress: String,
+  deliveryContactName: String,
+  deliveryContactPhone: String,
+
   status: { type: String, default: 'open' },
   postedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

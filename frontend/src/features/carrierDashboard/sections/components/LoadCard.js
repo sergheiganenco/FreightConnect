@@ -1,67 +1,35 @@
-// ── src/features/carrierDashboard/components/LoadCard.jsx
+// src/features/carrierDashboard/components/LoadCard.jsx
 import React from 'react';
-import { Paper, Typography, Box } from '@mui/material';
+import { Paper, Typography, Box, Chip } from '@mui/material';
 import { motion } from 'framer-motion';
-import { useTheme } from '@mui/material/styles';
 import StatusChip from './StatusChip';
+import { status as ST, surface, shadow, statusColor } from '../../../../theme/tokens';
 
-
+const fmtDate = (raw) => {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d) ? null : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
 export default function LoadCard({ load, onClick }) {
-  const theme = useTheme();
+  const origin      = load.origin      || 'Origin TBD';
+  const destination = load.destination || 'Destination TBD';
 
-  /* -----------------------------------------
-     Resolve payload fields (+ fall-backs)
-  ----------------------------------------- */
-  const origin      = load.origin      ?? 'Origin TBD';
-  const destination = load.destination ?? 'Destination TBD';
-
- // ---------- Pickup date (robust) ----------
-const pickupDateRaw =
-  load.pickupDate ??
-  load.pickupStart ??  
-  load.pickup_time ??
-  load.pickupTime ??
-  load.pickupStart ??
-  load?.pickupTimeWindow?.start ??
-  null;
-
-let pickupDate = 'TBD';
-if (pickupDateRaw) {
-  const dateObj = new Date(pickupDateRaw);
-  // Only accept if it’s a valid date
-  if (!isNaN(dateObj)) {
-    pickupDate = dateObj.toLocaleDateString(undefined, {
-      month: 'short',
-      day:   'numeric',
-      year:  'numeric',
-    });
-  }
-}
+  const pickupDate  = fmtDate(load.pickupTimeWindow?.start) || 'TBD';
+  const deliveryDate = fmtDate(load.deliveryTimeWindow?.start);
 
   const rate =
     typeof load.rate === 'number'
-      ? `$${load.rate.toLocaleString()}`
+      ? '$' + load.rate.toLocaleString()
       : 'Rate TBD';
 
-  /* -----------------------------------------
-     Accent colours (theme-first, then default)
-  ----------------------------------------- */
-  const accentPalette = theme.palette?.accent || {
-    open: '#22d3ee',
-    accepted: '#a78bfa',
-    inTransit: '#fbbf24',
-    delivered: '#34d399',
-  };
-
-  const accent = accentPalette[load.status] ?? accentPalette.open;
-
-  /* glass background tint */
-  const glass = theme.palette?.glass || 'rgba(255,255,255,0.06)';
+  const equipment = load.equipmentType || null;
+  const weight = load.loadWeight ? Number(load.loadWeight).toLocaleString() + ' lbs' : null;
+  const accent = statusColor(load.status);
 
   return (
     <motion.div
-      whileHover={{ y: -4, boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}
+      whileHover={{ y: -4, boxShadow: shadow.card }}
       transition={{ type: 'spring', stiffness: 300, damping: 24 }}
     >
       <Paper
@@ -70,29 +38,51 @@ if (pickupDateRaw) {
           p: 2,
           mb: 2,
           cursor: 'pointer',
-          borderLeft: `6px solid ${accent}`,
+          borderLeft: '6px solid ' + accent,
           borderRadius: 2,
-          background: glass,
+          background: surface.glass,
           backdropFilter: 'blur(12px)',
         }}
       >
-        {/* route line + status */}
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          mb={1}
-        >
-          <Typography variant="subtitle1" fontWeight={600}>
-            {origin} → {destination}
+        {/* Title + status */}
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+          <Typography variant="subtitle1" fontWeight={700}>
+            {load.title || (origin + ' \u2192 ' + destination)}
           </Typography>
-          <StatusChip status={load.status ?? 'open'} />
+          <StatusChip status={load.status || 'open'} />
         </Box>
 
-        {/* meta row */}
-        <Typography variant="body2" color="text.secondary">
-          Pickup&nbsp;{pickupDate} | {rate}
-        </Typography>
+        {/* Route */}
+        {load.title && (
+          <Typography variant="body2" color="text.secondary" mb={0.5}>
+            {origin} {'\u2192'} {destination}
+          </Typography>
+        )}
+
+        {/* Overweight badge — visible to carriers before accepting */}
+        {load.overweightAcknowledged && (
+          <Chip
+            label={load.overweightPermitNumber ? `Overweight — Permit #${load.overweightPermitNumber}` : 'Overweight — Permit Required'}
+            size="small"
+            sx={{ mb: 0.5, bgcolor: 'rgba(239,68,68,0.15)', color: '#ef4444', fontWeight: 700, fontSize: '0.75rem', border: '1px solid rgba(239,68,68,0.4)' }}
+          />
+        )}
+
+        {/* Details row */}
+        <Box display="flex" flexWrap="wrap" gap={1} alignItems="center" mt={0.5}>
+          <Typography variant="body2" fontWeight={600} sx={{ color: ST.open }}>
+            {rate}
+          </Typography>
+          {equipment && (
+            <Chip label={equipment} size="small" sx={{ bgcolor: surface.glassBorder, color: '#e4e2f7', fontWeight: 600, fontSize: '0.8rem' }} />
+          )}
+          {weight && (
+            <Typography variant="body2" color="text.secondary">{weight}</Typography>
+          )}
+          <Typography variant="body2" color="text.secondary">
+            Pickup {pickupDate}{deliveryDate ? ' \u2192 Del ' + deliveryDate : ''}
+          </Typography>
+        </Box>
       </Paper>
     </motion.div>
   );

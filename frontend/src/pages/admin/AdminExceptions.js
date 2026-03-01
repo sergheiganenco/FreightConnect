@@ -20,6 +20,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import SendIcon from '@mui/icons-material/Send';
 import api from '../../services/api';
+import { brand, semantic, severity as SEV, exceptionStatus as EX_STATUS, surface, text as T, tint, status as ST, gradient } from '../../theme/tokens';
 
 const STATUS_OPTIONS = [
   { value: 'all',           label: 'All Statuses' },
@@ -39,8 +40,8 @@ const TYPE_OPTIONS = [
   { value: 'other',         label: 'Other' },
 ];
 
-const SEVERITY_COLOR = { low: '#94a3b8', medium: '#fbbf24', high: '#f97316', critical: '#ef4444' };
-const STATUS_COLOR   = { open: '#6366f1', investigating: '#fbbf24', resolved: '#34d399', dismissed: '#94a3b8' };
+const SEVERITY_COLOR = SEV;
+const STATUS_COLOR   = EX_STATUS;
 
 const PAGE_SIZE = 10;
 
@@ -56,8 +57,8 @@ function SeverityChip({ severity }) {
       label={severity}
       size="small"
       sx={{
-        bgcolor: `${SEVERITY_COLOR[severity] || '#94a3b8'}22`,
-        color: SEVERITY_COLOR[severity] || '#94a3b8',
+        bgcolor: `${SEVERITY_COLOR[severity] || semantic.muted}22`,
+        color: SEVERITY_COLOR[severity] || semantic.muted,
         fontWeight: 700, fontSize: '0.68rem', textTransform: 'capitalize',
       }}
     />
@@ -70,8 +71,8 @@ function StatusChipEl({ status }) {
       label={status}
       size="small"
       sx={{
-        bgcolor: `${STATUS_COLOR[status] || '#94a3b8'}22`,
-        color: STATUS_COLOR[status] || '#94a3b8',
+        bgcolor: `${STATUS_COLOR[status] || semantic.muted}22`,
+        color: STATUS_COLOR[status] || semantic.muted,
         fontWeight: 700, fontSize: '0.68rem', textTransform: 'capitalize',
       }}
     />
@@ -140,8 +141,8 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
       PaperProps={{
         sx: {
           width: { xs: '100vw', sm: 520 },
-          bgcolor: '#1a1035',
-          color: '#fff',
+          bgcolor: surface.background,
+          color: T.primary,
           p: 3,
           overflowY: 'auto',
         },
@@ -151,7 +152,7 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
       <Stack direction="row" alignItems="flex-start" justifyContent="space-between" mb={2}>
         <Box flex={1}>
           <Stack direction="row" alignItems="center" spacing={1} mb={0.5}>
-            <WarningAmberIcon sx={{ color: SEVERITY_COLOR[exception.severity], fontSize: 22 }} />
+            <WarningAmberIcon sx={{ color: SEV[exception.severity], fontSize: 22 }} />
             <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>
               {exception.title}
             </Typography>
@@ -160,94 +161,94 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
             <SeverityChip severity={exception.severity} />
             <StatusChipEl status={exception.status} />
             <Chip label={exception.type.replace('_', ' ')} size="small"
-                  sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: '#c4b5fd', fontWeight: 600, fontSize: '0.68rem', textTransform: 'capitalize' }} />
+                  sx={{ bgcolor: surface.glassHover, color: brand.indigoLight, fontWeight: 600, fontSize: '0.68rem', textTransform: 'capitalize' }} />
             {exception.autoFlagged && (
               <Chip label="Auto-flagged" size="small"
-                    sx={{ bgcolor: 'rgba(249,115,22,0.15)', color: '#f97316', fontWeight: 700, fontSize: '0.68rem' }} />
+                    sx={{ bgcolor: tint(semantic.orange, 0.15), color: semantic.orange, fontWeight: 700, fontSize: '0.68rem' }} />
             )}
           </Stack>
         </Box>
-        <IconButton onClick={onClose} sx={{ color: '#fff', mt: -0.5 }}><CloseIcon /></IconButton>
+        <IconButton onClick={onClose} sx={{ color: T.primary, mt: -0.5 }}><CloseIcon /></IconButton>
       </Stack>
 
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', mb: 2 }} />
+      <Divider sx={{ borderColor: surface.glassBorder, mb: 2 }} />
 
       {/* Load info */}
       {load && (
-        <Box mb={2} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.05)' }}>
-          <Typography variant="caption" sx={{ color: '#a78bfa', fontWeight: 700, display: 'block', mb: 0.25 }}>
+        <Box mb={2} sx={{ p: 1.5, borderRadius: 2, bgcolor: surface.glassSubtle }}>
+          <Typography variant="caption" sx={{ color: ST.accepted, fontWeight: 700, display: 'block', mb: 0.25 }}>
             LOAD
           </Typography>
           <Typography fontWeight={700} fontSize="0.95rem">
             {load.origin} → {load.destination}
           </Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)' }}>
+          <Typography variant="caption" sx={{ color: T.secondary }}>
             {load.title} · Status: {load.status}
           </Typography>
         </Box>
       )}
 
       {/* Filed by */}
-      <Box mb={2} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.05)' }}>
-        <Typography variant="caption" sx={{ color: '#a78bfa', fontWeight: 700, display: 'block', mb: 0.25 }}>
+      <Box mb={2} sx={{ p: 1.5, borderRadius: 2, bgcolor: surface.glassSubtle }}>
+        <Typography variant="caption" sx={{ color: ST.accepted, fontWeight: 700, display: 'block', mb: 0.25 }}>
           FILED BY
         </Typography>
         <Typography fontWeight={700} fontSize="0.95rem">
           {exception.filedBy?.name || 'N/A'}
           {exception.filedBy?.companyName ? ` · ${exception.filedBy.companyName}` : ''}
         </Typography>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)' }}>
+        <Typography variant="caption" sx={{ color: T.secondary }}>
           {exception.filedBy?.email} · Role: {exception.filedByRole}
         </Typography>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block', mt: 0.25 }}>
+        <Typography variant="caption" sx={{ color: T.muted, display: 'block', mt: 0.25 }}>
           Filed {fmtDate(exception.createdAt)}
         </Typography>
       </Box>
 
       {/* Description */}
-      <Typography variant="caption" sx={{ color: '#a78bfa', fontWeight: 700, display: 'block', mb: 0.5 }}>
+      <Typography variant="caption" sx={{ color: ST.accepted, fontWeight: 700, display: 'block', mb: 0.5 }}>
         DESCRIPTION
       </Typography>
-      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)', mb: 2, lineHeight: 1.6 }}>
+      <Typography variant="body2" sx={{ color: T.strong, mb: 2, lineHeight: 1.6 }}>
         {exception.description}
       </Typography>
 
       {exception.claimAmount && (
-        <Box mb={2} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)' }}>
-          <Typography variant="body2" fontWeight={700} sx={{ color: '#f97316' }}>
+        <Box mb={2} sx={{ p: 1.5, borderRadius: 2, bgcolor: tint(semantic.orange, 0.1), border: `1px solid ${tint(semantic.orange, 0.3)}` }}>
+          <Typography variant="body2" fontWeight={700} sx={{ color: semantic.orange }}>
             Claim Amount: ${exception.claimAmount.toLocaleString()}
           </Typography>
         </Box>
       )}
 
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', mb: 2 }} />
+      <Divider sx={{ borderColor: surface.glassBorder, mb: 2 }} />
 
       {/* Notes thread */}
-      <Typography variant="caption" sx={{ color: '#a78bfa', fontWeight: 700, display: 'block', mb: 1 }}>
+      <Typography variant="caption" sx={{ color: ST.accepted, fontWeight: 700, display: 'block', mb: 1 }}>
         NOTES ({exception.notes?.length || 0})
       </Typography>
       <Stack spacing={1} mb={2}>
         {(exception.notes || []).map((note, i) => (
           <Box key={note._id || i} sx={{
             p: 1.5, borderRadius: 2,
-            bgcolor: note.authorRole === 'admin' ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.05)',
-            border: `1px solid ${note.authorRole === 'admin' ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.08)'}`,
+            bgcolor: note.authorRole === 'admin' ? surface.indigoTint : surface.glassSubtle,
+            border: `1px solid ${note.authorRole === 'admin' ? surface.indigoBorder : surface.glassHover}`,
           }}>
             <Stack direction="row" justifyContent="space-between" mb={0.25}>
-              <Typography variant="caption" fontWeight={700} sx={{ color: note.authorRole === 'admin' ? '#818cf8' : '#c4b5fd', textTransform: 'capitalize' }}>
+              <Typography variant="caption" fontWeight={700} sx={{ color: note.authorRole === 'admin' ? brand.indigoLight : brand.indigoLight, textTransform: 'capitalize' }}>
                 {note.authorRole === 'system' ? 'System' : note.author?.name || note.authorRole}
               </Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)' }}>
+              <Typography variant="caption" sx={{ color: T.muted }}>
                 {fmtDate(note.createdAt)}
               </Typography>
             </Stack>
-            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.75)', lineHeight: 1.5 }}>
+            <Typography variant="body2" sx={{ color: T.strong, lineHeight: 1.5 }}>
               {note.content}
             </Typography>
           </Box>
         ))}
         {(!exception.notes || exception.notes.length === 0) && (
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)' }}>No notes yet.</Typography>
+          <Typography variant="caption" sx={{ color: T.muted }}>No notes yet.</Typography>
         )}
       </Stack>
 
@@ -259,8 +260,8 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
           value={noteContent}
           onChange={e => setNoteContent(e.target.value)}
           sx={{
-            '& .MuiInputBase-root': { bgcolor: 'rgba(255,255,255,0.07)', color: '#fff', borderRadius: 2 },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.15)' },
+            '& .MuiInputBase-root': { bgcolor: surface.glass, color: T.primary, borderRadius: 2 },
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: surface.glassBorder },
           }}
         />
         <Tooltip title="Add note">
@@ -268,28 +269,28 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
             <IconButton
               onClick={handleAddNote}
               disabled={saving || !noteContent.trim()}
-              sx={{ bgcolor: '#6366f1', color: '#fff', borderRadius: 2, '&:hover': { bgcolor: '#4f46e5' }, '&.Mui-disabled': { bgcolor: 'rgba(99,102,241,0.3)' } }}
+              sx={{ bgcolor: brand.indigo, color: T.primary, borderRadius: 2, '&:hover': { bgcolor: '#4f46e5' }, '&.Mui-disabled': { bgcolor: tint(brand.indigo, 0.3) } }}
             >
-              {saving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : <SendIcon />}
+              {saving ? <CircularProgress size={18} sx={{ color: T.primary }} /> : <SendIcon />}
             </IconButton>
           </span>
         </Tooltip>
       </Stack>
 
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', mb: 2 }} />
+      <Divider sx={{ borderColor: surface.glassBorder, mb: 2 }} />
 
       {/* Status update */}
-      <Typography variant="caption" sx={{ color: '#a78bfa', fontWeight: 700, display: 'block', mb: 1 }}>
+      <Typography variant="caption" sx={{ color: ST.accepted, fontWeight: 700, display: 'block', mb: 1 }}>
         UPDATE STATUS
       </Typography>
       <Stack spacing={1.5}>
         <FormControl size="small" fullWidth>
-          <InputLabel sx={{ color: 'rgba(255,255,255,0.6)' }}>Status</InputLabel>
+          <InputLabel sx={{ color: T.secondary }}>Status</InputLabel>
           <Select
             value={newStatus}
             label="Status"
             onChange={e => setNewStatus(e.target.value)}
-            sx={{ color: '#fff', bgcolor: 'rgba(255,255,255,0.07)', '& .MuiSvgIcon-root': { color: '#fff' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' } }}
+            sx={{ color: T.primary, bgcolor: surface.glass, '& .MuiSvgIcon-root': { color: T.primary }, '& .MuiOutlinedInput-notchedOutline': { borderColor: surface.indigoBorderLight } }}
           >
             {STATUS_OPTIONS.filter(s => s.value !== 'all').map(s => (
               <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
@@ -303,9 +304,9 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
             value={resolution}
             onChange={e => setResolution(e.target.value)}
             sx={{
-              '& .MuiInputBase-root': { bgcolor: 'rgba(255,255,255,0.07)', color: '#fff', borderRadius: 2 },
-              '& label': { color: 'rgba(255,255,255,0.55)' },
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.15)' },
+              '& .MuiInputBase-root': { bgcolor: surface.glass, color: T.primary, borderRadius: 2 },
+              '& label': { color: T.secondary },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: surface.glassBorder },
             }}
           />
         )}
@@ -315,9 +316,9 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
           variant="contained"
           onClick={handleStatusUpdate}
           disabled={saving || newStatus === exception.status}
-          sx={{ bgcolor: '#f04ca7', borderRadius: 9999, fontWeight: 700, '&:hover': { bgcolor: '#d63a90' } }}
+          sx={{ bgcolor: brand.pink, borderRadius: 9999, fontWeight: 700, '&:hover': { bgcolor: '#d63a90' } }}
         >
-          {saving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Update Status'}
+          {saving ? <CircularProgress size={18} sx={{ color: T.primary }} /> : 'Update Status'}
         </Button>
       </Stack>
     </Drawer>
@@ -370,34 +371,34 @@ export default function AdminExceptions() {
              justifyContent="space-between" mb={3} gap={2}>
         <Box>
           <Stack direction="row" alignItems="center" spacing={1.5}>
-            <WarningAmberIcon sx={{ color: '#f97316', fontSize: 28 }} />
-            <Typography variant="h4" fontWeight={900} sx={{ color: '#fff', letterSpacing: 1 }}>
+            <WarningAmberIcon sx={{ color: semantic.orange, fontSize: 28 }} />
+            <Typography variant="h4" fontWeight={900} sx={{ color: T.primary, letterSpacing: 1 }}>
               Exceptions
             </Typography>
           </Stack>
-          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', mt: 0.5 }}>
+          <Typography variant="body2" sx={{ color: T.secondary, mt: 0.5 }}>
             {total} exception{total !== 1 ? 's' : ''} filed across the platform
           </Typography>
         </Box>
         <Stack direction="row" spacing={1.5}>
           <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel sx={{ color: '#fff' }}>Status</InputLabel>
+            <InputLabel sx={{ color: T.primary }}>Status</InputLabel>
             <Select
               value={statusFilter}
               label="Status"
               onChange={e => setStatusFilter(e.target.value)}
-              sx={{ bgcolor: '#4c318f', color: '#fff', borderRadius: 2, '& .MuiSvgIcon-root': { color: '#fff' } }}
+              sx={{ bgcolor: surface.appBar, color: T.primary, borderRadius: 2, '& .MuiSvgIcon-root': { color: T.primary } }}
             >
               {STATUS_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
             </Select>
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel sx={{ color: '#fff' }}>Type</InputLabel>
+            <InputLabel sx={{ color: T.primary }}>Type</InputLabel>
             <Select
               value={typeFilter}
               label="Type"
               onChange={e => setTypeFilter(e.target.value)}
-              sx={{ bgcolor: '#4c318f', color: '#fff', borderRadius: 2, '& .MuiSvgIcon-root': { color: '#fff' } }}
+              sx={{ bgcolor: surface.appBar, color: T.primary, borderRadius: 2, '& .MuiSvgIcon-root': { color: T.primary } }}
             >
               {TYPE_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
             </Select>
@@ -407,9 +408,9 @@ export default function AdminExceptions() {
 
       {/* List */}
       {loading ? (
-        <Stack alignItems="center" mt={8}><CircularProgress sx={{ color: '#a78bfa' }} /></Stack>
+        <Stack alignItems="center" mt={8}><CircularProgress sx={{ color: ST.accepted }} /></Stack>
       ) : exceptions.length === 0 ? (
-        <Typography sx={{ color: 'rgba(255,255,255,0.4)', textAlign: 'center', mt: 8 }}>
+        <Typography sx={{ color: T.muted, textAlign: 'center', mt: 8 }}>
           No exceptions match the current filters.
         </Typography>
       ) : (
@@ -422,7 +423,7 @@ export default function AdminExceptions() {
                 elevation={6}
                 onClick={() => setSelected(exc)}
                 sx={{
-                  background: 'linear-gradient(135deg,#1e1050 60%,#2d1b69 100%)',
+                  background: gradient.background,
                   borderRadius: 4,
                   px: { xs: 2, sm: 3 },
                   py: 2,
@@ -439,26 +440,26 @@ export default function AdminExceptions() {
                   {/* Left */}
                   <Box flex={1} minWidth={0}>
                     <Stack direction="row" alignItems="center" spacing={1} mb={0.5} flexWrap="wrap">
-                      <Typography fontWeight={800} sx={{ color: '#fff', fontSize: '1rem' }}>
+                      <Typography fontWeight={800} sx={{ color: T.primary, fontSize: '1rem' }}>
                         {exc.title}
                       </Typography>
                       {exc.autoFlagged && (
                         <Chip label="Auto-flagged" size="small"
-                              sx={{ bgcolor: 'rgba(249,115,22,0.15)', color: '#f97316', fontWeight: 700, fontSize: '0.62rem' }} />
+                              sx={{ bgcolor: tint(semantic.orange, 0.15), color: semantic.orange, fontWeight: 700, fontSize: '0.62rem' }} />
                       )}
                     </Stack>
                     <Stack direction="row" spacing={0.75} flexWrap="wrap" gap={0.5} mb={1}>
                       <SeverityChip severity={exc.severity} />
                       <StatusChipEl status={exc.status} />
                       <Chip label={exc.type.replace('_', ' ')} size="small"
-                            sx={{ bgcolor: 'rgba(255,255,255,0.07)', color: '#c4b5fd', fontWeight: 600, fontSize: '0.65rem', textTransform: 'capitalize' }} />
+                            sx={{ bgcolor: surface.glass, color: brand.indigoLight, fontWeight: 600, fontSize: '0.65rem', textTransform: 'capitalize' }} />
                     </Stack>
                     {load && (
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>
+                      <Typography variant="caption" sx={{ color: T.secondary, display: 'block' }}>
                         Load: {load.origin} → {load.destination} · {load.title}
                       </Typography>
                     )}
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
+                    <Typography variant="caption" sx={{ color: T.muted }}>
                       Filed by {exc.filedBy?.name || exc.filedByRole} · {fmtDate(exc.createdAt)}
                     </Typography>
                   </Box>
@@ -466,18 +467,18 @@ export default function AdminExceptions() {
                   {/* Right */}
                   <Stack alignItems="flex-end" justifyContent="center" spacing={0.75} flexShrink={0}>
                     {exc.claimAmount && (
-                      <Typography fontWeight={800} sx={{ color: '#f97316', fontSize: '1.1rem' }}>
+                      <Typography fontWeight={800} sx={{ color: semantic.orange, fontSize: '1.1rem' }}>
                         ${exc.claimAmount.toLocaleString()}
                       </Typography>
                     )}
                     <Chip
                       label={`${exc.notes?.length || 0} note${exc.notes?.length !== 1 ? 's' : ''}`}
                       size="small"
-                      sx={{ bgcolor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.55)', fontSize: '0.68rem' }}
+                      sx={{ bgcolor: surface.glassHover, color: T.secondary, fontSize: '0.68rem' }}
                     />
                     <Button
                       size="small" variant="outlined"
-                      sx={{ borderColor: '#f04ca7', color: '#f04ca7', borderRadius: 9999, fontSize: '0.72rem', fontWeight: 700, '&:hover': { bgcolor: 'rgba(240,76,167,0.1)' } }}
+                      sx={{ borderColor: brand.pink, color: brand.pink, borderRadius: 9999, fontSize: '0.72rem', fontWeight: 700, '&:hover': { bgcolor: surface.pinkTint } }}
                       onClick={e => { e.stopPropagation(); setSelected(exc); }}
                     >
                       Manage
@@ -499,8 +500,8 @@ export default function AdminExceptions() {
             onChange={(_, val) => setPage(val)}
             sx={{
               '& .MuiPaginationItem-root': {
-                bgcolor: '#4c318f', color: '#fff', borderRadius: 2, fontWeight: 700,
-                '&.Mui-selected': { bgcolor: '#f04ca7', color: '#fff' },
+                bgcolor: surface.appBar, color: T.primary, borderRadius: 2, fontWeight: 700,
+                '&.Mui-selected': { bgcolor: brand.pink, color: T.primary },
               },
             }}
           />

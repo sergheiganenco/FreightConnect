@@ -17,7 +17,7 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import api from "../services/api";
-import socket from "../services/socket";
+import { getSocket } from "../services/socket";
 
 // Remove Leaflet icon warnings in dev:
 delete L.Icon.Default.prototype._getIconUrl;
@@ -46,8 +46,9 @@ export default function FleetMap() {
 
   useEffect(() => {
     fetchFleet();
-    socket.on("fleetUpdated", fetchFleet);
-    return () => socket.off("fleetUpdated", fetchFleet);
+    const s = getSocket();
+    if (s) s.on("fleetUpdated", fetchFleet);
+    return () => { if (s) s.off("fleetUpdated", fetchFleet); };
     // eslint-disable-next-line
   }, []);
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography, Button, Paper } from '@mui/material';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { brand, semantic, gradient } from '../theme/tokens';
 
 /**
  * ErrorBoundary — catches unhandled React render errors and shows a fallback UI.
@@ -40,7 +41,7 @@ export default class ErrorBoundary extends React.Component {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, #1f2dff 0%, #6a1fcf 40%, #e1129a 100%)',
+          background: gradient.dashboardBg,
           p: 2,
         }}
       >
@@ -55,7 +56,7 @@ export default class ErrorBoundary extends React.Component {
             background: 'rgba(255,255,255,0.97)',
           }}
         >
-          <ErrorOutlineIcon sx={{ fontSize: 64, color: '#ef4444', mb: 2 }} />
+          <ErrorOutlineIcon sx={{ fontSize: 64, color: semantic.error, mb: 2 }} />
           <Typography variant="h5" fontWeight={800} mb={1} color="#1e1e2e">
             Something went wrong
           </Typography>
@@ -86,11 +87,11 @@ export default class ErrorBoundary extends React.Component {
             variant="contained"
             onClick={this.handleReset}
             sx={{
-              bgcolor: '#6366f1',
+              bgcolor: brand.indigo,
               fontWeight: 700,
               borderRadius: 9999,
               px: 4,
-              '&:hover': { bgcolor: '#4f46e5' },
+              '&:hover': { bgcolor: brand.indigo },
             }}
           >
             Go to Home

@@ -48,6 +48,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { surface, semantic, brand } from '../../theme/tokens';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -61,8 +62,8 @@ function fmtTime(dt) {
 }
 
 const CARD_SX = {
-  bgcolor: 'rgba(124,140,248,0.08)',
-  border: '1.5px solid rgba(255,255,255,0.10)',
+  bgcolor: surface.indigoTint,
+  border: `1.5px solid ${surface.glassBorder}`,
   borderRadius: 3,
 };
 
@@ -174,8 +175,8 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
           onChange={(_, v) => v && setUnit(v)}
           sx={{ ml: 'auto' }}
         >
-          <ToggleButton value="F" sx={{ color: '#9ca3af', '&.Mui-selected': { color: '#fff', bgcolor: '#6366f1' }, px: 1.5, py: 0.5, fontSize: '0.75rem' }}>°F</ToggleButton>
-          <ToggleButton value="C" sx={{ color: '#9ca3af', '&.Mui-selected': { color: '#fff', bgcolor: '#6366f1' }, px: 1.5, py: 0.5, fontSize: '0.75rem' }}>°C</ToggleButton>
+          <ToggleButton value="F" sx={{ color: semantic.muted, '&.Mui-selected': { color: '#fff', bgcolor: brand.indigo }, px: 1.5, py: 0.5, fontSize: '0.75rem' }}>°F</ToggleButton>
+          <ToggleButton value="C" sx={{ color: semantic.muted, '&.Mui-selected': { color: '#fff', bgcolor: brand.indigo }, px: 1.5, py: 0.5, fontSize: '0.75rem' }}>°C</ToggleButton>
         </ToggleButtonGroup>
         {role === 'carrier' && (
           <Button
@@ -183,7 +184,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => setLogOpen(true)}
-            sx={{ bgcolor: '#6366f1', '&:hover': { bgcolor: '#4f46e5' }, ml: 1 }}
+            sx={{ bgcolor: brand.indigo, '&:hover': { bgcolor: '#4f46e5' }, ml: 1 }}
           >
             Log Temp
           </Button>
@@ -198,14 +199,14 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
         <Grid item xs={6} sm={3}>
           <Card sx={CARD_SX}>
             <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" sx={{ color: '#9ca3af' }}>Current Temp</Typography>
-              <Typography variant="h5" sx={{ color: status?.currentAlert ? '#ef4444' : '#34d399', fontWeight: 700 }}>
+              <Typography variant="caption" sx={{ color: semantic.muted }}>Current Temp</Typography>
+              <Typography variant="h5" sx={{ color: status?.currentAlert ? semantic.error : semantic.success, fontWeight: 700 }}>
                 {latestC != null ? fmtTemp(latestC, unit) : '--'}
               </Typography>
               {status?.currentAlert
-                ? <Chip icon={<WarningAmberIcon />} label="Alert" size="small" sx={{ bgcolor: '#ef4444', color: '#fff', mt: 0.5 }} />
+                ? <Chip icon={<WarningAmberIcon />} label="Alert" size="small" sx={{ bgcolor: semantic.error, color: '#fff', mt: 0.5 }} />
                 : latestC != null
-                  ? <Chip icon={<CheckCircleIcon />} label="In Range" size="small" sx={{ bgcolor: '#10b981', color: '#fff', mt: 0.5 }} />
+                  ? <Chip icon={<CheckCircleIcon />} label="In Range" size="small" sx={{ bgcolor: semantic.success, color: '#fff', mt: 0.5 }} />
                   : null}
             </CardContent>
           </Card>
@@ -215,7 +216,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
         <Grid item xs={6} sm={3}>
           <Card sx={CARD_SX}>
             <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Typography variant="caption" sx={{ color: '#9ca3af' }}>Target Range</Typography>
+              <Typography variant="caption" sx={{ color: semantic.muted }}>Target Range</Typography>
               <Typography variant="body1" sx={{ color: '#e5e7eb', fontWeight: 700 }}>
                 {reefer?.enabled && (reefer.targetMinC != null || reefer.targetMaxC != null)
                   ? `${fmtTemp(reefer.targetMinC, unit)} – ${fmtTemp(reefer.targetMaxC, unit)}`
@@ -231,7 +232,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
             <Grid item xs={6} sm={3}>
               <Card sx={CARD_SX}>
                 <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>24h Min / Max</Typography>
+                  <Typography variant="caption" sx={{ color: semantic.muted }}>24h Min / Max</Typography>
                   <Typography variant="body1" sx={{ color: '#60a5fa', fontWeight: 700 }}>
                     {fmtTemp(status.stats24h.minC, unit)} / {fmtTemp(status.stats24h.maxC, unit)}
                   </Typography>
@@ -241,7 +242,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
             <Grid item xs={6} sm={3}>
               <Card sx={CARD_SX}>
                 <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>24h Avg / Readings</Typography>
+                  <Typography variant="caption" sx={{ color: semantic.muted }}>24h Avg / Readings</Typography>
                   <Typography variant="body1" sx={{ color: '#e5e7eb', fontWeight: 700 }}>
                     {fmtTemp(status.stats24h.avgC, unit)} / {status.stats24h.count}
                   </Typography>
@@ -256,8 +257,8 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
           <Grid item xs={6} sm={3}>
             <Card sx={{ ...CARD_SX, borderColor: 'rgba(239,68,68,0.4)' }}>
               <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                <Typography variant="caption" sx={{ color: '#9ca3af' }}>Total Alerts</Typography>
-                <Typography variant="body1" sx={{ color: '#ef4444', fontWeight: 700 }}>
+                <Typography variant="caption" sx={{ color: semantic.muted }}>Total Alerts</Typography>
+                <Typography variant="body1" sx={{ color: semantic.error, fontWeight: 700 }}>
                   {status.alertCount}
                 </Typography>
               </CardContent>
@@ -277,15 +278,15 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
       {chartData.length > 0 ? (
         <Card sx={CARD_SX}>
           <CardContent>
-            <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 1 }}>
+            <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', mb: 1 }}>
               24-Hour Temperature History
             </Typography>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="time" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={surface.glass} />
+                <XAxis dataKey="time" tick={{ fill: semantic.muted, fontSize: 11 }} tickLine={false} />
                 <YAxis
-                  tick={{ fill: '#6b7280', fontSize: 11 }}
+                  tick={{ fill: semantic.muted, fontSize: 11 }}
                   tickLine={false}
                   unit={unit === 'F' ? '°F' : '°C'}
                   width={45}
@@ -298,7 +299,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
                   <ReferenceLine y={minLine} stroke="#3b82f6" strokeDasharray="4 2" label={{ value: `Min ${minLine}°${unit}`, fill: '#3b82f6', fontSize: 10, position: 'insideTopRight' }} />
                 )}
                 {maxLine != null && (
-                  <ReferenceLine y={maxLine} stroke="#ef4444" strokeDasharray="4 2" label={{ value: `Max ${maxLine}°${unit}`, fill: '#ef4444', fontSize: 10, position: 'insideTopRight' }} />
+                  <ReferenceLine y={maxLine} stroke={semantic.error} strokeDasharray="4 2" label={{ value: `Max ${maxLine}°${unit}`, fill: semantic.error, fontSize: 10, position: 'insideTopRight' }} />
                 )}
                 <Line
                   type="monotone"
@@ -307,7 +308,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
                   strokeWidth={2}
                   dot={(props) => {
                     const d = chartData[props.index];
-                    return <circle key={props.index} cx={props.cx} cy={props.cy} r={4} fill={d?.isAlert ? '#ef4444' : '#60a5fa'} />;
+                    return <circle key={props.index} cx={props.cx} cy={props.cy} r={4} fill={d?.isAlert ? semantic.error : '#60a5fa'} />;
                   }}
                   activeDot={{ r: 6 }}
                 />
@@ -316,7 +317,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
           </CardContent>
         </Card>
       ) : (
-        <Typography variant="body2" sx={{ color: '#6b7280', textAlign: 'center', py: 3 }}>
+        <Typography variant="body2" sx={{ color: semantic.muted, textAlign: 'center', py: 3 }}>
           No temperature readings in the last 24 hours
         </Typography>
       )}
@@ -343,7 +344,7 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
               fullWidth
               size="small"
               required
-              sx={{ input: { color: '#fff' }, label: { color: '#9ca3af' }, '& .MuiOutlinedInput-root fieldset': { borderColor: 'rgba(255,255,255,0.2)' } }}
+              sx={{ input: { color: '#fff' }, label: { color: semantic.muted }, '& .MuiOutlinedInput-root fieldset': { borderColor: 'rgba(255,255,255,0.2)' } }}
             />
             <ToggleButtonGroup
               size="small"
@@ -351,13 +352,13 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
               exclusive
               onChange={(_, v) => v && setUnit(v)}
             >
-              <ToggleButton value="F" sx={{ color: '#9ca3af', '&.Mui-selected': { color: '#fff', bgcolor: '#6366f1' } }}>°F</ToggleButton>
-              <ToggleButton value="C" sx={{ color: '#9ca3af', '&.Mui-selected': { color: '#fff', bgcolor: '#6366f1' } }}>°C</ToggleButton>
+              <ToggleButton value="F" sx={{ color: semantic.muted, '&.Mui-selected': { color: '#fff', bgcolor: brand.indigo } }}>°F</ToggleButton>
+              <ToggleButton value="C" sx={{ color: semantic.muted, '&.Mui-selected': { color: '#fff', bgcolor: brand.indigo } }}>°C</ToggleButton>
             </ToggleButtonGroup>
           </Box>
 
           {reefer?.enabled && (
-            <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 1.5 }}>
+            <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', mb: 1.5 }}>
               Target: {fmtTemp(reefer.targetMinC, unit)} – {fmtTemp(reefer.targetMaxC, unit)}
             </Typography>
           )}
@@ -367,29 +368,29 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
             type="number"
             value={humInput}
             onChange={e => setHumInput(e.target.value)}
-            fullWidth size="small" sx={{ mb: 1.5, input: { color: '#fff' }, label: { color: '#9ca3af' }, '& .MuiOutlinedInput-root fieldset': { borderColor: 'rgba(255,255,255,0.2)' } }}
+            fullWidth size="small" sx={{ mb: 1.5, input: { color: '#fff' }, label: { color: semantic.muted }, '& .MuiOutlinedInput-root fieldset': { borderColor: 'rgba(255,255,255,0.2)' } }}
           />
           <TextField
             label="Location (optional)"
             value={locInput}
             onChange={e => setLocInput(e.target.value)}
-            fullWidth size="small" sx={{ mb: 1.5, input: { color: '#fff' }, label: { color: '#9ca3af' }, '& .MuiOutlinedInput-root fieldset': { borderColor: 'rgba(255,255,255,0.2)' } }}
+            fullWidth size="small" sx={{ mb: 1.5, input: { color: '#fff' }, label: { color: semantic.muted }, '& .MuiOutlinedInput-root fieldset': { borderColor: 'rgba(255,255,255,0.2)' } }}
           />
           <TextField
             label="Notes (optional)"
             value={noteInput}
             onChange={e => setNoteInput(e.target.value)}
             fullWidth size="small" multiline rows={2}
-            sx={{ input: { color: '#fff' }, label: { color: '#9ca3af' }, '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } } }}
+            sx={{ input: { color: '#fff' }, label: { color: semantic.muted }, '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' } } }}
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setLogOpen(false)} sx={{ color: '#9ca3af' }}>Cancel</Button>
+          <Button onClick={() => setLogOpen(false)} sx={{ color: semantic.muted }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={submitReading}
             disabled={logLoading}
-            sx={{ bgcolor: '#6366f1', '&:hover': { bgcolor: '#4f46e5' } }}
+            sx={{ bgcolor: brand.indigo, '&:hover': { bgcolor: '#4f46e5' } }}
           >
             {logLoading ? <CircularProgress size={20} /> : 'Save Reading'}
           </Button>

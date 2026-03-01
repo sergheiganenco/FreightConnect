@@ -1,16 +1,23 @@
-// =========================================================
-// src/features/carrierDashboard/components/StatusChip.jsx
-// =========================================================
 import React from "react";
 import { Chip } from "@mui/material";
+import { statusColor, tint } from "../../../../theme/tokens";
 
-const palette = {
-  open: { bg: "#e0f2fe", color: "#0284c7" },
-  accepted: { bg: "#ede9fe", color: "#7c3aed" },
-  inTransit: { bg: "#fef9c3", color: "#f59e0b" },
-  delivered: { bg: "#dcfce7", color: "#16a34a" },
-};
 export default function StatusChip({ status }) {
-  const p = palette[status] || palette.open;
-  return <Chip label={status} size="small" sx={{ bgcolor: p.bg, color: p.color, textTransform: "capitalize" }} />;
+  const color = statusColor(status);
+  return (
+    <Chip
+      label={status}
+      size="small"
+      sx={{
+        bgcolor: tint(color, 0.15),
+        color,
+        fontWeight: 700,
+        fontSize: 13,
+        borderRadius: 2,
+        px: 2,
+        letterSpacing: 0.5,
+        textTransform: "capitalize",
+      }}
+    />
+  );
 }

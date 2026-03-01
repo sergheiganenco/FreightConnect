@@ -13,6 +13,7 @@ import {
   Button,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
+import { gradient } from '../../../../theme/tokens';
 
 export default function FilterDrawer({ open, onClose, filters, setFilters }) {
   const theme = useTheme();
@@ -45,7 +46,7 @@ export default function FilterDrawer({ open, onClose, filters, setFilters }) {
         <TextField size="small" label="Min Rate" name="minRate" type="number" value={filters.minRate} onChange={handle} />
         <TextField size="small" label="Max Rate" name="maxRate" type="number" value={filters.maxRate} onChange={handle} />
 
-        <Button variant="contained" onClick={onClose} sx={{ background: 'linear-gradient(90deg,#ec4899,#9333ea)' }}>
+        <Button variant="contained" onClick={onClose} sx={{ background: gradient.primary }}>
           Apply
         </Button>
       </Stack>

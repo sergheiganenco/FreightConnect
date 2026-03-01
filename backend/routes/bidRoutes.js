@@ -49,6 +49,36 @@ router.get('/rate-suggestion/:loadId', auth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// POST /api/bids/rate-suggestion-preview
+// Returns market rate suggestion before a load is saved (for the Post Load form)
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/rate-suggestion-preview', auth, async (req, res) => {
+  try {
+    const { origin, destination, equipmentType } = req.body;
+    if (!origin || !destination || !equipmentType) {
+      return res.status(400).json({ error: 'origin, destination, and equipmentType are required' });
+    }
+    // Build a pseudo-load for suggestRate (no loadId needed)
+    const pseudoLoad = { origin, destination, equipmentType };
+    // Attempt geocoding for distance-based estimate
+    try {
+      const fetch = require('node-fetch');
+      const [oRes, dRes] = await Promise.all([
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(origin)}&limit=1`).then(r => r.json()),
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(destination)}&limit=1`).then(r => r.json()),
+      ]);
+      if (oRes.length) { pseudoLoad.originLat = parseFloat(oRes[0].lat); pseudoLoad.originLng = parseFloat(oRes[0].lon); }
+      if (dRes.length) { pseudoLoad.destinationLat = parseFloat(dRes[0].lat); pseudoLoad.destinationLng = parseFloat(dRes[0].lon); }
+    } catch (_) { /* geocoding failure is non-fatal */ }
+    const suggestion = await suggestRate(pseudoLoad);
+    res.json(suggestion);
+  } catch (err) {
+    console.error('Rate suggestion preview error:', err);
+    res.status(500).json({ error: 'Failed to get rate suggestion' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // POST /api/bids  — carrier places a bid
 // ────────────────────────────────────────────────────────────────────────────
 router.post('/', auth, async (req, res) => {

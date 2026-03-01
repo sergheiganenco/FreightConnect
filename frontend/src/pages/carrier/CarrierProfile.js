@@ -272,6 +272,19 @@ export default function Profile() {
             color={user?.role === "shipper" ? "primary" : "secondary"}
             sx={{ fontWeight: 700, fontSize: "1em", letterSpacing: 1, px: 2 }}
           />
+          {(() => {
+            const status = user.verification?.status || "unverified";
+            const cfg = VERIFICATION_STATUS_CONFIG[status];
+            return cfg ? (
+              <Chip
+                icon={cfg.icon}
+                label={status.charAt(0).toUpperCase() + status.slice(1)}
+                color={cfg.severity}
+                variant="outlined"
+                sx={{ fontWeight: 700 }}
+              />
+            ) : null;
+          })()}
           {user.role === "carrier" && userId && (
             <TrustScoreBadge userId={userId} size="md" />
           )}

@@ -23,6 +23,7 @@ import LogisticsAssistant from '../../components/LogisticsAssistant';
 import { DashboardProvider } from '../../features/carrierDashboard/sections/context/DashboardContext';
 import NotificationBell from '../../features/shared/NotificationBell';
 import { disconnectSocket } from '../../services/socket';
+import { surface } from '../../theme/tokens';
 
 export default function CarrierDashboard() {
   const navigate = useNavigate();
@@ -103,7 +104,7 @@ export default function CarrierDashboard() {
                 label={role.toUpperCase()}
                 sx={{
                   mr: 'auto',
-                  bgcolor: 'rgba(255,255,255,0.12)',
+                  bgcolor: surface.glassBadge,
                   color: '#fff',
                   fontWeight: 600,
                 }}

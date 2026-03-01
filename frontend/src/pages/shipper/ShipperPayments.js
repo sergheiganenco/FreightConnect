@@ -10,12 +10,10 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import { surface, chart } from '../../theme/tokens';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const token = () => localStorage.getItem('token');
-
-const CARD_BG = 'rgba(35,13,71,0.88)';
-const GLASS = 'rgba(255,255,255,0.06)';
 
 const STATUS_CONFIG = {
   pending:   { label: 'Pending',    color: 'default' },
@@ -27,10 +25,10 @@ const STATUS_CONFIG = {
 
 function SummaryCard({ icon, label, value, sub, color }) {
   return (
-    <Card sx={{ flex: 1, minWidth: 160, background: CARD_BG, borderRadius: 3, border: '1px solid rgba(255,255,255,0.10)' }}>
+    <Card sx={{ flex: 1, minWidth: 160, background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
       <CardContent>
         <Stack direction="row" alignItems="center" spacing={1.5} mb={1}>
-          <Box sx={{ color: color || '#a082e0', display: 'flex' }}>{icon}</Box>
+          <Box sx={{ color: color || chart.purple, display: 'flex' }}>{icon}</Box>
           <Typography variant="body2" color="text.secondary">{label}</Typography>
         </Stack>
         <Typography variant="h5" fontWeight={700} color="#fff">{value}</Typography>
@@ -100,7 +98,7 @@ function InvoiceRow({ payment }) {
         <TableRow>
           <TableCell colSpan={6} sx={{ py: 0, border: 0 }}>
             <Collapse in={open} timeout="auto" unmountOnExit>
-              <Box sx={{ p: 2, background: GLASS, borderRadius: 2, mb: 1 }}>
+              <Box sx={{ p: 2, background: surface.glass, borderRadius: 2, mb: 1 }}>
                 {loading ? (
                   <Skeleton variant="rounded" height={80} />
                 ) : invoice ? (
@@ -111,21 +109,21 @@ function InvoiceRow({ payment }) {
                       </Typography>
                       <Chip label={invoice.status.toUpperCase()} color="success" size="small" />
                     </Stack>
-                    <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+                    <Divider sx={{ borderColor: surface.glassBorder }} />
                     {invoice.lineItems?.map((li, i) => (
                       <Stack key={i} direction="row" justifyContent="space-between">
                         <Typography variant="caption" color="text.secondary">{li.description}</Typography>
                         <Typography variant="caption">{fmt(li.total)}</Typography>
                       </Stack>
                     ))}
-                    <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+                    <Divider sx={{ borderColor: surface.glassBorder }} />
                     <Stack direction="row" justifyContent="space-between">
                       <Typography variant="caption" color="text.secondary">Platform Fee (2%)</Typography>
                       <Typography variant="caption">{fmt(invoice.platformFee)}</Typography>
                     </Stack>
                     <Stack direction="row" justifyContent="space-between">
                       <Typography variant="body2" fontWeight={700}>Total Paid</Typography>
-                      <Typography variant="body2" fontWeight={700} color="#3ec17c">{fmt(invoice.total)}</Typography>
+                      <Typography variant="body2" fontWeight={700} color={chart.green}>{fmt(invoice.total)}</Typography>
                     </Stack>
                     {invoice.issuedAt && (
                       <Typography variant="caption" color="text.secondary">
@@ -200,26 +198,26 @@ export default function ShipperPayments() {
           label="Total Spent"
           value={fmt(totalSpent)}
           sub={`across ${completedCt} completed loads`}
-          color="#3ec17c"
+          color={chart.green}
         />
         <SummaryCard
           icon={<HourglassEmptyIcon />}
           label="In Escrow"
           value={fmt(inEscrow)}
           sub="funds held pending delivery"
-          color="#ffd86b"
+          color={chart.gold}
         />
         <SummaryCard
           icon={<ReceiptLongIcon />}
           label="Total Payments"
           value={total}
           sub="all time"
-          color="#a082e0"
+          color={chart.purple}
         />
       </Stack>
 
       {/* ── Payment History ─────────────────────────────────────────── */}
-      <Card sx={{ background: CARD_BG, borderRadius: 3, border: '1px solid rgba(255,255,255,0.10)' }}>
+      <Card sx={{ background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
         <CardContent>
           <Typography variant="subtitle1" fontWeight={700} mb={2}>
             Payment History
@@ -241,7 +239,7 @@ export default function ShipperPayments() {
             </Box>
           ) : (
             <>
-              <TableContainer component={Paper} sx={{ background: GLASS, borderRadius: 2 }}>
+              <TableContainer component={Paper} sx={{ background: surface.glass, borderRadius: 2 }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>

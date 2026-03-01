@@ -1,4 +1,3 @@
-// src/features/shipperDashboard/sections/components/SideNav.js
 import React from "react";
 import { Tooltip, Badge } from "@mui/material";
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
@@ -13,6 +12,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import CodeIcon from '@mui/icons-material/Code';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
+import { brand, surface, text as T, tint } from '../../../../theme/tokens';
 
 function ChatNavItem() {
   let unread = 0;
@@ -75,24 +75,22 @@ export default function SideNav({ current, collapsed, onSelect }) {
                     padding: collapsed ? "0 8px" : "0 22px 0 18px",
                     borderRadius: "14px",
                     cursor: "pointer",
-                    color: isActive ? "#6a1fcf" : "#e6e6fa",
-                    background: isActive
-                      ? "rgba(255,255,255,0.11)"
-                      : "rgba(255,255,255,0.04)",
+                    color: isActive ? brand.primary : brand.lavender,
+                    background: isActive ? surface.glassActive : surface.glassLight,
                     borderLeft: isActive
-                      ? "4px solid #6a1fcf"
+                      ? `4px solid ${brand.primary}`
                       : "4px solid transparent",
                     fontWeight: isActive ? 700 : 500,
                     boxShadow: isActive
-                      ? "0 1px 12px #6a1fcf22"
+                      ? `0 1px 12px ${tint(brand.primary, 0.13)}`
                       : undefined,
                     outline: "none",
                     transition: "background 0.17s, color 0.18s, border-left 0.18s, box-shadow 0.15s",
                   }}
-                  onFocus={e => (e.target.style.boxShadow = "0 0 0 2px #e1129a44")}
-                  onBlur={e => (e.target.style.boxShadow = isActive ? "0 1px 12px #6a1fcf22" : "none")}
-                  onMouseOver={e => (e.currentTarget.style.background = "rgba(255,255,255,0.09)")}
-                  onMouseOut={e => (e.currentTarget.style.background = isActive ? "rgba(255,255,255,0.11)" : "rgba(255,255,255,0.04)")}
+                  onFocus={e => (e.target.style.boxShadow = `0 0 0 2px ${tint(brand.secondary, 0.27)}`)}
+                  onBlur={e => (e.target.style.boxShadow = isActive ? `0 1px 12px ${tint(brand.primary, 0.13)}` : "none")}
+                  onMouseOver={e => (e.currentTarget.style.background = surface.glassMid)}
+                  onMouseOut={e => (e.currentTarget.style.background = isActive ? surface.glassActive : surface.glassLight)}
                 >
                   <span
                     style={{
@@ -100,7 +98,7 @@ export default function SideNav({ current, collapsed, onSelect }) {
                       display: "flex",
                       justifyContent: "center",
                       alignItems: "center",
-                      color: isActive ? "#6a1fcf" : "#bdbfff",
+                      color: isActive ? brand.primary : brand.softIndigo,
                       transition: "color 0.18s",
                     }}
                   >
@@ -114,7 +112,7 @@ export default function SideNav({ current, collapsed, onSelect }) {
                         letterSpacing: 0.5,
                         fontWeight: isActive ? 700 : 500,
                         whiteSpace: "nowrap",
-                        color: isActive ? "#fff" : "#d1d5db",
+                        color: isActive ? T.primary : T.navInactive,
                         transition: "color 0.18s",
                       }}
                     >

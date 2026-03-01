@@ -60,12 +60,15 @@ module.exports = (io) => {
       // --- Shared filters ---
       if (status && status !== "all") {
         if (req.user.role === "carrier") {
-          // For carriers, scope status filter within their visible loads only
-          filter.$or = [
-            { status, acceptedBy: req.user.userId },
-            // also keep open loads visible unless filtering to non-open status
-            ...(status === "open" ? [] : [{ status: "open" }]),
-          ];
+          if (status === "open") {
+            filter = { status: "open" };
+          } else {
+            // Show carrier's loads with this status, plus keep open loads visible
+            filter.$or = [
+              { status, acceptedBy: req.user.userId },
+              { status: "open" },
+            ];
+          }
         } else {
           filter.status = status;
         }
@@ -211,17 +214,67 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       rate,
       equipmentType,
 
-      // NEW optional fields coming from the front-end form
-      pickupStart,
-      pickupEnd,
-      deliveryStart,
-      deliveryEnd,
+      // Time windows from the front-end form
+      pickupWindowStart,
+      pickupWindowEnd,
+      deliveryWindowStart,
+      deliveryWindowEnd,
+
+      // Additional form fields
+      commodityType,
+      commodityCategory,
+      weight,
 
       // Reefer / temperature control
       temperatureMin,
       temperatureMax,
       temperatureUnit,
       reeferNotes,
+
+      // Hazmat details
+      hazmatClass,
+      hazmatPackingGroup,
+      dangerousGoodsUN,
+      hazardousMaterial,
+
+      // Enterprise / extended fields
+      specialHandling,
+      accessorials,
+      insuranceRequired,
+      cargoValue,
+      paymentTerms,
+      currency,
+      loadVisibility,
+      allowCarrierBidding,
+      expirationDateTime,
+      notes,
+      specialInstructions,
+      carrierInstructions,
+      documentsRequired,
+
+      // Load dimensions
+      loadLength,
+      loadWidth,
+      loadHeight,
+
+      // Reference numbers
+      poNumber,
+      shipperReferenceNumber,
+      consigneeReference,
+
+      // Facility details
+      pickupFacilityName,
+      pickupAddress,
+      pickupContactName,
+      pickupContactPhone,
+      deliveryFacilityName,
+      deliveryAddress,
+      deliveryContactName,
+      deliveryContactPhone,
+
+      // Overweight acknowledgment
+      overweightAcknowledged,
+      overweightPermitNumber,
 
       // Multi-stop
       stops: rawStops,
@@ -247,6 +300,13 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     const destinationC = await fetchCoords(destination);
 
     // ---------- build & save ---------
+    // Parse array fields that may arrive as JSON strings (FormData uploads)
+    const parseArr = (v) => {
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string' && v.startsWith('[')) try { return JSON.parse(v); } catch { /* ignore */ }
+      return undefined;
+    };
+
     const newLoad = new Load({
       title,
       origin,
@@ -258,19 +318,71 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       rate,
       equipmentType,
       postedBy: req.user.userId,
-      // ✅ store the windows if provided
-      pickupTimeWindow: pickupStart && pickupEnd ? { start: pickupStart, end: pickupEnd } : undefined,
-      deliveryTimeWindow: deliveryStart && deliveryEnd ? { start: deliveryStart, end: deliveryEnd } : undefined,
-      // ✅ reefer settings (convert F→C if needed)
-      reefer: equipmentType === 'Reefer' && (temperatureMin !== undefined || temperatureMax !== undefined)
+      commodityType: commodityType || undefined,
+      commodityCategory: commodityCategory || undefined,
+      loadWeight: weight ? Number(weight) : undefined,
+      specialInstructions: specialInstructions || undefined,
+
+      // Time windows
+      pickupTimeWindow: pickupWindowStart ? { start: new Date(pickupWindowStart), end: pickupWindowEnd ? new Date(pickupWindowEnd) : undefined } : undefined,
+      deliveryTimeWindow: deliveryWindowStart ? { start: new Date(deliveryWindowStart), end: deliveryWindowEnd ? new Date(deliveryWindowEnd) : undefined } : undefined,
+
+      // Dimensions
+      loadDimensions: (loadLength || loadWidth || loadHeight) ? {
+        length: loadLength ? Number(loadLength) : undefined,
+        width: loadWidth ? Number(loadWidth) : undefined,
+        height: loadHeight ? Number(loadHeight) : undefined,
+      } : undefined,
+
+      // Hazmat
+      hazardousMaterial: hazardousMaterial === true || hazardousMaterial === 'true',
+      hazmatClass: (hazardousMaterial === true || hazardousMaterial === 'true') ? hazmatClass : undefined,
+      hazmatPackingGroup: (hazardousMaterial === true || hazardousMaterial === 'true') ? hazmatPackingGroup : undefined,
+      dangerousGoodsUN: (hazardousMaterial === true || hazardousMaterial === 'true') ? dangerousGoodsUN : undefined,
+
+      // Enterprise fields
+      specialHandling: parseArr(specialHandling),
+      accessorials: parseArr(accessorials),
+      insuranceRequired: insuranceRequired ? Number(insuranceRequired) : undefined,
+      cargoValue: cargoValue ? Number(cargoValue) : undefined,
+      paymentTerms: paymentTerms || undefined,
+      currency: currency || 'USD',
+      loadVisibility: loadVisibility || 'public',
+      allowCarrierBidding: allowCarrierBidding !== false && allowCarrierBidding !== 'false',
+      expirationDateTime: expirationDateTime ? new Date(expirationDateTime) : undefined,
+      notes: notes || undefined,
+      carrierInstructions: carrierInstructions || undefined,
+      documentsRequired: parseArr(documentsRequired),
+
+      // Reference numbers
+      poNumber: poNumber || undefined,
+      shipperReferenceNumber: shipperReferenceNumber || undefined,
+      consigneeReference: consigneeReference || undefined,
+
+      // Facility details
+      pickupFacilityName: pickupFacilityName || undefined,
+      pickupAddress: pickupAddress || undefined,
+      pickupContactName: pickupContactName || undefined,
+      pickupContactPhone: pickupContactPhone || undefined,
+      deliveryFacilityName: deliveryFacilityName || undefined,
+      deliveryAddress: deliveryAddress || undefined,
+      deliveryContactName: deliveryContactName || undefined,
+      deliveryContactPhone: deliveryContactPhone || undefined,
+
+      // Overweight acknowledgment
+      overweightAcknowledged: overweightAcknowledged === true || overweightAcknowledged === 'true',
+      overweightPermitNumber: overweightPermitNumber || undefined,
+
+      // Reefer settings (convert F→C if needed)
+      reefer: equipmentType === 'Reefer'
         ? {
             enabled: true,
-            targetMinC: temperatureUnit === 'F'
-              ? Math.round((parseFloat(temperatureMin) - 32) * 5 / 9 * 10) / 10
-              : parseFloat(temperatureMin),
-            targetMaxC: temperatureUnit === 'F'
-              ? Math.round((parseFloat(temperatureMax) - 32) * 5 / 9 * 10) / 10
-              : parseFloat(temperatureMax),
+            targetMinC: temperatureMin !== '' && temperatureMin != null && !isNaN(parseFloat(temperatureMin))
+              ? (temperatureUnit === 'F' ? Math.round((parseFloat(temperatureMin) - 32) * 5 / 9 * 10) / 10 : parseFloat(temperatureMin))
+              : undefined,
+            targetMaxC: temperatureMax !== '' && temperatureMax != null && !isNaN(parseFloat(temperatureMax))
+              ? (temperatureUnit === 'F' ? Math.round((parseFloat(temperatureMax) - 32) * 5 / 9 * 10) / 10 : parseFloat(temperatureMax))
+              : undefined,
             alertOnDeviation: true,
             notes: reeferNotes || undefined,
           }

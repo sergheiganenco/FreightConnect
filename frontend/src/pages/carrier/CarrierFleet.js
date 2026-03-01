@@ -12,7 +12,7 @@ import LocationOnIcon from "@mui/icons-material/LocationOn";
 import DirectionsCarIcon from "@mui/icons-material/DirectionsCar";
 import UndoIcon from "@mui/icons-material/Undo";
 import api from "../../services/api";
-import socket from "../../services/socket";
+import { getSocket } from "../../services/socket";
 
 // Status color mapping
 const statusColors = {
@@ -46,8 +46,9 @@ export default function CarrierFleet() {
   const [viewLoadModal, setViewLoadModal] = useState({ open: false, load: null });
 
   useEffect(() => {
-    socket.on("fleetUpdated", fetchFleet);
-    return () => socket.off("fleetUpdated", fetchFleet);
+    const s = getSocket();
+    if (s) s.on("fleetUpdated", fetchFleet);
+    return () => { if (s) s.off("fleetUpdated", fetchFleet); };
   }, []);
 
   useEffect(() => {

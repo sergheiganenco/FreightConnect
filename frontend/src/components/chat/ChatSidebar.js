@@ -7,6 +7,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import GroupsIcon from '@mui/icons-material/Groups';
 import { useChatContext } from './ChatProvider';
+import { brand, surface, text as T, tint } from '../../theme/tokens';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -58,11 +59,11 @@ export default function ChatSidebar() {
     <Box
       sx={{
         width: 280,
-        borderRight: '1px solid rgba(255,255,255,0.08)',
+        borderRight: `1px solid ${surface.glassBorder}`,
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        background: 'rgba(255,255,255,0.02)',
+        background: surface.glassSubtle,
       }}
     >
       {/* Header */}
@@ -79,17 +80,17 @@ export default function ChatSidebar() {
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <SearchIcon sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 18 }} />
+                <SearchIcon sx={{ color: T.hint, fontSize: 18 }} />
               </InputAdornment>
             ),
           }}
           sx={{
             '& .MuiOutlinedInput-root': {
               borderRadius: 2,
-              background: 'rgba(255,255,255,0.04)',
-              '& fieldset': { borderColor: 'rgba(255,255,255,0.12)' },
+              background: surface.glassLight,
+              '& fieldset': { borderColor: surface.glassBadge },
             },
-            '& .MuiInputBase-input': { color: '#fff', fontSize: '0.85rem' },
+            '& .MuiInputBase-input': { color: T.primary, fontSize: '0.85rem' },
           }}
         />
       </Box>
@@ -104,7 +105,7 @@ export default function ChatSidebar() {
         {!loadingChannels && channels.length === 0 && (
           <Typography
             variant="caption"
-            sx={{ color: 'rgba(255,255,255,0.25)', display: 'block', textAlign: 'center', pt: 3 }}
+            sx={{ color: T.hint, display: 'block', textAlign: 'center', pt: 3 }}
           >
             No conversations yet
           </Typography>
@@ -116,7 +117,7 @@ export default function ChatSidebar() {
             <Box key={type} sx={{ mb: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.75 }}>
                 {icon}
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', fontWeight: 700, letterSpacing: 0.8 }}>
+                <Typography variant="caption" sx={{ color: T.hint, fontWeight: 700, letterSpacing: 0.8 }}>
                   {label.toUpperCase()}
                 </Typography>
               </Box>
@@ -132,9 +133,9 @@ export default function ChatSidebar() {
                       py: 1,
                       borderRadius: 2,
                       cursor: 'pointer',
-                      background: isActive ? 'rgba(106,31,207,0.25)' : 'transparent',
-                      borderLeft: isActive ? '3px solid #6a1fcf' : '3px solid transparent',
-                      '&:hover': { background: 'rgba(255,255,255,0.05)' },
+                      background: isActive ? tint(brand.primary, 0.25) : 'transparent',
+                      borderLeft: isActive ? `3px solid ${brand.primary}` : '3px solid transparent',
+                      '&:hover': { background: surface.glassLight },
                       mb: 0.25,
                     }}
                   >
@@ -143,7 +144,7 @@ export default function ChatSidebar() {
                         variant="body2"
                         fontWeight={hasUnread ? 700 : 500}
                         noWrap
-                        sx={{ flex: 1, color: hasUnread ? '#fff' : 'rgba(255,255,255,0.8)' }}
+                        sx={{ flex: 1, color: hasUnread ? T.primary : T.strong }}
                       >
                         {getChannelTitle(ch)}
                       </Typography>
@@ -155,13 +156,13 @@ export default function ChatSidebar() {
                             sx={{
                               height: 18,
                               fontSize: '0.6rem',
-                              background: '#e1129a',
-                              color: '#fff',
+                              background: brand.secondary,
+                              color: T.primary,
                               '& .MuiChip-label': { px: 0.75 },
                             }}
                           />
                         )}
-                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.25)', fontSize: '0.65rem', whiteSpace: 'nowrap' }}>
+                        <Typography variant="caption" sx={{ color: T.hint, fontSize: '0.65rem', whiteSpace: 'nowrap' }}>
                           {timeAgo(ch.lastMessageAt)}
                         </Typography>
                       </Box>
@@ -170,7 +171,7 @@ export default function ChatSidebar() {
                       <Typography
                         variant="caption"
                         noWrap
-                        sx={{ color: 'rgba(255,255,255,0.35)', display: 'block', mt: 0.25 }}
+                        sx={{ color: T.hint, display: 'block', mt: 0.25 }}
                       >
                         {ch.lastMessagePreview}
                       </Typography>

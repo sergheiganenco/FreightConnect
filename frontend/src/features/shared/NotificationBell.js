@@ -22,30 +22,31 @@ import DoneAllIcon from '@mui/icons-material/DoneAll';
 import CloseIcon from '@mui/icons-material/Close';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import socket from '../../services/socket';
+import { getSocket } from '../../services/socket';
+import { brand, semantic, status as ST, surface, text as T, tint } from '../../theme/tokens';
 
 // ── Icon + colour per notification type ────────────────────────────────────
 const TYPE_META = {
-  'bid:new':              { color: '#6366f1', label: 'New Bid' },
-  'bid:accepted':         { color: '#34d399', label: 'Bid Accepted' },
-  'bid:rejected':         { color: '#ef4444', label: 'Bid Rejected' },
-  'bid:countered':        { color: '#fbbf24', label: 'Bid Countered' },
-  'bid:counter_accepted': { color: '#34d399', label: 'Counter Accepted' },
-  'load:status':          { color: '#818cf8', label: 'Load Update' },
-  'load:matched':         { color: '#a78bfa', label: 'Load Match' },
-  'payment:escrowed':     { color: '#34d399', label: 'Payment Held' },
-  'payment:released':     { color: '#34d399', label: 'Payout Released' },
+  'bid:new':              { color: brand.indigo, label: 'New Bid' },
+  'bid:accepted':         { color: semantic.success, label: 'Bid Accepted' },
+  'bid:rejected':         { color: semantic.error, label: 'Bid Rejected' },
+  'bid:countered':        { color: semantic.warning, label: 'Bid Countered' },
+  'bid:counter_accepted': { color: semantic.success, label: 'Counter Accepted' },
+  'load:status':          { color: brand.indigoLight, label: 'Load Update' },
+  'load:matched':         { color: ST.accepted, label: 'Load Match' },
+  'payment:escrowed':     { color: semantic.success, label: 'Payment Held' },
+  'payment:released':     { color: semantic.success, label: 'Payout Released' },
   'doc:generated':        { color: '#60a5fa', label: 'Document Ready' },
-  'exception:new':        { color: '#f97316', label: 'Exception Filed' },
-  'exception:updated':    { color: '#fbbf24', label: 'Exception Updated' },
+  'exception:new':        { color: semantic.orange, label: 'Exception Filed' },
+  'exception:updated':    { color: semantic.warning, label: 'Exception Updated' },
   'exception:note':       { color: '#fb923c', label: 'Exception Note' },
-  'insurance:expiring':   { color: '#fbbf24', label: 'Insurance Alert' },
-  'insurance:lapsed':     { color: '#ef4444', label: 'Insurance Lapsed' },
+  'insurance:expiring':   { color: semantic.warning, label: 'Insurance Alert' },
+  'insurance:lapsed':     { color: semantic.error, label: 'Insurance Lapsed' },
 };
 
 function NotificationItem({ notification, onRead, onDelete }) {
   const navigate = useNavigate();
-  const meta = TYPE_META[notification.type] || { color: '#94a3b8', label: 'Notification' };
+  const meta = TYPE_META[notification.type] || { color: semantic.muted, label: 'Notification' };
   const isUnread = !notification.read;
 
   const handleClick = () => {
@@ -59,10 +60,10 @@ function NotificationItem({ notification, onRead, onDelete }) {
       sx={{
         px: 2, py: 1.5,
         cursor: notification.link ? 'pointer' : 'default',
-        bgcolor: isUnread ? 'rgba(99,102,241,0.06)' : 'transparent',
+        bgcolor: isUnread ? surface.indigoTintLight : 'transparent',
         borderLeft: `3px solid ${isUnread ? meta.color : 'transparent'}`,
         transition: 'background 0.12s',
-        '&:hover': { bgcolor: 'rgba(99,102,241,0.1)' },
+        '&:hover': { bgcolor: surface.indigoTint },
         position: 'relative',
       }}
     >
@@ -79,7 +80,7 @@ function NotificationItem({ notification, onRead, onDelete }) {
               <Typography
                 variant="body2"
                 fontWeight={isUnread ? 700 : 400}
-                sx={{ color: isUnread ? '#1e1035' : 'text.secondary', lineHeight: 1.3 }}
+                sx={{ color: isUnread ? T.dark : 'text.secondary', lineHeight: 1.3 }}
                 noWrap
               >
                 {notification.title}
@@ -100,7 +101,7 @@ function NotificationItem({ notification, onRead, onDelete }) {
               <IconButton
                 size="small"
                 onClick={e => { e.stopPropagation(); onDelete(notification._id); }}
-                sx={{ color: 'text.disabled', '&:hover': { color: '#ef4444' }, p: 0.25, mt: -0.25 }}
+                sx={{ color: 'text.disabled', '&:hover': { color: semantic.error }, p: 0.25, mt: -0.25 }}
               >
                 <CloseIcon sx={{ fontSize: 14 }} />
               </IconButton>
@@ -155,8 +156,9 @@ export default function NotificationBell({ iconSx = {} }) {
       setUnreadCount(c => c + 1);
       setNotifications(prev => [notification, ...prev]);
     };
-    socket.on('notification:new', handler);
-    return () => socket.off('notification:new', handler);
+    const s = getSocket();
+    if (s) s.on('notification:new', handler);
+    return () => { if (s) s.off('notification:new', handler); };
   }, []);
 
   const handleOpen = (e) => {
@@ -196,7 +198,7 @@ export default function NotificationBell({ iconSx = {} }) {
   return (
     <>
       <Tooltip title="Notifications">
-        <IconButton onClick={handleOpen} sx={{ color: '#fff', ...iconSx }}>
+        <IconButton onClick={handleOpen} sx={{ color: T.primary, ...iconSx }}>
           <Badge
             badgeContent={unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : 0}
             color="error"
@@ -225,7 +227,7 @@ export default function NotificationBell({ iconSx = {} }) {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            border: '1px solid rgba(99,102,241,0.15)',
+            border: `1px solid ${surface.indigoBorderLight}`,
           },
         }}
       >
@@ -234,7 +236,7 @@ export default function NotificationBell({ iconSx = {} }) {
           direction="row"
           alignItems="center"
           justifyContent="space-between"
-          sx={{ px: 2, py: 1.5, bgcolor: 'rgba(99,102,241,0.04)', borderBottom: '1px solid rgba(0,0,0,0.06)' }}
+          sx={{ px: 2, py: 1.5, bgcolor: surface.indigoTintLight, borderBottom: '1px solid rgba(0,0,0,0.06)' }}
         >
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="subtitle1" fontWeight={700}>Notifications</Typography>
@@ -242,13 +244,13 @@ export default function NotificationBell({ iconSx = {} }) {
               <Chip
                 label={unreadCount}
                 size="small"
-                sx={{ bgcolor: '#ef4444', color: '#fff', fontWeight: 700, fontSize: '0.68rem', height: 18, '& .MuiChip-label': { px: 0.75 } }}
+                sx={{ bgcolor: semantic.error, color: T.primary, fontWeight: 700, fontSize: '0.68rem', height: 18, '& .MuiChip-label': { px: 0.75 } }}
               />
             )}
           </Stack>
           {unreadCount > 0 && (
             <Tooltip title="Mark all as read">
-              <IconButton size="small" onClick={handleReadAll} sx={{ color: '#6366f1' }}>
+              <IconButton size="small" onClick={handleReadAll} sx={{ color: brand.indigo }}>
                 <DoneAllIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Tooltip>
@@ -258,7 +260,7 @@ export default function NotificationBell({ iconSx = {} }) {
         {/* Notification list */}
         <Box sx={{ flex: 1, overflowY: 'auto' }}>
           {loading ? (
-            <Stack alignItems="center" py={4}><CircularProgress size={24} sx={{ color: '#6366f1' }} /></Stack>
+            <Stack alignItems="center" py={4}><CircularProgress size={24} sx={{ color: brand.indigo }} /></Stack>
           ) : notifications.length === 0 ? (
             <Stack alignItems="center" py={5} spacing={1}>
               <NotificationsNoneIcon sx={{ color: 'text.disabled', fontSize: 36 }} />
@@ -281,7 +283,7 @@ export default function NotificationBell({ iconSx = {} }) {
                   <Button
                     size="small" variant="text"
                     onClick={() => fetchNotifications(page + 1, true)}
-                    sx={{ color: '#6366f1', fontSize: '0.78rem' }}
+                    sx={{ color: brand.indigo, fontSize: '0.78rem' }}
                   >
                     Load more
                   </Button>

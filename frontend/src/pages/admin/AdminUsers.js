@@ -11,6 +11,7 @@ import RestoreIcon from "@mui/icons-material/Restore";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import SearchIcon from "@mui/icons-material/Search";
 import api from "../../services/api";
+import { brand, surface, text as T, tint, status as ST } from '../../theme/tokens';
 
 const ROLES = ["admin", "shipper", "carrier"];
 const EMPTY_CREATE = { name: "", email: "", password: "", role: "carrier", companyName: "" };
@@ -102,14 +103,14 @@ export default function AdminUsers() {
   return (
     <Box sx={{ py: 5, px: { xs: 0, md: 3 }, width: "100%" }}>
       <Stack direction="row" alignItems="center" spacing={2} mb={3}>
-        <Typography variant="h5" fontWeight={900} sx={{ color: "#fff", flex: 1 }}>
+        <Typography variant="h5" fontWeight={900} sx={{ color: T.primary, flex: 1 }}>
           User Management
         </Typography>
         <Button
           variant="contained"
           startIcon={<PersonAddIcon />}
           onClick={() => { setCreateForm(EMPTY_CREATE); setCreateErr(""); setCreateOpen(true); }}
-          sx={{ bgcolor: "#f04ca7", fontWeight: 800, borderRadius: 99, "&:hover": { bgcolor: "#d12e8b" } }}
+          sx={{ bgcolor: brand.pink, fontWeight: 800, borderRadius: 99, "&:hover": { bgcolor: "#d12e8b" } }}
         >
           Create User
         </Button>
@@ -124,16 +125,16 @@ export default function AdminUsers() {
           onChange={e => setSearch(e.target.value)}
           slotProps={{
             input: {
-              startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: "#a88ff8" }} /></InputAdornment>,
-              sx: { bgcolor: "rgba(255,255,255,0.06)", color: "#fff", borderRadius: 2 },
+              startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: ST.accepted }} /></InputAdornment>,
+              sx: { bgcolor: surface.glass, color: T.primary, borderRadius: 2 },
             },
           }}
-          sx={{ flex: 1, "& input": { color: "#fff" } }}
+          sx={{ flex: 1, "& input": { color: T.primary } }}
         />
         <TextField
           select size="small" label="Role" value={roleFilter}
           onChange={e => setRoleFilter(e.target.value)}
-          sx={{ minWidth: 150, "& .MuiInputBase-root": { color: "#fff", bgcolor: "rgba(255,255,255,0.06)", borderRadius: 2 } }}
+          sx={{ minWidth: 150, "& .MuiInputBase-root": { color: T.primary, bgcolor: surface.glass, borderRadius: 2 } }}
         >
           <MenuItem value="">All roles</MenuItem>
           {ROLES.map(r => <MenuItem key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</MenuItem>)}
@@ -142,7 +143,7 @@ export default function AdminUsers() {
 
       <Paper elevation={0} sx={{
         borderRadius: 4,
-        background: "rgba(124,140,248,0.14)",
+        background: surface.indigoTint,
         boxShadow: "0 4px 24px #1e034315",
         overflow: "hidden",
       }}>
@@ -154,33 +155,33 @@ export default function AdminUsers() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ color: "#fff", fontWeight: 900 }}>Name</TableCell>
-                    <TableCell sx={{ color: "#fff", fontWeight: 900 }}>Email</TableCell>
-                    <TableCell sx={{ color: "#fff", fontWeight: 900 }}>Company</TableCell>
-                    <TableCell sx={{ color: "#fff", fontWeight: 900 }}>Role</TableCell>
-                    <TableCell sx={{ color: "#fff", fontWeight: 900 }}>Status</TableCell>
+                    <TableCell sx={{ color: T.primary, fontWeight: 900 }}>Name</TableCell>
+                    <TableCell sx={{ color: T.primary, fontWeight: 900 }}>Email</TableCell>
+                    <TableCell sx={{ color: T.primary, fontWeight: 900 }}>Company</TableCell>
+                    <TableCell sx={{ color: T.primary, fontWeight: 900 }}>Role</TableCell>
+                    <TableCell sx={{ color: T.primary, fontWeight: 900 }}>Status</TableCell>
                     <TableCell />
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {users.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ color: "#fff9" }}>
+                      <TableCell colSpan={6} align="center" sx={{ color: T.muted }}>
                         No users found.
                       </TableCell>
                     </TableRow>
                   ) : users.map(user => (
                     <TableRow key={user._id}>
-                      <TableCell sx={{ color: "#fff" }}>{user.name}</TableCell>
-                      <TableCell sx={{ color: "#fff" }}>{user.email}</TableCell>
-                      <TableCell sx={{ color: "#fff" }}>{user.companyName || "—"}</TableCell>
+                      <TableCell sx={{ color: T.primary }}>{user.name}</TableCell>
+                      <TableCell sx={{ color: T.primary }}>{user.email}</TableCell>
+                      <TableCell sx={{ color: T.primary }}>{user.companyName || "—"}</TableCell>
                       <TableCell>
                         <Chip
                           label={user.role} size="small"
                           sx={{
                             fontWeight: 700,
-                            bgcolor: user.role === "admin" ? "#f04ca722" : user.role === "carrier" ? "#6a1fcf22" : "#1e88e522",
-                            color:   user.role === "admin" ? "#f04ca7"   : user.role === "carrier" ? "#a78bfa"   : "#64b5f6",
+                            bgcolor: user.role === "admin" ? tint(brand.pink, 0.13) : user.role === "carrier" ? tint(brand.primary, 0.13) : tint('#1e88e5', 0.13),
+                            color:   user.role === "admin" ? brand.pink              : user.role === "carrier" ? ST.accepted              : "#64b5f6",
                           }}
                         />
                       </TableCell>
@@ -193,12 +194,12 @@ export default function AdminUsers() {
                       </TableCell>
                       <TableCell>
                         <Tooltip title="Edit User">
-                          <IconButton onClick={() => handleEdit(user)} sx={{ color: "#f04ca7" }}>
+                          <IconButton onClick={() => handleEdit(user)} sx={{ color: brand.pink }}>
                             <EditIcon />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title={user.status === "suspended" ? "Reactivate" : "Suspend"}>
-                          <IconButton onClick={() => handleToggleStatus(user)} sx={{ color: "#a78bfa" }}>
+                          <IconButton onClick={() => handleToggleStatus(user)} sx={{ color: ST.accepted }}>
                             {user.status === "suspended" ? <RestoreIcon /> : <BlockIcon />}
                           </IconButton>
                         </Tooltip>
@@ -212,7 +213,7 @@ export default function AdminUsers() {
               component="div" count={total} page={page}
               onPageChange={(_, newPage) => setPage(newPage)}
               rowsPerPage={rowsPerPage} rowsPerPageOptions={[10]}
-              sx={{ ".MuiTablePagination-toolbar": { color: "#a78bfa" } }}
+              sx={{ ".MuiTablePagination-toolbar": { color: ST.accepted } }}
             />
           </>
         )}
@@ -260,7 +261,7 @@ export default function AdminUsers() {
           <Button onClick={() => setCreateOpen(false)} disabled={createSaving}>Cancel</Button>
           <Button
             variant="contained" onClick={handleCreateSave} disabled={createSaving}
-            sx={{ bgcolor: "#f04ca7", "&:hover": { bgcolor: "#d12e8b" } }}
+            sx={{ bgcolor: brand.pink, "&:hover": { bgcolor: "#d12e8b" } }}
           >
             {createSaving ? "Creating…" : "Create User"}
           </Button>

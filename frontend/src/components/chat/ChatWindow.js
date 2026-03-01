@@ -5,6 +5,7 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import MessageBubble from './MessageBubble';
 import { useChatContext } from './ChatProvider';
+import { surface, text as T, gradient, semantic } from '../../theme/tokens';
 
 export default function ChatWindow({ channelId }) {
   const {
@@ -60,7 +61,7 @@ export default function ChatWindow({ channelId }) {
   if (!channel) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-        <Typography sx={{ color: 'rgba(255,255,255,0.3)' }}>Select a conversation</Typography>
+        <Typography sx={{ color: T.hint }}>Select a conversation</Typography>
       </Box>
     );
   }
@@ -74,17 +75,17 @@ export default function ChatWindow({ channelId }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
-      <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+      <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${surface.glassBorder}` }}>
         <Typography variant="subtitle1" fontWeight={700}>
           {title}
         </Typography>
         {channel.channelType === 'load_thread' && channel.loadId && (
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)' }}>
+          <Typography variant="caption" sx={{ color: T.muted }}>
             {channel.loadId.origin} → {channel.loadId.destination}
           </Typography>
         )}
         {isLocked && (
-          <Typography variant="caption" sx={{ color: '#fbbf24', display: 'block' }}>
+          <Typography variant="caption" sx={{ color: semantic.warning, display: 'block' }}>
             This chat is locked
           </Typography>
         )}
@@ -103,7 +104,7 @@ export default function ChatWindow({ channelId }) {
         )}
         {channelMessages.length === 0 && (
           <Box sx={{ textAlign: 'center', mt: 4 }}>
-            <Typography sx={{ color: 'rgba(255,255,255,0.25)', fontSize: '0.85rem' }}>
+            <Typography sx={{ color: T.hint, fontSize: '0.85rem' }}>
               No messages yet. Say hello!
             </Typography>
           </Box>
@@ -117,7 +118,7 @@ export default function ChatWindow({ channelId }) {
         ))}
         {typing.length > 0 && (
           <Box sx={{ pl: 2, pb: 1 }}>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
+            <Typography variant="caption" sx={{ color: T.hint, fontStyle: 'italic' }}>
               Someone is typing…
             </Typography>
           </Box>
@@ -125,7 +126,7 @@ export default function ChatWindow({ channelId }) {
         <div ref={bottomRef} />
       </Box>
 
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)' }} />
+      <Divider sx={{ borderColor: surface.glassBorder }} />
 
       {/* Input */}
       <Box sx={{ px: 2, py: 1.5, display: 'flex', gap: 1, alignItems: 'flex-end' }}>
@@ -142,22 +143,22 @@ export default function ChatWindow({ channelId }) {
           sx={{
             '& .MuiOutlinedInput-root': {
               borderRadius: 3,
-              background: 'rgba(255,255,255,0.05)',
-              color: '#fff',
-              '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-              '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+              background: surface.glassLight,
+              color: T.primary,
+              '& fieldset': { borderColor: surface.glassBorder },
+              '&:hover fieldset': { borderColor: T.hint },
             },
-            '& .MuiInputBase-input': { color: '#fff' },
+            '& .MuiInputBase-input': { color: T.primary },
           }}
         />
         <IconButton
           onClick={handleSend}
           disabled={isLocked || !input.trim()}
           sx={{
-            background: 'linear-gradient(135deg, #6a1fcf, #e1129a)',
-            color: '#fff',
+            background: gradient.primary,
+            color: T.primary,
             '&:hover': { opacity: 0.85 },
-            '&.Mui-disabled': { background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.2)' },
+            '&.Mui-disabled': { background: surface.glassHover, color: T.hint },
           }}
         >
           <SendIcon fontSize="small" />

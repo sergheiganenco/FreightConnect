@@ -9,13 +9,14 @@ import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, Tooltip as R
 import Papa from "papaparse";
 import { saveAs } from "file-saver";
 import axios from "axios";
+import { gradient, surface, text as T, chart, brand, tint } from '../../theme/tokens';
 
 const API_BASE = process.env.REACT_APP_API_URL || "";
 
-const PIE_COLORS = ["#3EC17C", "#4D96FF", "#FFC107", "#EB4D4B", "#ad88f8"];
-const CHART_COLORS = ["#a082e0", "#3ec17c", "#ffc107", "#EB4D4B", "#ad88f8"];
-const PURPLE_BG = "linear-gradient(135deg, #3a2fa4 0%, #7b2ff2 60%, #f357a8 100%)";
-const CARD_BG = "#2c1363cc";
+const PIE_COLORS = chart.pie;
+const CHART_COLORS = chart.line;
+const PURPLE_BG = gradient.analyticsBg;
+const CARD_BG = surface.cardBg;
 
 export default function ShipperAnalytics() {
   // Filter state
@@ -138,7 +139,7 @@ export default function ShipperAnalytics() {
       <Typography
         variant={isXs ? "h6" : "h4"}
         fontWeight={900}
-        color="#fff"
+        color={T.primary}
         sx={{ mb: 3, letterSpacing: 0.5, textShadow: "0 3px 24px #290d53a0" }}
       >
         Shipper Analytics Dashboard
@@ -148,12 +149,12 @@ export default function ShipperAnalytics() {
       {/* Smart Suggestions & Alerts */}
       <Stack direction="column" spacing={1} mb={2}>
         {anomalies.map((a, idx) => (
-          <Alert key={idx} severity="error" sx={{ bgcolor: "#fff2", color: "#EB4D4B", fontWeight: 700 }}>
+          <Alert key={idx} severity="error" sx={{ bgcolor: surface.glassSubtle, color: chart.red, fontWeight: 700 }}>
             {a}
           </Alert>
         ))}
         {smartTips.map((tip, idx) => (
-          <Alert key={idx} severity="info" sx={{ bgcolor: "#fff2", color: "#7b2ff2", fontWeight: 700 }}>
+          <Alert key={idx} severity="info" sx={{ bgcolor: surface.glassSubtle, color: brand.primary, fontWeight: 700 }}>
             {tip}
           </Alert>
         ))}
@@ -170,9 +171,9 @@ export default function ShipperAnalytics() {
           onChange={e => setCarrier(e.target.value)}
           size="small"
           sx={{
-            bgcolor: "#7b2ff2", color: "#fff", minWidth: 110,
+            bgcolor: brand.primary, color: T.primary, minWidth: 110,
             borderRadius: 2, boxShadow: 1, fontWeight: 700,
-            "& .MuiSelect-icon": { color: "#fff" }
+            "& .MuiSelect-icon": { color: T.primary }
           }}
         >
          <MenuItem value="All" key="all-carriers">All Carriers</MenuItem>
@@ -185,9 +186,9 @@ export default function ShipperAnalytics() {
           onChange={e => setRoute(e.target.value)}
           size="small"
           sx={{
-            bgcolor: "#7b2ff2", color: "#fff", minWidth: 150,
+            bgcolor: brand.primary, color: T.primary, minWidth: 150,
             borderRadius: 2, boxShadow: 1, fontWeight: 700,
-            "& .MuiSelect-icon": { color: "#fff" }
+            "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           <MenuItem value="All" key="all-routes">All Routes</MenuItem>
@@ -200,9 +201,9 @@ export default function ShipperAnalytics() {
           onChange={e => setCompany(e.target.value)}
           size="small"
           sx={{
-            bgcolor: "#7b2ff2", color: "#fff", minWidth: 120,
+            bgcolor: brand.primary, color: T.primary, minWidth: 120,
             borderRadius: 2, boxShadow: 1, fontWeight: 700,
-            "& .MuiSelect-icon": { color: "#fff" }
+            "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           <MenuItem value="All" key="all-companies">All Companies</MenuItem>
@@ -215,9 +216,9 @@ export default function ShipperAnalytics() {
           onChange={e => setPeriod(e.target.value)}
           size="small"
           sx={{
-            bgcolor: "#7b2ff2", color: "#fff", minWidth: 150,
+            bgcolor: brand.primary, color: T.primary, minWidth: 150,
             borderRadius: 2, boxShadow: 1, fontWeight: 700,
-            "& .MuiSelect-icon": { color: "#fff" }
+            "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           {periods.map((p) => (
@@ -230,9 +231,9 @@ export default function ShipperAnalytics() {
           variant="outlined"
           startIcon={<DownloadIcon />}
           sx={{
-            color: "#fff", borderColor: "#fff", borderRadius: 3,
-            bgcolor: "#6225b2cc", fontWeight: 700, boxShadow: 2,
-            "&:hover": { bgcolor: "#431882" }
+            color: T.primary, borderColor: "#fff", borderRadius: 3,
+            bgcolor: tint(brand.primary, 0.8), fontWeight: 700, boxShadow: 2,
+            "&:hover": { bgcolor: brand.primary }
           }}
         >
           Export CSV
@@ -242,30 +243,30 @@ export default function ShipperAnalytics() {
       {/* --- Analytics Cards --- */}
       <Grid container spacing={2} mb={isXs ? 2 : 3}>
         <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: "#fff" }}>
+          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: T.primary }}>
             <CardContent>
               <Typography fontWeight={800} fontSize="1.11em" mb={1}>Total Shipments</Typography>
-              <Typography variant="h4" color="#3EC17C" fontWeight={900}>
+              <Typography variant="h4" color={chart.green} fontWeight={900}>
                 {metrics.totalShipments || 0}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: "#fff" }}>
+          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: T.primary }}>
             <CardContent>
               <Typography fontWeight={800} fontSize="1.11em" mb={1}>Total Carriers</Typography>
-              <Typography variant="h4" color="#4D96FF" fontWeight={900}>
+              <Typography variant="h4" color={chart.blue} fontWeight={900}>
                 {metrics.totalCarriers || (data.carrierStats ? data.carrierStats.length : 0)}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: "#fff" }}>
+          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: T.primary }}>
             <CardContent>
               <Typography fontWeight={800} fontSize="1.11em" mb={1}>Total Spend</Typography>
-              <Typography variant="h4" color="#FFC107" fontWeight={900}>
+              <Typography variant="h4" color={chart.gold} fontWeight={900}>
                 {metrics.totalSpend ? `$${metrics.totalSpend.toLocaleString()}` : "$0"}
               </Typography>
             </CardContent>
@@ -278,7 +279,7 @@ export default function ShipperAnalytics() {
       <Grid container spacing={2} mb={isXs ? 2 : 3}>
         {/* Carrier Utilization */}
         <Grid item xs={12} md={6}>
-          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: "#fff", height: 300 }}>
+          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: T.primary, height: 300 }}>
             <CardContent>
               <Typography fontWeight={800} fontSize="1.13em" mb={1}>Carrier Utilization Over Time</Typography>
               <ResponsiveContainer width="100%" height={200}>
@@ -286,11 +287,11 @@ export default function ShipperAnalytics() {
                   <Line
                     type="monotone"
                     dataKey="value"
-                    stroke="#3EC17C"
+                    stroke={chart.green}
                     strokeWidth={3}
-                    dot={{ fill: "#fff", stroke: "#3EC17C", r: 5 }}
+                    dot={{ fill: T.primary, stroke: chart.green, r: 5 }}
                   />
-                  <XAxis dataKey="week" tick={{ fill: "#fff" }} />
+                  <XAxis dataKey="week" tick={{ fill: T.primary }} />
                   <YAxis hide />
                   <RechartsTooltip />
                 </LineChart>
@@ -300,7 +301,7 @@ export default function ShipperAnalytics() {
         </Grid>
         {/* Spend Breakdown Pie */}
         <Grid item xs={12} md={6}>
-          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: "#fff", height: 300 }}>
+          <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: T.primary, height: 300 }}>
             <CardContent>
               <Typography fontWeight={800} fontSize="1.13em" mb={1}>Spend Breakdown</Typography>
               <ResponsiveContainer width="100%" height={200}>
@@ -330,13 +331,13 @@ export default function ShipperAnalytics() {
 
       {/* --- Carrier Stats Table/List Example --- */}
       <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" color="#fff" fontWeight={800} mb={1}>
+        <Typography variant="h6" color={T.primary} fontWeight={800} mb={1}>
           Carriers Used
         </Typography>
         <Grid container spacing={2}>
           {(data.carrierStats || []).map((carrier, idx) => (
             <Grid item xs={12} md={6} key={carrier.name || idx}>
-              <Card sx={{ bgcolor: CARD_BG, color: "#fff" }}>
+              <Card sx={{ bgcolor: CARD_BG, color: T.primary }}>
                 <CardContent>
                   <Typography fontWeight={700} fontSize="1.12em">{carrier.name}</Typography>
                   <Typography fontSize="0.95em">Shipments: {carrier.shipments || 0}</Typography>
@@ -351,13 +352,13 @@ export default function ShipperAnalytics() {
 
       {/* --- Activity log (optional) --- */}
       <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" color="#fff" fontWeight={800} mb={1}>
+        <Typography variant="h6" color={T.primary} fontWeight={800} mb={1}>
           Recent Activity
         </Typography>
         {activity.map((act, idx) => (
           <Box key={idx} mb={1.1}>
-            <Typography component="span" fontWeight={800} color="#fff" fontSize="0.97em">{act.date}</Typography>
-            <Typography component="span" fontWeight={600} color="#eee" fontSize="0.97em" ml={1}>{act.action}</Typography>
+            <Typography component="span" fontWeight={800} color={T.primary} fontSize="0.97em">{act.date}</Typography>
+            <Typography component="span" fontWeight={600} color={T.chartLabel} fontSize="0.97em" ml={1}>{act.action}</Typography>
           </Box>
         ))}
       </Box>

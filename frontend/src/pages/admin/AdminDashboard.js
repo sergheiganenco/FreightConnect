@@ -22,6 +22,7 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SideNav from '../../features/adminDashboard/section/components/SideNav';
 import NotificationBell from '../../features/shared/NotificationBell';
 import { disconnectSocket } from '../../services/socket';
+import { brand, surface } from '../../theme/tokens';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -82,7 +83,7 @@ export default function AdminDashboard() {
         elevation={0}
         sx={{
           backdropFilter: "blur(24px)",
-          background: theme.palette.glass || "rgba(34, 25, 84, 0.92)",
+          background: theme.palette.glass || surface.appBar,
           zIndex: theme.zIndex.drawer + 1,
         }}
       >
@@ -107,7 +108,7 @@ export default function AdminDashboard() {
             label="ADMIN"
             sx={{
               mr: "auto",
-              bgcolor: "#f04ca7",
+              bgcolor: brand.pink,
               color: "#fff",
               fontWeight: 700,
               fontSize: "1em",
@@ -135,7 +136,7 @@ export default function AdminDashboard() {
         open={profMenuOpen}
         onClose={() => setAnchorEl(null)}
         PaperProps={{
-          sx: { backdropFilter: "blur(12px)", background: theme.palette.glass || "rgba(34,25,84,0.96)" },
+          sx: { backdropFilter: "blur(12px)", background: theme.palette.glass || surface.appBar },
         }}
       >
         <MenuItem
@@ -166,7 +167,7 @@ export default function AdminDashboard() {
           sx: {
             width: drawerW,
             backdropFilter: "blur(24px)",
-            background: theme.palette.glass || "rgba(34, 25, 84, 0.92)",
+            background: theme.palette.glass || surface.appBar,
             borderRight: "none",
             pt: 8, // space under AppBar
           },

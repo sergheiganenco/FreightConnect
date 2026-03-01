@@ -10,6 +10,7 @@ import RemoveRedEyeIcon from "@mui/icons-material/RemoveRedEye";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DeleteIcon from "@mui/icons-material/Delete";
 import BRAND from "../../config/branding";
+import { brand } from '../../theme/tokens';
 
 const STATUS_COLOR = {
   uploaded: "info",
@@ -20,10 +21,10 @@ const STATUS_COLOR = {
 };
 
 const DOC_ICONS = {
-  pdf: <PictureAsPdfIcon sx={{ color: "#ec4899" }} />,
-  jpg: <ImageIcon sx={{ color: "#9333ea" }} />,
-  png: <ImageIcon sx={{ color: "#9333ea" }} />,
-  jpeg: <ImageIcon sx={{ color: "#9333ea" }} />,
+  pdf: <PictureAsPdfIcon sx={{ color: brand.secondary }} />,
+  jpg: <ImageIcon sx={{ color: brand.primary }} />,
+  png: <ImageIcon sx={{ color: brand.primary }} />,
+  jpeg: <ImageIcon sx={{ color: brand.primary }} />,
 };
 
 export default function DocumentCard({
@@ -37,7 +38,7 @@ export default function DocumentCard({
   role = "shipper",
 }) {
   const fileType = (doc.fileName || "").split(".").pop().toLowerCase();
-  const icon = DOC_ICONS[fileType] || <InsertDriveFileIcon sx={{ color: "#6a1fcf" }} />;
+  const icon = DOC_ICONS[fileType] || <InsertDriveFileIcon sx={{ color: brand.primary }} />;
 
   return (
     <Paper

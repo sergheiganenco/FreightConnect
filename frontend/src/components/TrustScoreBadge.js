@@ -7,11 +7,12 @@ import CloseIcon from '@mui/icons-material/Close';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import BlockIcon from '@mui/icons-material/Block';
+import { semantic, status as ST, surface, text as T, tint } from '../theme/tokens';
 
 function getColor(score) {
-  if (score >= 70) return '#34d399';
-  if (score >= 40) return '#fbbf24';
-  return '#ef4444';
+  if (score >= 70) return semantic.success;
+  if (score >= 40) return semantic.warning;
+  return semantic.error;
 }
 
 function getTier(score) {
@@ -22,11 +23,11 @@ function getTier(score) {
 
 function VerificationChip({ status }) {
   const map = {
-    verified: { label: 'Verified', color: '#34d399', icon: <VerifiedIcon sx={{ fontSize: 14 }} /> },
-    pending: { label: 'Pending', color: '#fbbf24', icon: <WarningAmberIcon sx={{ fontSize: 14 }} /> },
-    unverified: { label: 'Unverified', color: '#9ca3af', icon: null },
-    suspended: { label: 'Suspended', color: '#ef4444', icon: <BlockIcon sx={{ fontSize: 14 }} /> },
-    rejected: { label: 'Rejected', color: '#ef4444', icon: <BlockIcon sx={{ fontSize: 14 }} /> },
+    verified: { label: 'Verified', color: semantic.success, icon: <VerifiedIcon sx={{ fontSize: 14 }} /> },
+    pending: { label: 'Pending', color: semantic.warning, icon: <WarningAmberIcon sx={{ fontSize: 14 }} /> },
+    unverified: { label: 'Unverified', color: semantic.muted, icon: null },
+    suspended: { label: 'Suspended', color: semantic.error, icon: <BlockIcon sx={{ fontSize: 14 }} /> },
+    rejected: { label: 'Rejected', color: semantic.error, icon: <BlockIcon sx={{ fontSize: 14 }} /> },
   };
   const cfg = map[status] || map.unverified;
   return (
@@ -35,9 +36,9 @@ function VerificationChip({ status }) {
       icon={cfg.icon}
       label={cfg.label}
       sx={{
-        background: `${cfg.color}22`,
+        background: tint(cfg.color, 0.13),
         color: cfg.color,
-        border: `1px solid ${cfg.color}44`,
+        border: `1px solid ${tint(cfg.color, 0.27)}`,
         fontWeight: 700,
         fontSize: '0.7rem',
       }}
@@ -56,9 +57,9 @@ function ScoreBreakdownDialog({ open, onClose, breakdown }) {
       onClose={onClose}
       PaperProps={{
         sx: {
-          background: 'rgba(15,10,40,0.95)',
+          background: surface.modal,
           backdropFilter: 'blur(24px)',
-          border: '1px solid rgba(255,255,255,0.1)',
+          border: `1px solid ${surface.glassBorder}`,
           borderRadius: 3,
           minWidth: 340,
         },
@@ -81,7 +82,7 @@ function ScoreBreakdownDialog({ open, onClose, breakdown }) {
             />
             <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
               <Typography variant="h5" fontWeight={800} sx={{ color }}>{score}</Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>{getTier(score)}</Typography>
+              <Typography variant="caption" sx={{ color: T.secondary }}>{getTier(score)}</Typography>
             </Box>
           </Box>
         </Box>
@@ -90,25 +91,25 @@ function ScoreBreakdownDialog({ open, onClose, breakdown }) {
           <VerificationChip status={verificationStatus} />
         </Box>
 
-        <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', mb: 2 }} />
+        <Divider sx={{ borderColor: surface.glassBorder, mb: 2 }} />
 
         <Stack spacing={1.5}>
           {[
-            { label: 'On-Time Rate', value: `${onTimeRate ?? 100}%`, bar: onTimeRate ?? 100, color: '#34d399' },
-            { label: 'Dispute Resolution', value: `${disputeResolutionRate ?? 100}%`, bar: disputeResolutionRate ?? 100, color: '#a78bfa' },
-            { label: 'Loads Completed', value: totalLoadsCompleted ?? 0, bar: Math.min((totalLoadsCompleted ?? 0) * 2, 100), color: '#22d3ee' },
-            { label: 'Cancellation Rate', value: `${cancellationRate ?? 0}%`, bar: 100 - (cancellationRate ?? 0), color: '#fbbf24' },
-            { label: 'Claims Filed', value: claimsCount ?? 0, bar: Math.max(0, 100 - (claimsCount ?? 0) * 20), color: '#f87171' },
+            { label: 'On-Time Rate', value: `${onTimeRate ?? 100}%`, bar: onTimeRate ?? 100, color: semantic.success },
+            { label: 'Dispute Resolution', value: `${disputeResolutionRate ?? 100}%`, bar: disputeResolutionRate ?? 100, color: ST.accepted },
+            { label: 'Loads Completed', value: totalLoadsCompleted ?? 0, bar: Math.min((totalLoadsCompleted ?? 0) * 2, 100), color: ST.open },
+            { label: 'Cancellation Rate', value: `${cancellationRate ?? 0}%`, bar: 100 - (cancellationRate ?? 0), color: semantic.warning },
+            { label: 'Claims Filed', value: claimsCount ?? 0, bar: Math.max(0, 100 - (claimsCount ?? 0) * 20), color: ST.disputed },
           ].map(({ label, value, bar, color: barColor }) => (
             <Box key={label}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>{label}</Typography>
-                <Typography variant="caption" fontWeight={700} sx={{ color: 'rgba(255,255,255,0.9)' }}>{value}</Typography>
+                <Typography variant="caption" sx={{ color: T.secondary }}>{label}</Typography>
+                <Typography variant="caption" fontWeight={700} sx={{ color: T.primary }}>{value}</Typography>
               </Box>
               <LinearProgress
                 variant="determinate"
                 value={bar}
-                sx={{ height: 5, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.08)', '& .MuiLinearProgress-bar': { background: barColor, borderRadius: 2 } }}
+                sx={{ height: 5, borderRadius: 2, bgcolor: surface.glassHover, '& .MuiLinearProgress-bar': { background: barColor, borderRadius: 2 } }}
               />
             </Box>
           ))}
@@ -116,15 +117,15 @@ function ScoreBreakdownDialog({ open, onClose, breakdown }) {
 
         {history && history.length > 0 && (
           <>
-            <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', my: 2 }} />
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', display: 'block', mb: 1 }}>
+            <Divider sx={{ borderColor: surface.glassBorder, my: 2 }} />
+            <Typography variant="caption" sx={{ color: T.muted, display: 'block', mb: 1 }}>
               RECENT HISTORY
             </Typography>
             <Stack spacing={0.5}>
               {history.slice().reverse().slice(0, 5).map((h, i) => (
                 <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>{h.reason}</Typography>
-                  <Typography variant="caption" sx={{ color: h.change >= 0 ? '#34d399' : '#ef4444', fontWeight: 700 }}>
+                  <Typography variant="caption" sx={{ color: T.secondary }}>{h.reason}</Typography>
+                  <Typography variant="caption" sx={{ color: h.change >= 0 ? semantic.success : semantic.error, fontWeight: 700 }}>
                     {h.change >= 0 ? '+' : ''}{h.change}
                   </Typography>
                 </Box>
@@ -181,7 +182,7 @@ export default function TrustScoreBadge({ score = 50, verificationStatus = 'unve
                 {score}
               </Typography>
               {size === 'lg' && (
-                <Typography sx={{ fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1 }}>
+                <Typography sx={{ fontSize: '0.55rem', color: T.muted, lineHeight: 1 }}>
                   /100
                 </Typography>
               )}

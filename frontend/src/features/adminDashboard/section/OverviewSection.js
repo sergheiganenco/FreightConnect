@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Box, Grid, Paper, Typography, CircularProgress, Stack } from "@mui/material";
 import { Assignment, People, Warning, CheckCircle, AttachMoney } from "@mui/icons-material";
 import api from "../../../services/api";
+import { semantic, brand, surface, text as T } from '../../../theme/tokens';
 
 export default function OverviewSection() {
   const [stats, setStats] = useState(null);
@@ -18,28 +19,28 @@ export default function OverviewSection() {
 
   const cards = [
     {
-      icon: <Assignment fontSize="large" sx={{ color: "#ffb700" }} />,
+      icon: <Assignment fontSize="large" sx={{ color: semantic.warning }} />,
       label: "Pending Docs",
       value: stats.pendingDocs,
     },
     {
-      icon: <CheckCircle fontSize="large" sx={{ color: "#22d39f" }} />,
+      icon: <CheckCircle fontSize="large" sx={{ color: semantic.success }} />,
       label: "Live Loads",
       value: stats.liveLoads,
     },
     {
-      icon: <Warning fontSize="large" sx={{ color: "#ff2f72" }} />,
+      icon: <Warning fontSize="large" sx={{ color: semantic.error }} />,
       label: "Flagged Issues",
       value: stats.flaggedIssues,
     },
     {
-      icon: <People fontSize="large" sx={{ color: "#7e5dff" }} />,
+      icon: <People fontSize="large" sx={{ color: brand.indigo }} />,
       label: "Total Users",
       value: stats.users,
     },
     ...(typeof stats.revenue === "number"
       ? [{
-          icon: <AttachMoney fontSize="large" sx={{ color: "#36cb6b" }} />,
+          icon: <AttachMoney fontSize="large" sx={{ color: semantic.success }} />,
           label: "Total Revenue",
           value: `$${stats.revenue.toLocaleString()}`,
         }]
@@ -57,7 +58,7 @@ export default function OverviewSection() {
                 py: 3,
                 px: 2,
                 borderRadius: 4,
-                bgcolor: "rgba(255,255,255,0.09)",
+                bgcolor: surface.glassMid,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -66,18 +67,18 @@ export default function OverviewSection() {
             >
               <Stack direction="row" alignItems="center" gap={2}>
                 {card.icon}
-                <Typography variant="h4" fontWeight={900} color="#fff">
+                <Typography variant="h4" fontWeight={900} color={T.primary}>
                   {card.value}
                 </Typography>
               </Stack>
-              <Typography color="#f3f1fa" fontWeight={700} fontSize="1.09em" mt={2}>
+              <Typography color={T.chartLabel} fontWeight={700} fontSize="1.09em" mt={2}>
                 {card.label}
               </Typography>
             </Paper>
           </Grid>
         ))}
       </Grid>
-      <Typography mt={6} color="#eee" align="center" fontSize="1.11em">
+      <Typography mt={6} color={T.chartLabel} align="center" fontSize="1.11em">
         Use the navigation to manage users, review documents, and resolve flagged loads.
       </Typography>
     </Box>

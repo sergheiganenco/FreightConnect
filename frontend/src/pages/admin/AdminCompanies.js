@@ -9,6 +9,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
 import api from "../../services/api";
+import { brand, semantic, surface, text as T, status as ST } from '../../theme/tokens';
 
 const columns = [
   { id: "name", label: "Company", minWidth: 120 },
@@ -87,22 +88,22 @@ export default function AdminCompanies() {
 
   return (
     <Box sx={{ py: 5, px: { xs: 0, md: 3 }, width: "100%" }}>
-      <Typography variant="h5" fontWeight={900} sx={{ mb: 2, color: "#fff" }}>
+      <Typography variant="h5" fontWeight={900} sx={{ mb: 2, color: T.primary }}>
         Companies & Fleets
       </Typography>
 
       {/* Filter/Search */}
-      <Paper elevation={0} sx={{ mb: 2, p: 1.5, background: "rgba(124,140,248,0.10)", borderRadius: 3 }}>
+      <Paper elevation={0} sx={{ mb: 2, p: 1.5, background: surface.indigoTint, borderRadius: 3 }}>
         <TextField
           variant="outlined"
           placeholder="Search companies..."
           value={search}
           onChange={handleSearch}
           InputProps={{
-            sx: { bgcolor: "rgba(34,25,84,0.16)", color: "#fff", borderRadius: 2 },
+            sx: { bgcolor: surface.appBar, color: T.primary, borderRadius: 2 },
             startAdornment: (
               <InputAdornment position="start">
-                <SearchIcon sx={{ color: "#f04ca7" }} />
+                <SearchIcon sx={{ color: brand.pink }} />
               </InputAdornment>
             ),
           }}
@@ -116,7 +117,7 @@ export default function AdminCompanies() {
         elevation={0}
         sx={{
           borderRadius: 4,
-          background: "rgba(124,140,248,0.14)",
+          background: surface.indigoTint,
           boxShadow: "0 4px 24px #1e034315",
           overflow: "hidden"
         }}
@@ -136,9 +137,9 @@ export default function AdminCompanies() {
                         key={col.id}
                         sx={{
                           fontWeight: 900,
-                          color: "#fff",
-                          background: "rgba(34,25,84,0.36)",
-                          borderBottom: "2.5px solid #a8a9f4",
+                          color: T.primary,
+                          background: surface.appBar,
+                          borderBottom: `2.5px solid ${brand.indigoLight}`,
                           fontSize: "1.08rem",
                           textTransform: "capitalize"
                         }}
@@ -152,7 +153,7 @@ export default function AdminCompanies() {
                 <TableBody>
                   {companies.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={columns.length} align="center" sx={{ color: "#fff", py: 6 }}>
+                      <TableCell colSpan={columns.length} align="center" sx={{ color: T.primary, py: 6 }}>
                         No companies found.
                       </TableCell>
                     </TableRow>
@@ -160,28 +161,28 @@ export default function AdminCompanies() {
                     companies.map((company, idx) => (
                       <TableRow key={company._id || idx}
                         sx={{
-                          background: idx % 2 ? "rgba(124,140,248,0.08)" : "rgba(255,255,255,0.02)"
+                          background: idx % 2 ? surface.indigoTintLight : surface.glassSubtle
                         }}
                       >
-                        <TableCell sx={{ color: "#fff" }}>{company.name}</TableCell>
-                        <TableCell sx={{ color: "#fff" }}>{company.dotNumber || "—"}</TableCell>
-                        <TableCell sx={{ color: "#fff" }}>{company.type || "—"}</TableCell>
-                        <TableCell sx={{ color: "#fff" }}>{company.fleetSize || "—"}</TableCell>
+                        <TableCell sx={{ color: T.primary }}>{company.name}</TableCell>
+                        <TableCell sx={{ color: T.primary }}>{company.dotNumber || "—"}</TableCell>
+                        <TableCell sx={{ color: T.primary }}>{company.type || "—"}</TableCell>
+                        <TableCell sx={{ color: T.primary }}>{company.fleetSize || "—"}</TableCell>
                         <TableCell>
                           <Chip
                             label={company.status?.toUpperCase() || "ACTIVE"}
                             size="small"
                             sx={{
                               bgcolor: company.status === "suspended"
-                                ? "#d94848"
-                                : "#6366f1",
-                              color: "#fff",
+                                ? semantic.error
+                                : brand.indigo,
+                              color: T.primary,
                               fontWeight: 700,
                               px: 1.5
                             }}
                           />
                         </TableCell>
-                        <TableCell sx={{ color: "#bcbcff" }}>
+                        <TableCell sx={{ color: brand.softIndigo }}>
                           {company.createdAt ? new Date(company.createdAt).toLocaleDateString() : "—"}
                         </TableCell>
                         <TableCell>
@@ -189,14 +190,14 @@ export default function AdminCompanies() {
                             <IconButton
                               onClick={() => openModal(company)}
                               sx={{
-                                color: "#fff",
-                                bgcolor: "#f04ca7",
+                                color: T.primary,
+                                bgcolor: brand.pink,
                                 borderRadius: "50%",
                                 p: 1.1,
                                 boxShadow: "0 2px 8px 0 #c959aa33",
                                 "&:hover": {
                                   bgcolor: "#fa37ad",
-                                  color: "#fff",
+                                  color: T.primary,
                                   boxShadow: "0 2px 12px 0 #ff6cf033"
                                 },
                                 transition: "all 0.2s"
@@ -221,7 +222,7 @@ export default function AdminCompanies() {
               rowsPerPageOptions={[10]}
               sx={{
                 ".MuiTablePagination-toolbar": {
-                  color: "#6366f1"
+                  color: brand.indigo
                 }
               }}
             />
@@ -233,8 +234,8 @@ export default function AdminCompanies() {
       <Dialog open={modalOpen} onClose={closeModal} maxWidth="md" fullWidth>
         <DialogTitle
           sx={{
-            bgcolor: "#6342F5",
-            color: "#fff",
+            bgcolor: brand.primary,
+            color: T.primary,
             fontWeight: 800,
             letterSpacing: 1,
             display: "flex",
@@ -243,33 +244,33 @@ export default function AdminCompanies() {
           }}
         >
           Company & Fleet Details
-          <IconButton onClick={closeModal} sx={{ color: "#fff" }}>
+          <IconButton onClick={closeModal} sx={{ color: T.primary }}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ bgcolor: "rgba(124,140,248,0.12)" }}>
+        <DialogContent sx={{ bgcolor: surface.indigoTint }}>
           {selectedCompany && (
             <Grid container spacing={2} sx={{ p: 1 }}>
               <Grid item xs={12} md={4}>
-                <Typography fontWeight={700} color="#6366f1">Company</Typography>
+                <Typography fontWeight={700} color={brand.indigo}>Company</Typography>
                 <Typography sx={{ mb: 2 }}>{selectedCompany.company.name}</Typography>
-                <Typography color="#6366f1" fontWeight={600}>DOT/MC: </Typography>
+                <Typography color={brand.indigo} fontWeight={600}>DOT/MC: </Typography>
                 <Typography sx={{ mb: 1 }}>{selectedCompany.company.dotNumber || "—"} / {selectedCompany.company.mcNumber || "—"}</Typography>
-                <Typography color="#6366f1" fontWeight={600}>Type: </Typography>
+                <Typography color={brand.indigo} fontWeight={600}>Type: </Typography>
                 <Typography sx={{ mb: 2 }}>{selectedCompany.company.type || "—"}</Typography>
-                <Typography color="#6366f1" fontWeight={600}>Status: </Typography>
+                <Typography color={brand.indigo} fontWeight={600}>Status: </Typography>
                 <Chip label={selectedCompany.company.status?.toUpperCase()} size="small"
-                  sx={{ bgcolor: selectedCompany.company.status === "suspended" ? "#d94848" : "#6366f1", color: "#fff", fontWeight: 700, px: 1.5, mb: 2 }} />
-                <Typography color="#6366f1" fontWeight={600}>Joined:</Typography>
+                  sx={{ bgcolor: selectedCompany.company.status === "suspended" ? semantic.error : brand.indigo, color: T.primary, fontWeight: 700, px: 1.5, mb: 2 }} />
+                <Typography color={brand.indigo} fontWeight={600}>Joined:</Typography>
                 <Typography>{selectedCompany.company.createdAt ? new Date(selectedCompany.company.createdAt).toLocaleString() : "—"}</Typography>
               </Grid>
               <Grid item xs={12} md={4}>
-                <Typography fontWeight={700} color="#6366f1">Fleet (Trucks)</Typography>
+                <Typography fontWeight={700} color={brand.indigo}>Fleet (Trucks)</Typography>
                 {selectedCompany.trucks.length === 0 ? (
                   <Typography>No trucks registered.</Typography>
                 ) : (
                   selectedCompany.trucks.map(truck => (
-                    <Box key={truck._id} sx={{ mb: 1, borderBottom: "1px solid #c4bfff33", pb: 1 }}>
+                    <Box key={truck._id} sx={{ mb: 1, borderBottom: `1px solid ${surface.glassBorder}`, pb: 1 }}>
                       <Typography>Plate: <b>{truck.plate}</b> — {truck.type}, {truck.status}</Typography>
                       <Typography variant="body2" color="textSecondary">Assigned Driver: {truck.assignedDriver || "—"}</Typography>
                     </Box>
@@ -277,12 +278,12 @@ export default function AdminCompanies() {
                 )}
               </Grid>
               <Grid item xs={12} md={4}>
-                <Typography fontWeight={700} color="#6366f1">Drivers/Users</Typography>
+                <Typography fontWeight={700} color={brand.indigo}>Drivers/Users</Typography>
                 {selectedCompany.drivers.length === 0 ? (
                   <Typography>No users/drivers.</Typography>
                 ) : (
                   selectedCompany.drivers.map(driver => (
-                    <Box key={driver._id} sx={{ mb: 1, borderBottom: "1px solid #c4bfff33", pb: 1 }}>
+                    <Box key={driver._id} sx={{ mb: 1, borderBottom: `1px solid ${surface.glassBorder}`, pb: 1 }}>
                       <Typography>{driver.name || driver.email}</Typography>
                       <Typography variant="body2" color="textSecondary">{driver.role || "driver"}</Typography>
                     </Box>

@@ -5,7 +5,38 @@ import {
 } from "@mui/material";
 import DescriptionIcon from "@mui/icons-material/Description";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import VerifiedIcon from "@mui/icons-material/Verified";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import api from "../../services/api";
+
+const VERIFICATION_STATUS_CONFIG = {
+  unverified: {
+    severity: "warning",
+    icon: <ErrorOutlineIcon fontSize="small" />,
+    message: "Your account is not yet verified. Contact support or upload required documents to get verified.",
+  },
+  pending: {
+    severity: "info",
+    icon: <HourglassEmptyIcon fontSize="small" />,
+    message: "Your verification is under review. We'll notify you once it's complete.",
+  },
+  verified: {
+    severity: "success",
+    icon: <VerifiedIcon fontSize="small" />,
+    message: "Your account is verified. You have full platform access.",
+  },
+  rejected: {
+    severity: "error",
+    icon: <ErrorOutlineIcon fontSize="small" />,
+    message: "Your verification was rejected. Please re-submit valid documents.",
+  },
+  suspended: {
+    severity: "error",
+    icon: <ErrorOutlineIcon fontSize="small" />,
+    message: "Your account has been suspended. Contact support for assistance.",
+  },
+};
 
 // Define required docs for shipper
 const SHIPPER_DOCS = [
@@ -101,13 +132,43 @@ export default function ShipperProfile() {
         <Typography variant="h4" fontWeight={900} align="center" mb={2} color="#fff" letterSpacing={1.5}>
           Profile
         </Typography>
-        <Stack direction="row" justifyContent="center" mb={2}>
+        <Stack direction="row" justifyContent="center" alignItems="center" spacing={2} mb={2}>
           <Chip
             label="SHIPPER"
             color="primary"
             sx={{ fontWeight: 700, fontSize: "1em", letterSpacing: 1, px: 2, bgcolor: "#6366f1", color: "#fff" }}
           />
+          {(() => {
+            const status = user.verification?.status || "unverified";
+            const cfg = VERIFICATION_STATUS_CONFIG[status];
+            return cfg ? (
+              <Chip
+                icon={cfg.icon}
+                label={status.charAt(0).toUpperCase() + status.slice(1)}
+                color={cfg.severity}
+                variant="outlined"
+                sx={{ fontWeight: 700 }}
+              />
+            ) : null;
+          })()}
         </Stack>
+
+        {/* Verification status banner */}
+        {(() => {
+          const status = user.verification?.status || "unverified";
+          const cfg = VERIFICATION_STATUS_CONFIG[status];
+          if (!cfg) return null;
+          return (
+            <Alert
+              severity={cfg.severity}
+              icon={cfg.icon}
+              sx={{ mb: 3, borderRadius: 2, alignItems: "center" }}
+            >
+              {cfg.message}
+            </Alert>
+          );
+        })()}
+
         <Stack spacing={3} alignItems="stretch" sx={{ mt: 2 }}>
           <TextField
             label="Full Name"

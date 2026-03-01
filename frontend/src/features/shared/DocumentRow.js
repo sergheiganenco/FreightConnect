@@ -1,9 +1,10 @@
 import React, { useRef, useState } from "react";
 import { Box, Typography, Chip, Button, CircularProgress, Stack } from "@mui/material";
 import DescriptionIcon from "@mui/icons-material/Description";
+import { brand, semantic, status as ST, surface, text as T } from '../../theme/tokens';
 
-const STATUS_COLOR = { Uploaded: "#818CF8", Signed: "#34D399", Missing: "#A78BFA", Expired: "#F87171" };
-const BUTTON_BG = { Uploaded: "#6366F1", Signed: "#34D399", Missing: "#818CF8", Expired: "#F87171" };
+const STATUS_COLOR = { Uploaded: brand.indigoLight, Signed: semantic.success, Missing: ST.accepted, Expired: ST.disputed };
+const BUTTON_BG = { Uploaded: brand.indigo, Signed: semantic.success, Missing: brand.indigoLight, Expired: ST.disputed };
 
 /**
  * Props:
@@ -51,20 +52,20 @@ export default function DocumentRow({
       gap={1.8}
       sx={{
         mb: 0.5, p: 0, minWidth: 0,
-        border: dragActive ? "2px dashed #818cf8" : "none",
-        background: dragActive ? "rgba(124,140,248,0.07)" : "none"
+        border: dragActive ? `2px dashed ${brand.indigoLight}` : "none",
+        background: dragActive ? surface.indigoTint : "none"
       }}
       onDragOver={isUpload ? e => { e.preventDefault(); setDragActive(true); } : undefined}
       onDragLeave={isUpload ? () => setDragActive(false) : undefined}
       onDrop={isUpload ? handleDrop : undefined}
     >
       <Box display="flex" alignItems="center" gap={1.5} minWidth={0}>
-        <DescriptionIcon sx={{ fontSize: 36, color: "#fff", flexShrink: 0 }} />
+        <DescriptionIcon sx={{ fontSize: 36, color: T.primary, flexShrink: 0 }} />
         <Box>
-          <Typography fontWeight={800} color="#fff" fontSize="1.13em">
+          <Typography fontWeight={800} color={T.primary} fontSize="1.13em">
             {doc.label}.pdf
           </Typography>
-          <Typography fontSize="0.97em" color="#d1d5db">
+          <Typography fontSize="0.97em" color={T.navInactive}>
             {route}
           </Typography>
         </Box>
@@ -74,7 +75,7 @@ export default function DocumentRow({
           label={status}
           sx={{
             bgcolor: STATUS_COLOR[status] || "#ccc",
-            color: "#fff",
+            color: T.primary,
             fontWeight: 700,
             fontSize: "1.07em",
             px: 2,
@@ -94,7 +95,7 @@ export default function DocumentRow({
               fontWeight: 800,
               minWidth: 108,
               background: BUTTON_BG[status],
-              color: "#fff",
+              color: T.primary,
               fontSize: "1.01em",
               boxShadow: "0 2px 8px #6366F160",
               px: 2,
@@ -129,7 +130,7 @@ export default function DocumentRow({
               fontWeight: 800,
               minWidth: 108,
               background: BUTTON_BG[status],
-              color: "#fff",
+              color: T.primary,
               fontSize: "1.01em",
               boxShadow: "0 2px 8px #6366F160",
               px: 2,
@@ -159,7 +160,7 @@ export default function DocumentRow({
               fontWeight: 800,
               minWidth: 108,
               background: BUTTON_BG[status],
-              color: "#fff",
+              color: T.primary,
               fontSize: "1.01em",
               boxShadow: "0 2px 8px #6366F160",
               px: 2,
@@ -176,7 +177,7 @@ export default function DocumentRow({
       </Stack>
       {/* Inline PDF preview, optional */}
       {showPreview && doc.url && fileType === "pdf" && (
-        <Box sx={{ mt: 2, borderRadius: 4, overflow: "hidden", bgcolor: "#fff" }}>
+        <Box sx={{ mt: 2, borderRadius: 4, overflow: "hidden", bgcolor: T.primary }}>
           <embed
             src={doc.url}
             width="100%"

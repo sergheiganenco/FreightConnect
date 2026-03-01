@@ -15,14 +15,15 @@ import { saveAs } from "file-saver";
 import axios from "axios";
 import { PDFDownloadLink, Document, Page, Text, StyleSheet } from "@react-pdf/renderer";
 
-// COLORS
-const PURPLE_BG = "linear-gradient(135deg, #48228b 0%, #8e42ec 60%, #f357a8 100%)";
-const CARD_BG = "rgba(35,13,71,0.91)";
-const PIE_COLORS = ["#3EC17C", "#4D96FF", "#FFD86B", "#EB4D4B", "#ad88f8"];
-const CHART_COLORS = ["#a082e0", "#3ec17c", "#ffd86b", "#EB4D4B", "#ad88f8"];
-const TEXT_MAIN = "#eaeaf6";
-const TEXT_SUB = "#c5b4fa";
-const BORDER_COLOR = "#ffffff20";
+import { gradient, surface, text as T, chart, semantic, brand, tint } from '../../theme/tokens';
+
+const PURPLE_BG = gradient.analyticsBg;
+const CARD_BG = surface.cardBg;
+const PIE_COLORS = chart.pie;
+const CHART_COLORS = chart.line;
+const TEXT_MAIN = T.chartLabel;
+const TEXT_SUB = T.chartSub;
+const BORDER_COLOR = surface.glassBorder;
 
 // PDF Styles
 const styles = StyleSheet.create({
@@ -142,9 +143,9 @@ export default function CarrierAnalytics() {
             color="secondary"
             startIcon={<DownloadIcon />}
             sx={{
-              ml: 1, borderColor: "#fff", color: "#fff", borderRadius: 3,
-              fontWeight: 700, bgcolor: "#431882cc", boxShadow: 2,
-              "&:hover": { bgcolor: "#32106b" }
+              ml: 1, borderColor: T.primary, color: T.primary, borderRadius: 3,
+              fontWeight: 700, bgcolor: tint(brand.primary, 0.8), boxShadow: 2,
+              "&:hover": { bgcolor: brand.primary }
             }}
             disabled={loading}
           >
@@ -170,7 +171,7 @@ export default function CarrierAnalytics() {
               <Typography><b>Deadhead miles:</b> {t.deadhead}</Typography>
               <Typography><b>Profit:</b> ${t.profit}</Typography>
               <Typography><b>Last maintenance:</b> {t.lastMaint}</Typography>
-              <Typography><b>Issues:</b> {t.issues > 0 ? <span style={{ color: "#EB4D4B" }}>{t.issues}</span> : "None"}</Typography>
+              <Typography><b>Issues:</b> {t.issues > 0 ? <span style={{ color: chart.red }}>{t.issues}</span> : "None"}</Typography>
             </Box>
           </DialogContent>
         </Dialog>
@@ -238,13 +239,13 @@ export default function CarrierAnalytics() {
             severity="error"
             sx={{
               bgcolor: "rgba(235,77,75,0.10)",
-              color: "#EB4D4B",
+              color: chart.red,
               border: `1.5px solid ${BORDER_COLOR}`,
               borderRadius: 4,
               fontWeight: 700,
               backdropFilter: "blur(8px)"
             }}
-            icon={<ErrorOutlineIcon sx={{ color: "#EB4D4B" }} />}
+            icon={<ErrorOutlineIcon sx={{ color: chart.red }} />}
           >
             {a}
           </Alert>
@@ -255,13 +256,13 @@ export default function CarrierAnalytics() {
             severity="info"
             sx={{
               bgcolor: "rgba(82,50,211,0.08)",
-              color: "#7b2ff2",
+              color: brand.primary,
               border: `1.5px solid ${BORDER_COLOR}`,
               borderRadius: 4,
               fontWeight: 700,
               backdropFilter: "blur(8px)"
             }}
-            icon={<LightbulbOutlinedIcon sx={{ color: "#7b2ff2" }} />}
+            icon={<LightbulbOutlinedIcon sx={{ color: brand.primary }} />}
           >
             {tip}
           </Alert>
@@ -276,16 +277,16 @@ export default function CarrierAnalytics() {
       >
         <Select value={status} onChange={e => setStatus(e.target.value)} size="small"
           sx={{
-            bgcolor: "#8e42ec", color: "#fff", minWidth: 110,
-            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: "#fff" }
+            bgcolor: brand.primary, color: T.primary, minWidth: 110,
+            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           {statusList.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
         </Select>
         <Select value={truck} onChange={e => setTruck(e.target.value)} size="small"
           sx={{
-            bgcolor: "#8e42ec", color: "#fff", minWidth: 110,
-            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: "#fff" }
+            bgcolor: brand.primary, color: T.primary, minWidth: 110,
+            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           <MenuItem value="All">All Trucks</MenuItem>
@@ -293,8 +294,8 @@ export default function CarrierAnalytics() {
         </Select>
         <Select value={route} onChange={e => setRoute(e.target.value)} size="small"
           sx={{
-            bgcolor: "#8e42ec", color: "#fff", minWidth: 150,
-            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: "#fff" }
+            bgcolor: brand.primary, color: T.primary, minWidth: 150,
+            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           <MenuItem value="All">All Routes</MenuItem>
@@ -302,8 +303,8 @@ export default function CarrierAnalytics() {
         </Select>
         <Select value={company} onChange={e => setCompany(e.target.value)} size="small"
           sx={{
-            bgcolor: "#8e42ec", color: "#fff", minWidth: 120,
-            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: "#fff" }
+            bgcolor: brand.primary, color: T.primary, minWidth: 120,
+            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           <MenuItem value="All">All Companies</MenuItem>
@@ -311,8 +312,8 @@ export default function CarrierAnalytics() {
         </Select>
         <Select value={period} onChange={e => setPeriod(e.target.value)} size="small"
           sx={{
-            bgcolor: "#8e42ec", color: "#fff", minWidth: 150,
-            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: "#fff" }
+            bgcolor: brand.primary, color: T.primary, minWidth: 150,
+            borderRadius: 3, fontWeight: 700, "& .MuiSelect-icon": { color: T.primary }
           }}
         >
           {periods.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
@@ -323,9 +324,9 @@ export default function CarrierAnalytics() {
           variant="outlined"
           startIcon={<DownloadIcon />}
           sx={{
-            color: "#fff", borderColor: "#fff", borderRadius: 3,
-            bgcolor: "#6825b2cc", fontWeight: 700, boxShadow: 2,
-            "&:hover": { bgcolor: "#431882" }
+            color: T.primary, borderColor: T.primary, borderRadius: 3,
+            bgcolor: tint(brand.primary, 0.8), fontWeight: 700, boxShadow: 2,
+            "&:hover": { bgcolor: brand.primary }
           }}
         >
           Export CSV
@@ -341,8 +342,8 @@ export default function CarrierAnalytics() {
             border: `1.5px solid ${BORDER_COLOR}`, transition: "box-shadow 0.2s"
           }}>
             <CardContent>
-              <Typography fontWeight={700} fontSize="1.11em" color="#ffd86b" mb={1}>Utilization Rate</Typography>
-              <Typography variant="h4" color="#3EC17C" fontWeight={900}>
+              <Typography fontWeight={700} fontSize="1.11em" color={chart.gold} mb={1}>Utilization Rate</Typography>
+              <Typography variant="h4" color={chart.green} fontWeight={900}>
                 {metrics.utilization ? (metrics.utilization * 100).toFixed(0) + "%" : "-"}
               </Typography>
             </CardContent>
@@ -351,10 +352,10 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 7, color: TEXT_MAIN, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
-              <Typography fontWeight={700} fontSize="1.11em" color="#ffd86b" mb={1}>Deadhead Miles</Typography>
-              <Typography variant="h4" color="#ffaf75" fontWeight={900}>
+              <Typography fontWeight={700} fontSize="1.11em" color={chart.gold} mb={1}>Deadhead Miles</Typography>
+              <Typography variant="h4" color={chart.orange} fontWeight={900}>
                 {metrics.deadhead ? metrics.deadhead.toLocaleString() : "-"}
-                <Typography component="span" fontSize="0.6em" color="#ffaf75" fontWeight={700}> mi</Typography>
+                <Typography component="span" fontSize="0.6em" color={chart.orange} fontWeight={700}> mi</Typography>
               </Typography>
             </CardContent>
           </Card>
@@ -362,10 +363,10 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 7, color: TEXT_MAIN, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
-              <Typography fontWeight={700} fontSize="1.11em" color="#ffd86b" mb={1}>Avg Loads/Truck</Typography>
-              <Typography variant="h4" color="#4D96FF" fontWeight={900}>
+              <Typography fontWeight={700} fontSize="1.11em" color={chart.gold} mb={1}>Avg Loads/Truck</Typography>
+              <Typography variant="h4" color={chart.blue} fontWeight={900}>
                 {metrics.avgLoads ? metrics.avgLoads : "-"}
-                <Typography component="span" fontSize="0.6em" color="#4D96FF" fontWeight={700}>/wk</Typography>
+                <Typography component="span" fontSize="0.6em" color={chart.blue} fontWeight={700}>/wk</Typography>
               </Typography>
             </CardContent>
           </Card>
@@ -373,8 +374,8 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 7, color: TEXT_MAIN, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
-              <Typography fontWeight={700} fontSize="1.11em" color="#ffd86b" mb={1}>Profit/Load</Typography>
-              <Typography variant="h4" color="#ad88f8" fontWeight={900}>
+              <Typography fontWeight={700} fontSize="1.11em" color={chart.gold} mb={1}>Profit/Load</Typography>
+              <Typography variant="h4" color={chart.purple} fontWeight={900}>
                 {metrics.profit ? `$${metrics.profit}` : "-"}
               </Typography>
             </CardContent>
@@ -388,12 +389,12 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} md={4}>
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 240, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
-              <Typography fontWeight={700} fontSize="1.13em" mb={1} color="#3EC17C">Carrier Utilization</Typography>
+              <Typography fontWeight={700} fontSize="1.13em" mb={1} color={chart.green}>Carrier Utilization</Typography>
               <ResponsiveContainer width="100%" height={140}>
                 <LineChart data={data.utilization || []}>
-                  <Line type="monotone" dataKey="value" stroke="#3EC17C" strokeWidth={3}
-                    dot={{ fill: "#fff", stroke: "#3EC17C", r: 5 }} />
-                  <XAxis dataKey="week" tick={{ fill: "#eaeaf6" }} />
+                  <Line type="monotone" dataKey="value" stroke={chart.green} strokeWidth={3}
+                    dot={{ fill: T.primary, stroke: chart.green, r: 5 }} />
+                  <XAxis dataKey="week" tick={{ fill: T.chartLabel }} />
                   <YAxis hide />
                   <RechartsTooltip />
                 </LineChart>
@@ -405,12 +406,12 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} md={4}>
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 240, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
-              <Typography fontWeight={700} fontSize="1.13em" mb={1} color="#ffd86b">Revenue Trend</Typography>
+              <Typography fontWeight={700} fontSize="1.13em" mb={1} color={chart.gold}>Revenue Trend</Typography>
               <ResponsiveContainer width="100%" height={140}>
                 <LineChart data={data.revenue || []}>
-                  <Line type="monotone" dataKey="value" stroke="#ffd86b" strokeWidth={3}
-                    dot={{ fill: "#fff", stroke: "#ffd86b", r: 5 }} />
-                  <XAxis dataKey="week" tick={{ fill: "#eaeaf6" }} />
+                  <Line type="monotone" dataKey="value" stroke={chart.gold} strokeWidth={3}
+                    dot={{ fill: T.primary, stroke: chart.gold, r: 5 }} />
+                  <XAxis dataKey="week" tick={{ fill: T.chartLabel }} />
                   <YAxis hide />
                   <RechartsTooltip />
                 </LineChart>
@@ -422,7 +423,7 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} md={4}>
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 240, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
-              <Typography fontWeight={700} fontSize="1.13em" mb={1} color="#96ffed">Cost Breakdown</Typography>
+              <Typography fontWeight={700} fontSize="1.13em" mb={1} color={chart.cyan}>Cost Breakdown</Typography>
               <ResponsiveContainer width="100%" height={120}>
                 <PieChart>
                   <Pie
@@ -452,11 +453,11 @@ export default function CarrierAnalytics() {
       <Grid container spacing={2}>
         <Grid item xs={12} md={3}>
           <Card sx={{
-            bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 220, border: `1.5px solid ${BORDER_COLOR}`, cursor: "pointer", transition: "box-shadow 0.2s", "&:hover": { boxShadow: 10, bgcolor: "#4a19d4" }
+            bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 220, border: `1.5px solid ${BORDER_COLOR}`, cursor: "pointer", transition: "box-shadow 0.2s", "&:hover": { boxShadow: 10, bgcolor: brand.primary }
           }}
             onClick={() => setModal({ open: true, type: "route", data: data.topRoutes?.[0] })}>
             <CardContent>
-              <Typography fontWeight={800} fontSize="1.13em" mb={1} color="#ffd86b">
+              <Typography fontWeight={800} fontSize="1.13em" mb={1} color={chart.gold}>
                 Top Revenue Route
               </Typography>
               <ResponsiveContainer width="100%" height={100}>
@@ -467,7 +468,7 @@ export default function CarrierAnalytics() {
                   barCategoryGap={8}
                 >
                   <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="route" tick={{ fill: "#eaeaf6" }} />
+                  <YAxis type="category" dataKey="route" tick={{ fill: T.chartLabel }} />
                   <Bar dataKey="revenue">
                     {(data.topRoutes || []).map((entry, idx) => (
                       <Cell key={entry.route} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
@@ -482,7 +483,7 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} md={3}>
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 220, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
-              <Typography fontWeight={800} fontSize="1.13em" mb={1} color="#a8d2ff">
+              <Typography fontWeight={800} fontSize="1.13em" mb={1} color={chart.skyBlue}>
                 Load Status
               </Typography>
               <ResponsiveContainer width="100%" height={100}>
@@ -512,12 +513,12 @@ export default function CarrierAnalytics() {
         <Grid item xs={12} md={3}>
           <Card sx={{
             bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 220, border: `1.5px solid ${BORDER_COLOR}`,
-            cursor: "pointer", "&:hover": { boxShadow: 12, bgcolor: "#4d1c8dcc" }
+            cursor: "pointer", "&:hover": { boxShadow: 12, bgcolor: tint(brand.primary, 0.8) }
           }}
             onClick={() => setModal({ open: true, type: "truck", data: data.truckStats?.[0] })}
           >
             <CardContent>
-              <Typography fontWeight={800} fontSize="1.13em" mb={1} color="#ffaf75">
+              <Typography fontWeight={800} fontSize="1.13em" mb={1} color={chart.orange}>
                 Best Performer: {data.truckStats?.[0]?.name}
                 <IconButton size="small" sx={{ color: "#fff" }}>
                   <InfoOutlinedIcon fontSize="small" />
@@ -529,7 +530,7 @@ export default function CarrierAnalytics() {
               <Typography fontSize="0.98em" mb={0.5}>
                 Profit: <b>${data.truckStats?.[0]?.profit?.toLocaleString() || "-"}</b>
               </Typography>
-              <Typography fontSize="0.98em" color="#3EC17C">
+              <Typography fontSize="0.98em" color={chart.green}>
                 Miles: {data.truckStats?.[0]?.miles}
               </Typography>
             </CardContent>

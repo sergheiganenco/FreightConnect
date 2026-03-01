@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Typography, Tooltip } from '@mui/material';
+import { surface, text as T, gradient } from '../../theme/tokens';
 
 function formatTime(dateStr) {
   if (!dateStr) return '';
@@ -15,7 +16,7 @@ export default function MessageBubble({ message, isOwn }) {
       <Box sx={{ textAlign: 'center', my: 1, px: 2 }}>
         <Typography
           variant="caption"
-          sx={{ color: 'rgba(255,255,255,0.45)', fontStyle: 'italic' }}
+          sx={{ color: T.muted, fontStyle: 'italic' }}
         >
           {message.content}
         </Typography>
@@ -36,7 +37,7 @@ export default function MessageBubble({ message, isOwn }) {
         {!isOwn && (
           <Typography
             variant="caption"
-            sx={{ color: 'rgba(255,255,255,0.5)', mb: 0.25, display: 'block', pl: 1 }}
+            sx={{ color: T.secondary, mb: 0.25, display: 'block', pl: 1 }}
           >
             {message.sender?.name || 'Unknown'}
           </Typography>
@@ -48,14 +49,14 @@ export default function MessageBubble({ message, isOwn }) {
               py: 1,
               borderRadius: isOwn ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
               background: isOwn
-                ? 'linear-gradient(135deg, #6a1fcf, #e1129a)'
-                : 'rgba(255,255,255,0.1)',
+                ? gradient.primary
+                : surface.glassBorder,
               backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              border: `1px solid ${surface.glassBorder}`,
               wordBreak: 'break-word',
             }}
           >
-            <Typography variant="body2" sx={{ color: '#fff', lineHeight: 1.5 }}>
+            <Typography variant="body2" sx={{ color: T.primary, lineHeight: 1.5 }}>
               {message.deleted ? (
                 <em style={{ opacity: 0.5 }}>[Message deleted]</em>
               ) : (
@@ -72,7 +73,7 @@ export default function MessageBubble({ message, isOwn }) {
         <Typography
           variant="caption"
           sx={{
-            color: 'rgba(255,255,255,0.3)',
+            color: T.hint,
             display: 'block',
             textAlign: isOwn ? 'right' : 'left',
             mt: 0.25,

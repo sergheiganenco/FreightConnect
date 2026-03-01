@@ -21,6 +21,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import SideNav from '../../features/shipperDashboard/sections/components/SideNav';
 import NotificationBell from '../../features/shared/NotificationBell';
 import { disconnectSocket } from '../../services/socket';
+import { brand, surface, gradient } from '../../theme/tokens';
 
 // Utility to highlight nav based on route:
 const sectionFromPath = (pathname) => {
@@ -70,7 +71,7 @@ export default function ShipperDashboard() {
         bgcolor: theme.palette?.dashboardBg || undefined,
         background: theme.palette?.dashboardBg
           ? undefined
-          : 'linear-gradient(135deg, #1f2dff 0%, #6a1fcf 40%, #e1129a 100%)',
+          : gradient.dashboardBg,
       }}
       className="dashboard-page"
     >
@@ -79,9 +80,9 @@ export default function ShipperDashboard() {
         elevation={0}
         sx={{
           backdropFilter: 'blur(24px)',
-          background: theme.palette?.glass || 'rgba(34, 25, 84, 0.92)',
+          background: theme.palette?.glass || surface.appBar,
           zIndex: theme.zIndex.drawer + 1,
-          borderBottom: '1.5px solid rgba(255,255,255,0.10)',
+          borderBottom: `1.5px solid ${surface.glassBorder}`,
         }}
       >
         <Toolbar>
@@ -100,7 +101,7 @@ export default function ShipperDashboard() {
             label="SHIPPER"
             sx={{
               mr: 'auto',
-              bgcolor: 'rgba(99,102,241,0.88)', // purple/blue background
+              bgcolor: `${brand.indigo}e0`,
               color: '#fff',
               fontWeight: 700,
               letterSpacing: 1,
@@ -122,8 +123,8 @@ export default function ShipperDashboard() {
         PaperProps={{
           sx: {
             backdropFilter: 'blur(12px)',
-            background: theme.palette?.glass || 'rgba(34, 25, 84, 0.96)',
-            color: "#fff",
+            background: theme.palette?.glass || surface.appBar,
+            color: '#fff',
           }
         }}
       >
@@ -144,7 +145,7 @@ export default function ShipperDashboard() {
           sx: {
             width: drawerW,
             backdropFilter: 'blur(24px)',
-            background: theme.palette?.glass || 'rgba(34, 25, 84, 0.92)',
+            background: theme.palette?.glass || surface.appBar,
             borderRight: 'none',
             pt: 8,
           },
