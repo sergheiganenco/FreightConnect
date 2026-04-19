@@ -13,9 +13,13 @@ const axios = require('axios');
 const PDFDocument = require('pdfkit');
 const helmet = require('helmet');
 
+const compression = require('compression');
 const errorHandler = require('./middlewares/errorHandler');
 const { apiLimiter } = require('./middlewares/rateLimiter');
 const auth = require('./middlewares/authMiddleware');
+const { sanitizeInput } = require('./middlewares/sanitize');
+const { requestId } = require('./middlewares/requestId');
+const { apiKeyAuth } = require('./middlewares/apiKeyAuth');
 
 // ── Startup validation ────────────────────────────────────────────────────────
 const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'];
@@ -25,8 +29,29 @@ if (missing.length) {
   process.exit(1);
 }
 
+// Warn about optional keys that degrade specific features
+const OPTIONAL_ENV = {
+  ORS_API_KEY: 'Route visualization & ETA calculation',
+  STRIPE_SECRET_KEY: 'Payment processing (escrow, payouts)',
+  STRIPE_WEBHOOK_SECRET: 'Payment webhook verification',
+  FMCSA_API_KEY: 'Carrier FMCSA verification',
+  EMAIL_USER: 'Email notifications & verification',
+  EMAIL_PASS: 'Email notifications & verification',
+};
+const missingOptional = Object.entries(OPTIONAL_ENV).filter(([k]) => !process.env[k]);
+if (missingOptional.length) {
+  console.warn(`[Startup] Optional env vars not set (features degraded):`);
+  missingOptional.forEach(([k, desc]) => console.warn(`  - ${k}: ${desc}`));
+}
+
 const app = express();
 const server = http.createServer(app);
+
+// ── Production configuration ─────────────────────────────────────────────────
+// Trust proxy, HTTPS redirect, compression, static frontend serving
+if (process.env.NODE_ENV === 'production') {
+  require('./config/production')(app);
+}
 
 // Security headers
 app.use(helmet());
@@ -40,7 +65,7 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Key'],
 }));
 
 // Socket.IO — same CORS policy
@@ -88,8 +113,17 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25 MB cap
 
+// ── Security middleware ──────────────────────────────────────────────────────
+app.use(requestId);       // Attach unique request ID for tracing
+app.use(sanitizeInput);   // Strip NoSQL injection operators from all inputs
+app.use(apiKeyAuth);      // API key auth (falls through to JWT if no key)
+
 // Apply rate limiter to all API routes
 app.use('/api/', apiLimiter);
+
+// ToS guard — block users who haven't accepted current Terms of Service
+const tosGuard = require('./middlewares/tosGuard');
+app.use('/api/', tosGuard);
 
 // File upload route — requires auth
 app.post('/api/documents/upload', auth, upload.single('file'), (req, res) => {
@@ -98,6 +132,7 @@ app.post('/api/documents/upload', auth, upload.single('file'), (req, res) => {
 
 // Static uploads serving
 app.use('/documents/uploads', express.static(path.join(__dirname, 'public/documents/uploads')));
+app.use('/documents/receipts', express.static(path.join(__dirname, 'public/documents/receipts')));
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -115,6 +150,10 @@ app.get('/api/health', (req, res) => {
 
 // Root Route
 app.get('/', (req, res) => res.send('FreightConnect API is running!'));
+
+// ToS Routes
+const tosRoutes = require('./routes/tosRoutes');
+app.use('/api/tos', tosRoutes);
 
 // User Routes
 const userRoutes = require('./routes/userRoutes');
@@ -152,15 +191,37 @@ io.on('connection', (socket) => {
   socket.join(`user_${socket.userId}`);
 
   // ── Carrier location tracking ──────────────────────────────────
-  socket.on('updateCarrierLocation', async ({ loadId, latitude, longitude }) => {
+  socket.on('updateCarrierLocation', async ({ loadId, latitude, longitude, speed, heading, accuracy, source }) => {
     try {
       const Load = require('./models/Load');
-      const load = await Load.findByIdAndUpdate(loadId, { carrierLocation: { latitude, longitude } }, { new: false });
-      // Emit only to the shipper of this load (and the carrier themselves)
-      if (load?.postedBy) {
-        io.to(`user_${load.postedBy}`).emit(`carrierLocationUpdate-${loadId}`, { latitude, longitude });
+      const locationData = {
+        latitude,
+        longitude,
+        speed:     speed ?? null,
+        heading:   heading ?? null,
+        accuracy:  accuracy ?? null,
+        source:    source || 'browser',
+        updatedAt: new Date(),
+      };
+      const load = await Load.findByIdAndUpdate(loadId, { carrierLocation: locationData }, { new: false });
+      if (!load) return;
+      const payload = { loadId, ...locationData };
+      // Emit to shipper + carrier personal rooms
+      if (load.postedBy) {
+        io.to(`user_${load.postedBy}`).emit('carrierLocationUpdate', payload);
       }
-      io.to(`user_${socket.userId}`).emit(`carrierLocationUpdate-${loadId}`, { latitude, longitude });
+      io.to(`user_${socket.userId}`).emit('carrierLocationUpdate', payload);
+
+      // Geofenced auto check-in/check-out for dwell tracking
+      try {
+        const { checkGeofence } = require('./services/geofenceService');
+        await checkGeofence(socket.userId, latitude, longitude);
+      } catch (geoErr) {
+        // Non-fatal — dwell tracking is secondary to location updates
+        if (geoErr.message !== 'Cannot read properties of undefined') {
+          console.error('Geofence check failed (non-fatal):', geoErr.message);
+        }
+      }
     } catch (error) {
       console.error('Error updating carrier location:', error);
     }
@@ -207,6 +268,14 @@ app.get('/api/get-route', auth, async (req, res) => {
   try {
     const { start, end } = req.query;
     if (!start || !end) return res.status(400).json({ error: 'Missing start or end location' });
+
+    if (!process.env.ORS_API_KEY) {
+      return res.status(503).json({
+        error: 'Route service not configured (ORS_API_KEY missing)',
+        fallback: true,
+        message: 'Route visualization unavailable. Load details and acceptance still work.',
+      });
+    }
 
     const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${process.env.ORS_API_KEY}&start=${start}&end=${end}`;
     const response = await axios.get(url);
@@ -296,6 +365,69 @@ app.use('/api/edi', ediRoutes);
 const taxRoutes = require('./routes/taxRoutes');
 app.use('/api/tax', taxRoutes);
 
+// Expense Tracking Routes
+const expenseRoutes = require('./routes/expenseRoutes');
+app.use('/api/expenses', expenseRoutes);
+
+const trackingRoutes = require('./routes/trackingRoutes');
+app.use('/api/tracking', trackingRoutes);
+
+// Enterprise API Routes (API keys, webhooks, bulk operations, market data)
+const enterpriseRoutes = require('./routes/enterpriseRoutes');
+app.use('/api/enterprise', enterpriseRoutes);
+
+const ratingRoutes = require('./routes/ratingRoutes');
+app.use('/api/ratings', ratingRoutes);
+
+// Preferred Carrier Routes
+const preferredCarrierRoutes = require('./routes/preferredCarrierRoutes');
+app.use('/api/preferred-carriers', preferredCarrierRoutes);
+
+// Detention & Dwell Time Routes
+const detentionRoutes = require('./routes/detentionRoutes');
+app.use('/api/detention', detentionRoutes);
+
+// Reputation & Trust Badge Routes
+const reputationRoutes = require('./routes/reputationRoutes');
+app.use('/api/reputation', reputationRoutes);
+
+// Return Load Suggestions Routes
+const returnLoadRoutes = require('./routes/returnLoadRoutes');
+app.use('/api/return-loads', returnLoadRoutes);
+
+// Public Tracking Portal Routes
+const trackingPortalRoutes = require('./routes/trackingPortalRoutes');
+app.use('/api/tracking-portal', trackingPortalRoutes);
+
+// QuickPay Routes
+const quickPayRoutes = require('./routes/quickPayRoutes');
+app.use('/api/quickpay', quickPayRoutes);
+
+// AI Agent Routes
+const aiRoutes = require('./routes/aiRoutes');
+app.use('/api/ai', aiRoutes);
+
+// Fraud Detection Routes (admin)
+const fraudRoutes = require('./routes/fraudRoutes');
+app.use('/api/fraud', fraudRoutes);
+
+// ── Client-side routing catch-all (production only) ─────────────────────────
+// Serves index.html for any non-API route so React Router handles navigation.
+// Must be AFTER all /api routes and BEFORE the 404 handler.
+if (process.env.NODE_ENV === 'production') {
+  const fs = require('fs');
+  const buildPath = path.resolve(__dirname, 'frontend-build');
+  const fallbackPath = path.resolve(__dirname, '..', 'frontend', 'build');
+  const staticPath = fs.existsSync(buildPath) ? buildPath : fallbackPath;
+  const indexPath = path.join(staticPath, 'index.html');
+
+  if (fs.existsSync(indexPath)) {
+    app.get('*', (req, res) => {
+      res.sendFile(indexPath);
+    });
+  }
+}
+
 // ── 404 handler for unknown API routes ───────────────────────────────────────
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
@@ -314,6 +446,11 @@ server.listen(PORT, () => {
     require('./jobs/overdueLoadMonitor').start();
     require('./jobs/contractAutoPost').start();
     require('./jobs/contractMonitor').start();
+    require('./jobs/loadAlertDigest').start();
+    require('./jobs/invoiceEmailer').start();
+    require('./jobs/fraudMonitor').start();
+    // AI Agents
+    require('./agents').initializeAgents();
   }
 });
 

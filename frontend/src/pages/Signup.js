@@ -30,6 +30,7 @@ export default function Signup() {
 
   const [role, setRole] = useState('carrier');
   const [showPassword, setShowPassword] = useState(false);
+  const [tosAgreed, setTosAgreed] = useState(false);
   const [snack, setSnack] = useState({ open: false, message: '' });
 
   // Keep RHF in sync with toggle
@@ -39,7 +40,7 @@ export default function Signup() {
 
   const onSubmit = async (data) => {
     try {
-      await api.post('/users/signup', data);
+      await api.post('/users/signup', { ...data, tosAccepted: true });
       setSnack({
         open: true,
         message: `Registered ${data.name} (${data.role}) successfully!`
@@ -190,11 +191,42 @@ export default function Signup() {
                 <p className="error">{errors.password.message}</p>
               )}
 
+              {/* ToS Agreement */}
+              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, mb: 0.5 }}>
+                <input
+                  type="checkbox"
+                  id="tos-agree"
+                  checked={tosAgreed}
+                  onChange={(e) => setTosAgreed(e.target.checked)}
+                  style={{ marginRight: 8, accentColor: '#c52c89' }}
+                />
+                <label htmlFor="tos-agree" style={{ color: '#c9c3e0', fontSize: '0.85rem' }}>
+                  I agree to the{' '}
+                  <a
+                    href="/terms-of-service"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#e1a0d0', textDecoration: 'underline' }}
+                  >
+                    Terms of Service
+                  </a>{' '}
+                  and{' '}
+                  <a
+                    href="/privacy-policy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#e1a0d0', textDecoration: 'underline' }}
+                  >
+                    Privacy Policy
+                  </a>
+                </label>
+              </Box>
+
               <Button
                 variant="contained"
                 fullWidth
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !tosAgreed}
                 sx={{
                   mt: 1,
                   py: 1.5,

@@ -19,6 +19,10 @@ const Load = require('../models/Load');
 const Payment = require('../models/Payment');
 const Invoice = require('../models/Invoice');
 const { getIO } = require('../utils/socket');
+const escrowService = require('../services/escrowService');
+const { handleWebhookEvent } = require('../services/webhookHandler');
+const { validateAmountCents, calculatePlatformFee, calculateCarrierPayout, centsToDollars } = require('../services/paymentValidator');
+const { notifyUserSafe } = require('../utils/notifyUser');
 
 // ── Stripe client (graceful degradation if key missing) ──────────────────────
 let stripe = null;
@@ -129,18 +133,18 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
     }
 
     const amountCents = Math.round(load.rate * 100);
-    const feeCents    = Math.round(amountCents * PLATFORM_FEE_PCT);
+    const feeCents    = calculatePlatformFee(amountCents);
+    const payoutCents = calculateCarrierPayout(amountCents);
 
     const intent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: 'usd',
-      capture_method: 'automatic',
-      application_fee_amount: feeCents,
-      transfer_data: { destination: carrier.stripe.connectAccountId },
+      capture_method: 'manual',  // TRUE ESCROW — hold funds, capture on delivery
       metadata: {
         loadId:    load._id.toString(),
         shipperId: req.user.userId,
         carrierId: carrier._id.toString(),
+        type:      'freight_escrow',
       },
     });
 
@@ -149,9 +153,12 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
       loadId: load._id,
       shipperId: req.user.userId,
       carrierId: carrier._id,
+      amountCents,
+      platformFeeCents: feeCents,
+      carrierPayoutCents: payoutCents,
       amount: load.rate,
-      platformFee: (feeCents / 100),
-      carrierPayout: ((amountCents - feeCents) / 100),
+      platformFee: centsToDollars(feeCents),
+      carrierPayout: centsToDollars(payoutCents),
       status: 'pending',
       stripePaymentIntentId: intent.id,
       stripeClientSecret: intent.client_secret,
@@ -181,8 +188,21 @@ router.post('/release/:loadId', auth, async (req, res) => {
     if (!payment) return res.status(404).json({ error: 'No escrowed payment found for this load' });
 
     if (stripe) {
-      // Transfer is already automatic via transfer_data on the intent; mark as released
-      // For manual-capture flows you'd call stripe.paymentIntents.capture() here
+      // Capture the held funds
+      await stripe.paymentIntents.capture(payment.stripePaymentIntentId);
+
+      // Transfer to carrier minus platform fee
+      const carrier = await User.findById(payment.carrierId);
+      if (carrier?.stripe?.connectAccountId) {
+        const payoutCents = payment.carrierPayoutCents || Math.round(payment.carrierPayout * 100);
+        await stripe.transfers.create({
+          amount: payoutCents,
+          currency: 'usd',
+          destination: carrier.stripe.connectAccountId,
+          transfer_group: `load_${load._id}`,
+          metadata: { loadId: load._id.toString() },
+        });
+      }
     }
 
     payment.status = 'released';
@@ -276,38 +296,12 @@ router.post('/webhook', async (req, res) => {
   }
 
   try {
-    if (event.type === 'payment_intent.succeeded') {
-      const pi = event.data.object;
-      const payment = await Payment.findOne({ stripePaymentIntentId: pi.id });
-      if (payment && payment.status === 'pending') {
-        payment.status = 'in_escrow';
-        payment.stripeChargeId = pi.latest_charge;
-        await payment.save();
-
-        notify(payment.shipperId.toString(), 'payment:escrowed', {
-          loadId: payment.loadId,
-          amount: payment.amount,
-        });
-        notify(payment.carrierId.toString(), 'payment:escrowed', {
-          loadId: payment.loadId,
-          amount: payment.carrierPayout,
-          note: 'Payment held in escrow — will be released on delivery confirmation.',
-        });
-      }
-    }
-
-    if (event.type === 'payment_intent.payment_failed') {
-      const pi = event.data.object;
-      const payment = await Payment.findOne({ stripePaymentIntentId: pi.id });
-      if (payment) {
-        payment.status = 'failed';
-        payment.failedAt = new Date();
-        await payment.save();
-        notify(payment.shipperId.toString(), 'payment:failed', { loadId: payment.loadId });
-      }
+    const result = await handleWebhookEvent(event);
+    if (!result.handled) {
+      console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
   } catch (err) {
-    console.error('Webhook handler error:', err);
+    console.error('[Webhook] Handler error:', err.message);
   }
 
   res.json({ received: true });

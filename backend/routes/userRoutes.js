@@ -17,6 +17,9 @@ const upload = multer({ dest: 'uploads/' });
 const Company = require('../models/Company');
 const companyNormalize = require('../utils/companyNormalize');
 const { generateBOL } = require('../utils/pdfGenerator');
+const crypto = require('crypto');
+const { sendEmailWithAttachment } = require('../services/emailService');
+const verificationService = require('../services/verificationService');
 
 
 
@@ -26,7 +29,12 @@ const { generateBOL } = require('../utils/pdfGenerator');
 const signupValidation = [
   body("name").trim().notEmpty().withMessage("Name is required"),
   body("email").isEmail().normalizeEmail().withMessage("Valid email is required"),
-  body("password").isLength({ min: 8 }).withMessage("Password must be at least 8 characters"),
+  body("password")
+    .isLength({ min: 8 }).withMessage("Password must be at least 8 characters")
+    .matches(/[A-Z]/).withMessage("Password must contain at least one uppercase letter")
+    .matches(/[a-z]/).withMessage("Password must contain at least one lowercase letter")
+    .matches(/[0-9]/).withMessage("Password must contain at least one number")
+    .matches(/[!@#$%^&*(),.?":{}|<>]/).withMessage("Password must contain at least one special character"),
   body("role").isIn(["carrier", "shipper", "admin"]).withMessage("Role must be carrier, shipper, or admin"),
   body("companyName")
     .if(body("role").isIn(["carrier", "shipper"]))
@@ -37,7 +45,7 @@ const signupValidation = [
 
 router.post("/signup", authLimiter, signupValidation, validate, async (req, res) => {
   try {
-    const { name, email, password, role, companyName } = req.body;
+    const { name, email, password, role, companyName, tosAccepted } = req.body;
 
     // 1. Input validation
     if (!name || !email || !password || !role) {
@@ -79,15 +87,46 @@ router.post("/signup", authLimiter, signupValidation, validate, async (req, res)
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // 5. Create and save user (linked to company if set)
+    const ipAddress = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
     const newUser = new User({
       name,
       email,
       password: hashedPassword,
       role,
       companyName: companyName || undefined,
-      companyId: companyId || undefined
+      companyId: companyId || undefined,
+      ...(tosAccepted ? {
+        tosAccepted: true,
+        tosAcceptedAt: new Date(),
+        tosVersion: '1.0',
+        tosIpAddress: ipAddress,
+      } : {}),
     });
     await newUser.save();
+
+    // 5b. Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    newUser.emailVerificationToken = verificationToken;
+    newUser.emailVerified = false;
+    await newUser.save();
+
+    // 5c. Send verification email (non-blocking)
+    const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+    try {
+      const nodemailer = require('nodemailer');
+      const transporter = nodemailer.createTransport({
+        service: 'Gmail',
+        auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      });
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Verify your FreightConnect email',
+        html: `<h2>Welcome to FreightConnect!</h2><p>Click the link below to verify your email:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>This link expires in 24 hours.</p>`,
+      });
+    } catch (emailErr) {
+      console.error('[Signup] Email send failed (non-fatal):', emailErr.message);
+    }
 
     // 6. Respond
     return res.status(201).json({
@@ -109,6 +148,28 @@ router.post("/signup", authLimiter, signupValidation, validate, async (req, res)
     return res.status(500).json({ error: "Server error" });
   }
 });
+// ----------------------
+// 1b) Email Verification
+// ----------------------
+router.get('/verify-email', async (req, res) => {
+  try {
+    const { token, email } = req.query;
+    if (!token || !email) return res.status(400).json({ error: 'Missing token or email' });
+
+    const user = await User.findOne({ email, emailVerificationToken: token });
+    if (!user) return res.status(400).json({ error: 'Invalid or expired verification link' });
+
+    user.emailVerified = true;
+    user.emailVerificationToken = undefined;
+    await user.save();
+
+    res.json({ success: true, message: 'Email verified successfully' });
+  } catch (err) {
+    console.error('[VerifyEmail] Error:', err.message);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
 // ----------------------
 // 2) Login Route
 // ----------------------
@@ -144,11 +205,41 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
         name: user.name,
         email: user.email,
         role: user.role,
+        emailVerified: user.emailVerified !== false,
       },
     });
   } catch (error) {
     console.error("Error during login:", error);
     return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ----------------------
+// 2b) Refresh Token
+// ----------------------
+router.post('/refresh-token', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const token = jwt.sign(
+      { userId: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    console.error('[RefreshToken] Error:', err.message);
+    res.status(500).json({ error: 'Failed to refresh token' });
   }
 });
 

@@ -57,6 +57,7 @@ export default function AdminDashboard() {
   if (path.includes("/loads")) currentSection = "loads";
   else if (path.includes("/users")) currentSection = "users";
   else if (path.includes("/companies")) currentSection = "companies";
+  else if (path.includes("/verifications")) currentSection = "verifications";
   else if (path.includes("/exceptions")) currentSection = "exceptions";
   else if (path.includes("/profile")) currentSection = "profile";
 
@@ -71,6 +72,7 @@ export default function AdminDashboard() {
     else if (key === "loads") navigate("/dashboard/admin/loads");
     else if (key === "users") navigate("/dashboard/admin/users");
     else if (key === "companies") navigate("/dashboard/admin/companies");
+    else if (key === "verifications") navigate("/dashboard/admin/verifications");
     else if (key === "exceptions") navigate("/dashboard/admin/exceptions");
     else if (key === "profile") navigate("/dashboard/admin/profile");
     if (!mdUp) setDrawerOpen(false);

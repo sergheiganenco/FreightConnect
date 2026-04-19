@@ -98,7 +98,12 @@ const UserSchema = new mongoose.Schema({
       latitude: Number,
       longitude: Number,
     },
+    autoDispatch: { type: Boolean, default: false }, // shipper opt-in for AI auto-dispatch
   },
+
+  // ── AI Risk Scoring (populated by CarrierRiskAgent) ─────────────
+  riskScore: { type: Number, default: null, min: 0, max: 100 },
+  riskDetails: { type: mongoose.Schema.Types.Mixed, default: null },
 
   // ── Carrier Verification ────────────────────────────────────────
   verification: {
@@ -139,11 +144,54 @@ const UserSchema = new mongoose.Schema({
 
   // ── Shipper Verification ────────────────────────────────────────
   shipperVerification: {
+    status: {
+      type: String,
+      enum: ['unverified', 'pending', 'verified', 'suspended', 'rejected'],
+      default: 'unverified',
+    },
+    // Step 1: Business identity
+    businessName:     String,
+    ein:              String,   // Employer Identification Number (masked: XX-XXX1234)
+    einVerified:      { type: Boolean, default: false },
     businessVerified: { type: Boolean, default: false },
-    dunsNumber: String,
-    creditTier: { type: String, enum: ['A', 'B', 'C', 'D', 'unrated'], default: 'unrated' },
+    dunsNumber:       String,
+    stateOfIncorporation: String,
+    businessType:     { type: String, enum: ['llc', 'corporation', 'sole_proprietor', 'partnership', 'other'], default: null },
+
+    // Step 2: Email domain check
+    emailDomainVerified: { type: Boolean, default: false },
+    emailDomain:         String,   // extracted from signup email
+    isFreeEmail:         { type: Boolean, default: null }, // true if gmail/yahoo/hotmail
+
+    // Step 3: Payment method
     paymentMethodVerified: { type: Boolean, default: false },
-    stripeCustomerId: String,
+    stripeCustomerId:      String,
+    paymentMethodLast4:    String,  // last 4 digits of card on file
+    paymentMethodType:     String,  // 'card', 'bank_account'
+
+    // Step 4: Credit tier (assessed after first load)
+    creditTier: { type: String, enum: ['A', 'B', 'C', 'D', 'unrated'], default: 'unrated' },
+
+    // Step 5: Document uploads (optional but increase tier)
+    documentsOnFile: [{
+      docType: {
+        type: String,
+        enum: ['business_license', 'tax_certificate', 'insurance_coi', 'bank_letter'],
+      },
+      filename: String,
+      uploadedAt: { type: Date, default: Date.now },
+      verified: { type: Boolean, default: false },
+    }],
+
+    // Approval
+    verifiedAt:    Date,
+    verifiedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // admin who verified
+    rejectedAt:    Date,
+    rejectionNote: String,
+
+    // First-load escrow requirement
+    firstLoadEscrowRequired: { type: Boolean, default: true },
+    firstLoadCompleted:      { type: Boolean, default: false },
   },
 
   // ── Trust Score ─────────────────────────────────────────────────
@@ -162,6 +210,12 @@ const UserSchema = new mongoose.Schema({
       date: { type: Date, default: Date.now },
     }],
   },
+
+  // ── Terms of Service Acceptance ──────────────────────────────────
+  tosAccepted: { type: Boolean, default: false },
+  tosAcceptedAt: { type: Date },
+  tosVersion: { type: String },
+  tosIpAddress: { type: String },
 
   createdAt: {
     type: Date,

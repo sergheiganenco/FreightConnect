@@ -18,6 +18,7 @@ const auth    = require('../middlewares/authMiddleware');
 const TaxRecord = require('../models/TaxRecord');
 const Load    = require('../models/Load');
 const User    = require('../models/User');
+const Expense = require('../models/Expense');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -217,12 +218,12 @@ router.get('/export/:year', auth, async (req, res) => {
         .select('title origin destination rate deliveredAt acceptedBy');
     }
 
-    // Build CSV
-    const headers = role === 'carrier'
+    // Build CSV — Income section
+    const incomeHeaders = role === 'carrier'
       ? ['Date', 'Load Title', 'Origin', 'Destination', 'Gross ($)', 'Platform Fee ($)', 'Net ($)']
       : ['Date', 'Load Title', 'Origin', 'Destination', 'Amount ($)', 'Carrier'];
 
-    const rows = loads.map(l => {
+    const incomeRows = loads.map(l => {
       const date = l.deliveredAt ? new Date(l.deliveredAt).toLocaleDateString('en-US') : '';
       const rate = (l.rate || 0).toFixed(2);
       if (role === 'carrier') {
@@ -235,7 +236,47 @@ router.get('/export/:year', auth, async (req, res) => {
       }
     });
 
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csvParts = [
+      '--- INCOME ---',
+      incomeHeaders.join(','),
+      ...incomeRows.map(r => r.join(',')),
+    ];
+
+    // Expenses section (carrier only)
+    if (role === 'carrier') {
+      const expenses = await Expense.find({
+        carrier: req.user.userId,
+        date: { $gte: startOfYear, $lte: endOfYear },
+      }).sort({ date: 1 });
+
+      if (expenses.length > 0) {
+        const expHeaders = ['Date', 'Category', 'Vendor', 'Description', 'Amount ($)', 'Deductible', 'Mileage'];
+        const expRows = expenses.map(e => {
+          const date = new Date(e.date).toLocaleDateString('en-US');
+          const amount = (e.amountCents / 100).toFixed(2);
+          const cat = (Expense.CATEGORY_LABELS[e.category] || e.category);
+          const miles = e.mileage?.miles || '';
+          return [date, `"${cat}"`, `"${e.vendor}"`, `"${e.description}"`, amount, e.isDeductible ? 'Yes' : 'No', miles];
+        });
+
+        const totalExpenses = expenses.reduce((s, e) => s + e.amountCents, 0);
+        const totalIncome   = loads.reduce((s, l) => s + Math.round((l.rate || 0) * 100), 0);
+        const netProfit     = totalIncome - Math.round(totalIncome * 0.05) - totalExpenses;
+
+        csvParts.push('');
+        csvParts.push('--- EXPENSES ---');
+        csvParts.push(expHeaders.join(','));
+        csvParts.push(...expRows.map(r => r.join(',')));
+        csvParts.push('');
+        csvParts.push('--- SUMMARY ---');
+        csvParts.push(`Gross Income,$${(totalIncome / 100).toFixed(2)}`);
+        csvParts.push(`Platform Fees (5%),$${(Math.round(totalIncome * 0.05) / 100).toFixed(2)}`);
+        csvParts.push(`Total Expenses,$${(totalExpenses / 100).toFixed(2)}`);
+        csvParts.push(`Net Profit,$${(netProfit / 100).toFixed(2)}`);
+      }
+    }
+
+    const csv = csvParts.join('\n');
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="FreightConnect_${role}_${year}.csv"`);

@@ -6,7 +6,8 @@ FreightConnect is a freight marketplace platform that eliminates brokers by conn
 ## Tech Stack
 - **Backend:** Node.js, Express, MongoDB (Mongoose), Socket.IO, JWT auth, PDFKit, Stripe (pending)
 - **Frontend:** React 18, MUI 6, React Router 6, Leaflet maps, Recharts, Socket.IO client, Axios
-- **Architecture:** Monorepo with `/backend` and `/frontend` directories
+- **Mobile:** React Native (Expo SDK 54), expo-location (background GPS), expo-camera, expo-notifications
+- **Architecture:** Monorepo with `/backend`, `/frontend`, and `/mobile` directories
 
 ## Project Structure
 ```
@@ -66,6 +67,15 @@ FreightConnect/
 │   │   ├── services/            # api.js (Axios instance), socket.js
 │   │   └── styles/              # CSS files
 │   └── public/                  # Static assets
+├── mobile/
+│   ├── App.js                   # Root: AuthProvider + NavigationContainer
+│   ├── app.json                 # Expo config (permissions, plugins)
+│   └── src/
+│       ├── constants/config.js  # API URL, colors, tracking config
+│       ├── context/AuthContext.js # JWT auth via SecureStore
+│       ├── navigation/          # AppNavigator (tabs), AuthNavigator
+│       ├── screens/             # Login, LoadBoard, LoadDetail, PODUpload, Chat, Profile
+│       └── services/            # api.js, socket.js, tracking.js (background GPS), notifications.js
 ```
 
 ## Routing Structure
@@ -117,6 +127,11 @@ cd backend && npm install && npm run dev   # Starts with nodemon on port 5000
 
 # Frontend
 cd frontend && npm install && npm start    # Starts CRA on port 3000
+
+# Mobile (Expo)
+cd mobile && npm install && npx expo start # Starts Metro bundler, scan QR with Expo Go
+# For physical device: update API_URL in src/constants/config.js to your LAN IP
+# For Android emulator: API_URL uses 10.0.2.2 (default)
 ```
 
 ## Implementation Master Plan

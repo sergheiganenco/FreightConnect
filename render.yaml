@@ -1,0 +1,50 @@
+# ============================================================================
+# FreightConnect — Render.com Blueprint (render.yaml)
+# ============================================================================
+# Deploy: connect your GitHub repo and Render auto-detects this file.
+# Docs:   https://render.com/docs/blueprint-spec
+# ============================================================================
+
+services:
+  # ── Web Service (Node.js backend + React frontend) ────────────────────────
+  - type: web
+    name: freightconnect
+    runtime: node
+    region: oregon
+    plan: standard
+    buildCommand: |
+      cd frontend && npm ci && npm run build && cd ../backend && npm ci --omit=dev
+    startCommand: |
+      cd backend && node app.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000"
+      - key: MONGO_URI
+        sync: false    # set manually in Render dashboard
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: "1d"
+      - key: ALLOWED_ORIGINS
+        sync: false    # set to your Render URL, e.g. https://freightconnect.onrender.com
+      - key: ORS_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: FMCSA_API_KEY
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+    # Render auto-detects the root; buildCommand handles both dirs.
+    # The frontend build is at ../frontend/build, served by Express in production.
+    disk:
+      name: uploads
+      mountPath: /app/backend/public/documents/uploads
+      sizeGB: 1

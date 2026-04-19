@@ -15,7 +15,10 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import RouteIcon from '@mui/icons-material/Route';
 import TimerIcon from '@mui/icons-material/Timer';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
+import PsychologyIcon from '@mui/icons-material/Psychology';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import ReceiptIcon from '@mui/icons-material/Receipt';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
 
 function ChatNavItem() {
@@ -42,7 +45,10 @@ const navItems = [
   { key: "fleet",        label: "Fleet",         icon: <DirectionsCarIcon /> },
   { key: "fleetMap",  label: "Fleet Map",  icon: <MapIcon /> },
   { key: "analytics", label: "Analytics",  icon: <BarChartIcon /> },
+  { key: "ai-insights", label: "AI Insights", icon: <PsychologyIcon /> },
+  { key: "scorecard",   label: "Scorecard",   icon: <AssessmentIcon /> },
   { key: "payments",   label: "Payments",   icon: <AccountBalanceWalletIcon /> },
+  { key: "expenses",  label: "Expenses",   icon: <ReceiptIcon /> },
   { key: "factoring", label: "Factoring",  icon: <MonetizationOnIcon /> },
   { key: "tax",       label: "Tax & 1099", icon: <ReceiptLongIcon /> },
   { key: "network",   label: "Network",    icon: <PeopleIcon /> },

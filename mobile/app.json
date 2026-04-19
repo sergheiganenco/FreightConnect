@@ -1,0 +1,78 @@
+{
+  "expo": {
+    "name": "FreightConnect Driver",
+    "slug": "freightconnect-driver",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f0a1e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.freightconnect.driver",
+      "infoPlist": {
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "FreightConnect needs your location to track deliveries and share your position with shippers.",
+        "NSLocationWhenInUseUsageDescription": "FreightConnect uses your location to show your position on the map.",
+        "NSLocationAlwaysUsageDescription": "FreightConnect tracks your location during active trips, even when the app is in the background.",
+        "NSCameraUsageDescription": "FreightConnect needs camera access to take Proof of Delivery photos.",
+        "NSPhotoLibraryUsageDescription": "FreightConnect needs photo library access to select Proof of Delivery images.",
+        "UIBackgroundModes": ["location", "fetch"]
+      }
+    },
+    "android": {
+      "package": "com.freightconnect.driver",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f0a1e"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "FreightConnect needs your location to track deliveries during active trips.",
+          "locationAlwaysPermission": "FreightConnect tracks your location during active trips, even in the background.",
+          "locationWhenInUsePermission": "FreightConnect uses your location to show your position on the map.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FreightConnect needs camera access for Proof of Delivery photos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FreightConnect needs photo access to select Proof of Delivery images."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6a1fcf"
+        }
+      ]
+    ]
+  }
+}

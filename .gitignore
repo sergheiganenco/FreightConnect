@@ -29,5 +29,21 @@ npm-debug.log*
 backend/public/documents/uploads/*
 !backend/public/documents/uploads/.gitkeep
 
+# Mobile (Expo / React Native)
+mobile/.expo/
+mobile/android/
+mobile/ios/
+mobile/dist/
+*.apk
+*.aab
+*.ipa
+
+# Docker
+docker-compose.override.yml
+
+# Editor swap files
+*.swp
+*.swo
+
 # Claude Code session files
 .claude/

@@ -22,8 +22,11 @@ import SideNav from '../../features/carrierDashboard/sections/components/SideNav
 import LogisticsAssistant from '../../components/LogisticsAssistant';
 import { DashboardProvider } from '../../features/carrierDashboard/sections/context/DashboardContext';
 import NotificationBell from '../../features/shared/NotificationBell';
+import AIInsightsPanel from '../../components/AIInsightsPanel';
+import CarrierScorecard from '../../components/CarrierScorecard';
 import { disconnectSocket } from '../../services/socket';
 import { surface } from '../../theme/tokens';
+import VerificationBanner from '../../components/VerificationBanner';
 
 export default function CarrierDashboard() {
   const navigate = useNavigate();
@@ -67,9 +70,12 @@ export default function CarrierDashboard() {
   else if (path.includes('/appointments')) currentSection = 'appointments';
   else if (path.includes('/trips')) currentSection = 'trips';
   else if (path.includes('/eld')) currentSection = 'eld';
+  else if (path.includes('/expenses')) currentSection = 'expenses';
   else if (path.includes('/factoring')) currentSection = 'factoring';
   else if (path.includes('/tax')) currentSection = 'tax';
   else if (path.includes('/network')) currentSection = 'network';
+  else if (path.includes('/ai-insights')) currentSection = 'ai-insights';
+  else if (path.includes('/scorecard')) currentSection = 'scorecard';
   else if (path.includes('/fleet')) currentSection = 'fleet';
   else if (path.includes('/chat')) currentSection = 'chat';
   else if (path.includes('/verification')) currentSection = 'verification';
@@ -171,9 +177,12 @@ export default function CarrierDashboard() {
               else if (key === "appointments") navigate("/dashboard/carrier/appointments");
               else if (key === "trips") navigate("/dashboard/carrier/trips");
               else if (key === "eld") navigate("/dashboard/carrier/eld");
+              else if (key === "expenses") navigate("/dashboard/carrier/expenses");
               else if (key === "factoring") navigate("/dashboard/carrier/factoring");
               else if (key === "tax") navigate("/dashboard/carrier/tax");
               else if (key === "network") navigate("/dashboard/carrier/network");
+              else if (key === "ai-insights") navigate("/dashboard/carrier/ai-insights");
+              else if (key === "scorecard") navigate("/dashboard/carrier/scorecard");
               else if (key === "chat") navigate("/dashboard/carrier/chat");
               else if (key === "verification") navigate("/dashboard/carrier/verification");
               else if (key === "profile") navigate("/dashboard/carrier/profile");
@@ -192,6 +201,7 @@ export default function CarrierDashboard() {
             px: { xs: 2, md: 4 },
           }}
         >
+          <VerificationBanner role="carrier" />
           <Outlet />
         </Box>
 

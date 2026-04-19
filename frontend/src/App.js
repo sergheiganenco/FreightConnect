@@ -1,10 +1,14 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import Footer from './components/Footer';
+import Footer from './components/FooterFull';
+import OfflineDetector from './components/OfflineDetector';
+import AIInsightsPanel from './components/AIInsightsPanel';
+import CarrierScorecard from './components/CarrierScorecard';
 import ChatProvider from './components/chat/ChatProvider';
 import ChatPage from './components/chat/ChatPage';
 import ErrorBoundary from './components/ErrorBoundary';
+import TosGuardProvider from './components/TosGuardProvider';
 import NotFound from './pages/NotFound';
 
 /* marketing pages */
@@ -46,8 +50,10 @@ import CarrierTripPlanning from './pages/carrier/CarrierTripPlanning';
 import CarrierELD from './pages/carrier/CarrierELD';
 import CarrierFactoring from './pages/carrier/CarrierFactoring';
 import CarrierTax from './pages/carrier/CarrierTax';
+import CarrierExpenses from './pages/carrier/CarrierExpenses';
 import ShipperEDI from './pages/shipper/ShipperEDI';
 import ShipperTax from './pages/shipper/ShipperTax';
+import ShipperVerification from './pages/shipper/ShipperVerification';
 
 // --- Real Admin Pages ---
 import AdminOverview from './pages/admin/AdminOverview';
@@ -55,6 +61,7 @@ import AdminLoads from './pages/admin/AdminLoads';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminCompanies from './pages/admin/AdminCompanies';
 import AdminExceptions from './pages/admin/AdminExceptions';
+import AdminVerifications from './pages/admin/AdminVerifications';
 
 // Wrapper so CarrierVerification gets an onComplete handler
 function CarrierVerificationPage() {
@@ -66,6 +73,7 @@ function App() {
   return (
     <Router>
       <Navbar />
+      <OfflineDetector />
       <Routes>
         {/* Public Marketing Pages */}
         <Route path="/" element={<Home />} />
@@ -89,6 +97,8 @@ function App() {
           <Route path="appointments" element={<ShipperAppointments />} />
           <Route path="tax" element={<ShipperTax />} />
           <Route path="edi" element={<ShipperEDI />} />
+          <Route path="verification" element={<ShipperVerification />} />
+          <Route path="ai-insights" element={<AIInsightsPanel />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="profile" element={<ShipperProfile />} />
           <Route index element={<ShipperLoadBoardSection />} />
@@ -109,9 +119,12 @@ function App() {
           <Route path="appointments" element={<CarrierAppointments />} />
           <Route path="trips" element={<CarrierTripPlanning />} />
           <Route path="eld" element={<CarrierELD />} />
+          <Route path="expenses" element={<CarrierExpenses />} />
           <Route path="factoring" element={<CarrierFactoring />} />
           <Route path="tax" element={<CarrierTax />} />
           <Route path="network" element={<CarrierNetwork />} />
+          <Route path="ai-insights" element={<AIInsightsPanel />} />
+          <Route path="scorecard" element={<CarrierScorecard />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="profile" element={<Profile />} />
           <Route path="verification" element={<CarrierVerificationPage />} />
@@ -124,6 +137,7 @@ function App() {
           <Route path="loads" element={<AdminLoads />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="companies" element={<AdminCompanies />} />
+          <Route path="verifications" element={<AdminVerifications />} />
           <Route path="exceptions" element={<AdminExceptions />} />
           <Route path="profile" element={<AdminProfile />} />
         </Route>
@@ -139,7 +153,9 @@ function App() {
 function AppWithErrorBoundary() {
   return (
     <ErrorBoundary>
-      <App />
+      <TosGuardProvider>
+        <App />
+      </TosGuardProvider>
     </ErrorBoundary>
   );
 }

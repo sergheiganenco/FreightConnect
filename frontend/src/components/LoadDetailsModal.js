@@ -5,7 +5,8 @@ import {
   Divider, TextField, Chip, CircularProgress, Collapse, Alert,
   Tooltip, InputAdornment, Select, MenuItem, FormControl, InputLabel,
 } from '@mui/material';
-import { MapContainer, TileLayer, Marker, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import GavelIcon from '@mui/icons-material/Gavel';
@@ -15,10 +16,13 @@ import PaymentIcon from '@mui/icons-material/Payment';
 import LockIcon from '@mui/icons-material/Lock';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import StarIcon from '@mui/icons-material/Star';
+import RatingDialog from './RatingDialog';
 import api from '../services/api';
 import { getSocket } from '../services/socket';
 import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
 import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
+import ReputationBadges from './ReputationBadges';
 import {
   brand, status as ST, semantic, severity as SEV, exceptionStatus as EXC_ST,
   bidStatus as BID_ST, surface, text as T, shadow, tint, darkFieldSx,
@@ -40,6 +44,13 @@ const EXCEPTION_SEVERITIES = [
 ];
 const CONFIDENCE_COLOR = { high: semantic.success, medium: semantic.warning, low: semantic.muted, none: '#475569' };
 
+const TRUCK_ICON = new L.Icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/1086/1086933.png',
+  iconSize: [30, 30],
+  iconAnchor: [15, 30],
+  popupAnchor: [0, -30],
+});
+
 export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted }) {
   const [loadState, setLoadState] = useState(load);
   const [route, setRoute] = useState([]);
@@ -47,6 +58,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [eta, setEta] = useState(null);
   const [errorMessage, setError] = useState('');
   const [successMessage, setOk] = useState('');
+  const [ratingOpen, setRatingOpen] = useState(false);
 
   // ── Payment state ───────────────────────────────────────────────
   const [payment, setPayment] = useState(null);     // existing payment record
@@ -91,6 +103,35 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
     } catch { /* non-critical */ }
     setStopUpdating(null);
   };
+
+  // ── Live carrier location ────────────────────────────────────────
+  const [carrierPos, setCarrierPos] = useState(
+    loadState.carrierLocation?.latitude ? loadState.carrierLocation : null,
+  );
+
+  // Fetch initial carrier location + subscribe to live updates
+  useEffect(() => {
+    const isTracked = ['accepted', 'in-transit'].includes(loadState.status);
+    if (!isTracked) return;
+
+    // Fetch current position
+    (async () => {
+      try {
+        const { data } = await api.get(`/tracking/${loadState._id}`);
+        if (data.carrierLocation?.latitude) setCarrierPos(data.carrierLocation);
+      } catch { /* non-critical */ }
+    })();
+
+    // Listen for live updates
+    const socket = getSocket();
+    const handler = (data) => {
+      if (data.loadId === loadState._id) {
+        setCarrierPos({ ...data, updatedAt: data.updatedAt || new Date().toISOString() });
+      }
+    };
+    if (socket) socket.on('carrierLocationUpdate', handler);
+    return () => { if (socket) socket.off('carrierLocationUpdate', handler); };
+  }, [loadState._id, loadState.status]);
 
   // ── Exception state ─────────────────────────────────────────────
   const [exceptions, setExceptions] = useState([]);
@@ -366,6 +407,16 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
           <StatusChip status={loadState.status} />
         </Box>
 
+        {/* Counterparty Reputation — carriers see shipper, shippers see carrier */}
+        {(loadState.postedBy || loadState.acceptedBy) && (
+          <ReputationBadges
+            userId={userRole === 'carrier' ? (loadState.postedBy?._id || loadState.postedBy) : (loadState.acceptedBy?._id || loadState.acceptedBy)}
+            userRole={userRole}
+            loadId={loadState._id}
+            loadStatus={loadState.status}
+          />
+        )}
+
         {/* Rate + suggestion */}
         <Stack direction="row" alignItems="center" spacing={2} mb={2}
                sx={{ bgcolor: surface.indigoTint, borderRadius: 2, px: 2, py: 1.5 }}>
@@ -466,6 +517,24 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
             <Marker position={route[0]} />
             <Marker position={route[route.length - 1]} />
             <Polyline positions={route} color="#6366f1" weight={3} />
+            {carrierPos?.latitude && carrierPos?.longitude && (
+              <Marker position={[carrierPos.latitude, carrierPos.longitude]} icon={TRUCK_ICON}>
+                <Popup>
+                  <Typography variant="subtitle2" fontWeight={700}>Carrier Location</Typography>
+                  {carrierPos.speed != null && (
+                    <Typography variant="caption" display="block">Speed: {carrierPos.speed} km/h</Typography>
+                  )}
+                  <Typography variant="caption" display="block" sx={{
+                    color: carrierPos.updatedAt && (Date.now() - new Date(carrierPos.updatedAt).getTime()) < 120000
+                      ? 'green' : 'red',
+                  }}>
+                    {carrierPos.updatedAt
+                      ? `Updated ${Math.round((Date.now() - new Date(carrierPos.updatedAt).getTime()) / 1000)}s ago`
+                      : 'No timestamp'}
+                  </Typography>
+                </Popup>
+              </Marker>
+            )}
           </MapContainer>
         ) : (
           <Typography sx={{ mb: 2, color: T.muted }}>No route data available.</Typography>
@@ -987,9 +1056,22 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
               {loadState.status === 'open' ? 'Accept at Listed Rate' : 'Accepted'}
             </Button>
           )}
+          {loadState.status === 'delivered' && (
+            <Button variant="outlined" color="secondary" onClick={() => setRatingOpen(true)} startIcon={<StarIcon />} sx={{ mr: 2 }}>
+              Rate {userRole === 'carrier' ? 'Shipper' : 'Carrier'}
+            </Button>
+          )}
           <Button variant="outlined" onClick={onClose} sx={{ borderColor: surface.glassBorder, color: T.primary, '&:hover': { borderColor: T.muted, bgcolor: surface.glassSubtle } }}>Close</Button>
         </DialogActions>
       </Paper>
+      <RatingDialog
+        open={ratingOpen}
+        onClose={() => setRatingOpen(false)}
+        loadId={load?._id}
+        toUserId={userRole === 'carrier' ? load?.postedBy : load?.acceptedBy}
+        toRole={userRole === 'carrier' ? 'shipper' : 'carrier'}
+        fromRole={userRole}
+      />
     </Modal>
   );
 }

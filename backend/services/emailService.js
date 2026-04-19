@@ -9,6 +9,22 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+/**
+ * sendEmail — send an HTML email (no attachments)
+ * @param {{ to: string, subject: string, html: string }} opts
+ * @returns {Promise<void>}
+ */
+exports.sendEmail = async ({ to, subject, html }) => {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to,
+    subject,
+    html,
+  };
+  const info = await transporter.sendMail(mailOptions);
+  console.log('Email sent:', info.response);
+};
+
 exports.sendEmailWithAttachment = (to, subject, filePath) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,

@@ -19,6 +19,7 @@ import AcUnitIcon from '@mui/icons-material/AcUnit';
 import StraightenIcon from '@mui/icons-material/Straighten';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import api from '../../services/api';
+import { useDraftManager, DraftResumeDialog } from '../../components/DraftManager';
 import cities from '../../data/usCities.json';
 import {
   EQUIPMENT_TYPES, COMMODITY_CATEGORIES, COMMODITY_TYPES_BY_CATEGORY,
@@ -100,6 +101,9 @@ export default function ShipperPostLoad() {
     rateConfirmationUpload: [],
     customsDocsUpload: [],
   });
+
+  // ── Draft Manager ────────────────────────────────────────────────────────
+  const { hasDraft, draftData, resumeDraft, discardDraft, clearDraft, showResumeDialog } = useDraftManager('shipperPostLoad', newLoad, setNewLoad);
 
   // ── Auto-title ───────────────────────────────────────────────────────────
   const [autoTitleEnabled, setAutoTitleEnabled] = useState(true);
@@ -282,6 +286,7 @@ export default function ShipperPostLoad() {
         headers = { "Authorization": `Bearer ${token}` };
       }
       await api.post("/loads", payload, { headers });
+      clearDraft();
       navigate("/dashboard/shipper/loads");
     } catch (err) {
       setError("Failed to post load. Please check all fields and try again.");
@@ -399,6 +404,8 @@ export default function ShipperPostLoad() {
         }
       }}
     >
+      <DraftResumeDialog open={showResumeDialog && hasDraft} draft={draftData} onResume={resumeDraft} onDiscard={discardDraft} />
+
       <Typography variant="h4" fontWeight={900} color="#fff" mb={4} align="center" letterSpacing={1.4}
         sx={{ textShadow: "0 2px 16px #6a1fcf66" }}>
         Post a New Load

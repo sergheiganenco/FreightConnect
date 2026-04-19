@@ -7,14 +7,16 @@ import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import AccountBoxIcon from "@mui/icons-material/AccountBox";
 import BusinessIcon from "@mui/icons-material/Business";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
 
 const NAV = [
-  { key: "overview",   icon: <DashboardIcon />,    label: "Overview" },
-  { key: "loads",      icon: <ListAltIcon />,       label: "All Loads" },
-  { key: "users",      icon: <PeopleAltIcon />,     label: "Users" },
-  { key: "companies",  icon: <BusinessIcon />,      label: "Companies" },
-  { key: "exceptions", icon: <WarningAmberIcon />,  label: "Exceptions" },
-  { key: "profile",    icon: <AccountBoxIcon />,    label: "Profile" },
+  { key: "overview",       icon: <DashboardIcon />,    label: "Overview" },
+  { key: "loads",          icon: <ListAltIcon />,       label: "All Loads" },
+  { key: "users",          icon: <PeopleAltIcon />,     label: "Users" },
+  { key: "companies",      icon: <BusinessIcon />,      label: "Companies" },
+  { key: "verifications",  icon: <VerifiedUserIcon />,  label: "Verifications" },
+  { key: "exceptions",     icon: <WarningAmberIcon />,  label: "Exceptions" },
+  { key: "profile",        icon: <AccountBoxIcon />,    label: "Profile" },
 ];
 
 export default function SideNav({ current, collapsed, onSelect }) {

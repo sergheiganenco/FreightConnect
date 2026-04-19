@@ -11,6 +11,8 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import CodeIcon from '@mui/icons-material/Code';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import PsychologyIcon from '@mui/icons-material/Psychology';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
 import { brand, surface, text as T, tint } from '../../../../theme/tokens';
 
@@ -34,9 +36,11 @@ const navItems = [
   { key: "appointments", label: "Appointments", icon: <CalendarMonthIcon fontSize="medium" /> },
   { key: "documents",    label: "Documents",    icon: <DescriptionIcon fontSize="medium" /> },
   { key: "analytics", label: "Analytics", icon: <BarChartIcon /> },
+  { key: "ai-insights", label: "AI Insights", icon: <PsychologyIcon fontSize="medium" /> },
   { key: "payments",  label: "Payments",  icon: <AccountBalanceWalletIcon fontSize="medium" /> },
   { key: "tax",       label: "Tax",       icon: <ReceiptLongIcon fontSize="medium" /> },
   { key: "edi",       label: "EDI",       icon: <CodeIcon fontSize="medium" /> },
+  { key: "verification", label: "Verification", icon: <VerifiedUserIcon fontSize="medium" /> },
   { key: "chat",      label: "Messages",  icon: <ChatNavItem /> },
   { key: "profile",   label: "Profile",   icon: <AccountCircleIcon fontSize="medium" /> },
 ];

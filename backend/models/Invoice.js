@@ -34,6 +34,9 @@ const InvoiceSchema = new mongoose.Schema({
   }],
 
   notes: String,
+
+  // Automated email tracking
+  emailedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 // Auto-generate invoice number before save

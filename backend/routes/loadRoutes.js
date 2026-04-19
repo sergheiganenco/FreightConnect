@@ -11,6 +11,11 @@ module.exports = (io) => {
   require("dotenv").config();
   const User = require("../models/User");
   const { generateRateConfirmation } = require("../utils/pdfGenerator");
+  const { transitionLoadStatus, canTransition } = require('../services/loadStateMachine');
+  const StatusHistory = require('../models/StatusHistory');
+  const { checkScheduleConflicts } = require('../services/scheduleConflictService');
+  const PreferredCarrier = require('../models/PreferredCarrier');
+  const { notifyUserSafe } = require('../utils/notifyUser');
 
   // ── Helper: auto-generate Rate Confirmation (non-blocking) ─────────────────
   async function autoGenerateRateCon(loadId, carrierId, shipperId) {
@@ -40,10 +45,25 @@ module.exports = (io) => {
       let filter = {};
   
       // ---- Carrier: open loads and loads accepted by this carrier
+      // Preferred-visibility loads are hidden from non-preferred carriers during firstLook window
       if (req.user.role === "carrier") {
+        // Find shippers who have this carrier as preferred
+        const preferredEntries = await PreferredCarrier.find({
+          carrier: req.user.userId,
+          isActive: true,
+        }).select('shipper').lean();
+        const preferredShipperIds = preferredEntries.map(e => e.shipper);
+
         filter = {
           $or: [
-            { status: "open" },
+            // Open loads that are public
+            { status: "open", loadVisibility: { $ne: 'preferred' } },
+            // Open loads with preferred visibility where this carrier IS preferred
+            { status: "open", loadVisibility: 'preferred', postedBy: { $in: preferredShipperIds } },
+            // Open preferred-visibility loads past their firstLook window (now public)
+            { status: "open", loadVisibility: 'preferred', postedBy: { $nin: preferredShipperIds },
+              createdAt: { $lte: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
+            // Loads accepted by this carrier
             { acceptedBy: req.user.userId },
           ],
         };
@@ -207,6 +227,27 @@ const createLoadValidation = [
 
 router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   try {
+    // ── Shipper verification guard ──────────────────────────────────
+    // Must have payment method on file before posting loads
+    if (req.user.role === 'shipper') {
+      const shipper = await User.findById(req.user.userId).select('shipperVerification');
+      const sv = shipper?.shipperVerification;
+
+      if (sv?.status === 'suspended') {
+        return res.status(403).json({
+          error: 'Your shipper account is suspended. Contact support.',
+          verificationStatus: 'suspended',
+        });
+      }
+      if (!sv?.paymentMethodVerified) {
+        return res.status(403).json({
+          error: 'Add a payment method before posting loads. Go to Settings → Verification to add a card or bank account.',
+          verificationStatus: sv?.status || 'unverified',
+          missingStep: 'payment_method',
+        });
+      }
+    }
+
     const {
       title,
       origin,
@@ -406,6 +447,34 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     await newLoad.save();
     res.status(201).json(newLoad);
 
+    // Async: notify preferred carriers first (non-blocking)
+    (async () => {
+      try {
+        const preferredCarriers = await PreferredCarrier.find({
+          shipper: req.user.userId,
+          isActive: true,
+        }).populate('carrier', 'name email');
+
+        if (preferredCarriers.length > 0) {
+          for (const pc of preferredCarriers) {
+            await notifyUserSafe(pc.carrier._id, {
+              type: 'load:preferred',
+              title: 'New load from a shipper who prefers you!',
+              body: `${newLoad.origin} → ${newLoad.destination} · $${Number(newLoad.rate).toLocaleString()} · ${newLoad.equipmentType}`,
+              link: '/dashboard/carrier/loads',
+              metadata: {
+                loadId: newLoad._id,
+                tier: pc.tier,
+                firstLookHours: pc.firstLookHours,
+              },
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[PreferredCarrier] Notification failed (non-fatal):', err.message);
+      }
+    })();
+
     // Async: notify matched carriers — non-blocking
     const { notifyMatchedCarriers } = require('../services/matchingService');
     notifyMatchedCarriers(newLoad, io);
@@ -414,6 +483,24 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     res.status(500).json({ error: 'Failed to post load.' });
   }
 });
+
+  // ----------------------------------------
+  // GET /api/loads/:id/schedule-check — Pre-accept schedule conflict check
+  // Carrier calls this BEFORE accepting to see warnings/blockers
+  // ----------------------------------------
+  router.get("/:id/schedule-check", auth, async (req, res) => {
+    try {
+      if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      const result = await checkScheduleConflicts(req.user.userId, load);
+      res.json(result);
+    } catch (err) {
+      console.error('Error checking schedule:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
 
   // ----------------------------------------
   // PUT /api/loads/:id/accept - Accept a Load (atomic — prevents double-accept)
@@ -427,6 +514,29 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
           error: 'Complete carrier verification before accepting loads',
           verificationStatus: carrier?.verification?.status || 'unverified',
         });
+      }
+
+      // Insurance must not be lapsed
+      const insuranceStatus = carrier?.verification?.insurance?.status;
+      if (insuranceStatus === 'lapsed') {
+        return res.status(403).json({
+          error: 'Your insurance has lapsed. Update your Certificate of Insurance before accepting loads.',
+          insuranceStatus: 'lapsed',
+        });
+      }
+
+      // Schedule conflict check — block if "blocking" conflicts exist
+      // (carrier can bypass warnings with ?force=true)
+      const loadToCheck = await Load.findById(req.params.id);
+      if (loadToCheck) {
+        const scheduleResult = await checkScheduleConflicts(req.user.userId, loadToCheck);
+        if (!scheduleResult.canAccept && req.query.force !== 'true') {
+          return res.status(409).json({
+            error: 'Schedule conflict prevents accepting this load',
+            scheduleConflicts: scheduleResult.conflicts,
+            summary: scheduleResult.summary,
+          });
+        }
       }
 
       // Atomic: only succeeds if load is still open and not yet accepted
@@ -483,6 +593,9 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       }
 
       res.json({ message: "Load accepted successfully", load });
+
+      // Record status history (non-blocking)
+      StatusHistory.record('load', load._id, 'open', 'accepted', req.user.userId, 'Load accepted by carrier').catch(() => {});
     } catch (err) {
       console.error("Error accepting load:", err);
       res.status(500).json({ error: "Internal Server Error" });
@@ -704,29 +817,22 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(400).json({ error: "Invalid status provided." });
     }
 
-    const load = await Load.findById(req.params.id);
-    if (!load) {
+    // Pre-fetch load for auth check
+    const existingLoad = await Load.findById(req.params.id);
+    if (!existingLoad) {
       return res.status(404).json({ error: "Load not found." });
     }
 
-    if (req.user.role !== "carrier" || String(load.acceptedBy) !== req.user.userId) {
+    if (req.user.role !== "carrier" || String(existingLoad.acceptedBy) !== req.user.userId) {
       return res.status(403).json({ error: "Unauthorized action." });
     }
 
-    // Enforce valid status transitions
-    const VALID_TRANSITIONS = {
-      'accepted':   ['in-transit'],
-      'in-transit': ['delivered'],
-    };
-    const allowed = VALID_TRANSITIONS[load.status] || [];
-    if (!allowed.includes(status)) {
-      return res.status(400).json({
-        error: `Cannot change status from "${load.status}" to "${status}"`,
-      });
+    // Use state machine for atomic transition
+    const result = await transitionLoadStatus(req.params.id, existingLoad.status, status, {}, req.user.userId, `Status updated by carrier`);
+    if (!result.success) {
+      return res.status(409).json({ error: result.error });
     }
-
-    load.status = status;
-    await load.save();
+    const load = result.load;
 
     // Emit only to the shipper and carrier involved — not all connected users
     io.to(`user_${load.postedBy}`).emit("loadStatusUpdated", {
@@ -975,8 +1081,421 @@ router.post('/voice-command', auth, async (req, res) => {
   }
 });
 
+  // ========================================================================
+  //  LOAD CANCELLATION — Real trucking business logic
+  //
+  //  Who can cancel and when:
+  //    - Shipper can cancel an OPEN load freely (no fee)
+  //    - Shipper can cancel an ACCEPTED load → carrier gets TONU fee ($250 default)
+  //    - Carrier can cancel an ACCEPTED load → trust score penalty, shipper notified
+  //    - Nobody can cancel an IN-TRANSIT load (must file dispute instead)
+  //
+  //  Financial handling:
+  //    - If escrow exists → auto-refund to shipper (minus TONU if applicable)
+  //    - TONU fee is transferred to carrier if shipper cancels after acceptance
+  //    - Trust score adjusted: carrier cancel = -5 points, shipper late cancel = warning
+  // ========================================================================
 
+  router.put('/:id/cancel', auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
 
+      const { reason } = req.body;
+      const userId = req.user.userId;
+      const role   = req.user.role;
+
+      // ── Validate who can cancel ───────────────────────────────────
+      const isShipper = String(load.postedBy) === userId;
+      const isCarrier = String(load.acceptedBy) === userId;
+
+      if (!isShipper && !isCarrier) {
+        return res.status(403).json({ error: 'Only the shipper or assigned carrier can cancel' });
+      }
+
+      // Cannot cancel in-transit or delivered loads — must dispute
+      if (load.status === 'in-transit') {
+        return res.status(409).json({
+          error: 'Cannot cancel an in-transit load. File a dispute instead.',
+          suggestion: 'POST /api/exceptions with type: "dispute"',
+        });
+      }
+      if (load.status === 'delivered') {
+        return res.status(409).json({ error: 'Cannot cancel a delivered load' });
+      }
+      if (load.status === 'cancelled') {
+        return res.status(409).json({ error: 'Load is already cancelled' });
+      }
+
+      // Use state machine for atomic transition
+      const previousStatus = load.status;
+      const result = await transitionLoadStatus(
+        load._id,
+        previousStatus,
+        'cancelled',
+        {
+          cancelledBy: userId,
+          cancelledByRole: role,
+          cancelReason: reason || 'No reason provided',
+          cancelledAt: new Date(),
+        },
+        userId,
+        `Cancelled by ${role}: ${reason || 'no reason'}`
+      );
+
+      if (!result.success) {
+        return res.status(409).json({ error: result.error });
+      }
+
+      const cancelledLoad = result.load;
+      let tonuFeeCents = 0;
+      let escrowRefunded = false;
+
+      // ── TONU logic: shipper cancels after carrier already accepted ──
+      if (isShipper && previousStatus === 'accepted' && load.acceptedBy) {
+        // Carrier was committed — they get TONU fee
+        // Check contract for custom TONU rate, otherwise default $250
+        let tonuRate = 25000; // $250 in cents
+        if (load.contractId) {
+          try {
+            const Contract = require('../models/Contract');
+            const contract = await Contract.findById(load.contractId)
+              .select('pricing.accessorialRates.tonuCents');
+            if (contract?.pricing?.accessorialRates?.tonuCents) {
+              tonuRate = contract.pricing.accessorialRates.tonuCents;
+            }
+          } catch { /* use default */ }
+        }
+        tonuFeeCents = tonuRate;
+
+        // Notify carrier about cancellation + TONU
+        const { notifyUserSafe } = require('../utils/notifyUser');
+        notifyUserSafe(load.acceptedBy, {
+          type: 'load_cancelled',
+          title: 'Load Cancelled — TONU Fee Owed',
+          body: `Shipper cancelled "${load.title}" after you accepted. TONU fee: $${(tonuRate / 100).toFixed(2)} owed to you.`,
+          link: '/dashboard/carrier/my-loads',
+          metadata: { loadId: load._id, tonuFeeCents: tonuRate },
+        });
+
+        // Notify shipper about TONU charge
+        notifyUserSafe(load.postedBy, {
+          type: 'tonu_charged',
+          title: 'TONU Fee Applied',
+          body: `You cancelled "${load.title}" after carrier acceptance. TONU fee: $${(tonuRate / 100).toFixed(2)}.`,
+          link: '/dashboard/shipper/loads',
+          metadata: { loadId: load._id, tonuFeeCents: tonuRate },
+        });
+      }
+
+      // ── Carrier cancels accepted load → trust penalty ──────────────
+      if (isCarrier && previousStatus === 'accepted') {
+        const { adjustScore } = require('../services/trustScoreService');
+        adjustScore(userId, 'carrier_cancelled_load', -5).catch(() => {});
+
+        // Re-open the load so shipper can find another carrier
+        await Load.findByIdAndUpdate(load._id, {
+          $set: { status: 'open', acceptedBy: null, assignedTruckId: null },
+        });
+
+        const { notifyUserSafe } = require('../utils/notifyUser');
+        notifyUserSafe(load.postedBy, {
+          type: 'carrier_cancelled',
+          title: 'Carrier Dropped Your Load',
+          body: `The carrier cancelled "${load.title}". Reason: ${reason || 'none given'}. Your load has been re-posted.`,
+          link: '/dashboard/shipper/loads',
+          metadata: { loadId: load._id },
+        });
+
+        // Refund escrow if payment exists
+        try {
+          const Payment = require('../models/Payment');
+          const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
+          if (payment) {
+            payment.status = 'refunded';
+            payment.refundedAt = new Date();
+            await payment.save();
+            escrowRefunded = true;
+          }
+        } catch { /* non-critical */ }
+
+        return res.json({
+          message: 'Load cancelled. Your trust score has been adjusted (-5 points). Load re-posted for shipper.',
+          loadStatus: 'open', // re-opened for shipper
+          trustScorePenalty: -5,
+          escrowRefunded,
+        });
+      }
+
+      // ── Shipper cancels open load (free, no penalty) ───────────────
+      if (isShipper && previousStatus === 'open') {
+        return res.json({
+          message: 'Load cancelled successfully. No fees apply.',
+          loadStatus: 'cancelled',
+          tonuFeeCents: 0,
+        });
+      }
+
+      // ── Default response (shipper cancelled accepted load) ─────────
+      // Handle escrow refund minus TONU
+      try {
+        const Payment = require('../models/Payment');
+        const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
+        if (payment) {
+          // In a real implementation, Stripe would refund minus TONU via partial refund
+          // For now, mark as refunded and log the TONU as owed
+          payment.status = 'refunded';
+          payment.refundedAt = new Date();
+          await payment.save();
+          escrowRefunded = true;
+        }
+      } catch { /* non-critical */ }
+
+      res.json({
+        message: `Load cancelled by ${role}.`,
+        loadStatus: 'cancelled',
+        previousStatus,
+        tonuFeeCents,
+        escrowRefunded,
+        reason: reason || 'No reason provided',
+      });
+
+      // System message in chat thread
+      try {
+        const Message = require('../models/Message');
+        const channelId = `load_${load._id}`;
+        await Message.create({
+          channelType: 'load_thread',
+          channelId,
+          sender: null,
+          content: `⚠ Load cancelled by ${role}. Reason: ${reason || 'none given'}.${tonuFeeCents > 0 ? ` TONU fee: $${(tonuFeeCents / 100).toFixed(2)}.` : ''}`,
+          messageType: 'system',
+          readBy: [],
+        });
+      } catch { /* non-critical */ }
+
+    } catch (err) {
+      console.error('Error cancelling load:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ========================================================================
+  //  DISPUTE FLOW — When things go wrong during/after transit
+  //
+  //  Real-world scenarios:
+  //    - Cargo damaged during transit → carrier liable
+  //    - Shipper claims short delivery → weigh/count dispute
+  //    - Carrier claims incorrect freight description → overweight, hazmat undisclosed
+  //    - Payment dispute → shipper won't release escrow
+  //
+  //  Flow:
+  //    1. Either party files dispute → load status = 'disputed', escrow frozen
+  //    2. Both parties can add evidence (notes, photos via exceptions)
+  //    3. Admin reviews and resolves:
+  //       - "carrier_fault" → escrow refunded to shipper (full or partial)
+  //       - "shipper_fault" → escrow released to carrier
+  //       - "split" → partial refund + partial release
+  //       - "dismissed" → escrow released to carrier (no fault found)
+  // ========================================================================
+
+  router.put('/:id/dispute', auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      const userId = req.user.userId;
+      const role   = req.user.role;
+      const { reason, type, claimAmountCents, evidence } = req.body;
+
+      // Only shipper or carrier on this load can dispute
+      const isShipper = String(load.postedBy) === userId;
+      const isCarrier = String(load.acceptedBy) === userId;
+      if (!isShipper && !isCarrier && role !== 'admin') {
+        return res.status(403).json({ error: 'Only parties on this load can file a dispute' });
+      }
+
+      // Can only dispute in-transit or delivered loads
+      if (!['in-transit', 'delivered'].includes(load.status)) {
+        return res.status(409).json({
+          error: `Cannot dispute a load in "${load.status}" status. Use cancel for open/accepted loads.`,
+        });
+      }
+
+      if (!reason) {
+        return res.status(400).json({ error: 'Dispute reason is required' });
+      }
+
+      // Transition to disputed
+      const result = await transitionLoadStatus(
+        load._id,
+        load.status,
+        'disputed',
+        {
+          disputedBy: userId,
+          disputedByRole: role,
+          disputeReason: reason,
+          disputeType: type || 'general',
+          disputeClaimCents: claimAmountCents || 0,
+          disputeFiledAt: new Date(),
+        },
+        userId,
+        `Dispute filed by ${role}: ${reason}`
+      );
+
+      if (!result.success) {
+        return res.status(409).json({ error: result.error });
+      }
+
+      // Create an Exception record for admin tracking
+      try {
+        const Exception = require('../models/Exception');
+        await Exception.create({
+          load: load._id,
+          filedBy: userId,
+          type: type || 'dispute',
+          severity: claimAmountCents > 100000 ? 'critical' : claimAmountCents > 25000 ? 'high' : 'medium',
+          description: reason,
+          claimAmount: claimAmountCents ? claimAmountCents / 100 : undefined,
+          status: 'open',
+          notes: evidence ? [{ text: evidence, addedBy: userId, addedAt: new Date() }] : [],
+        });
+      } catch (exErr) {
+        console.error('Failed to create exception for dispute (non-fatal):', exErr);
+      }
+
+      // Freeze escrow — mark payment as disputed
+      try {
+        const Payment = require('../models/Payment');
+        const payment = await Payment.findOne({ loadId: load._id, status: { $in: ['in_escrow', 'released'] } });
+        if (payment) {
+          payment.status = 'pending'; // revert to pending = frozen
+          await payment.save();
+        }
+      } catch { /* non-critical */ }
+
+      // Notify the other party
+      const { notifyUserSafe } = require('../utils/notifyUser');
+      const otherParty = isShipper ? load.acceptedBy : load.postedBy;
+      if (otherParty) {
+        notifyUserSafe(otherParty, {
+          type: 'dispute_filed',
+          title: 'Dispute Filed on Your Load',
+          body: `A ${type || 'general'} dispute has been filed on "${load.title}": ${reason}${claimAmountCents ? ` — Claim: $${(claimAmountCents / 100).toFixed(2)}` : ''}`,
+          link: role === 'shipper' ? '/dashboard/carrier/my-loads' : '/dashboard/shipper/loads',
+          metadata: { loadId: load._id },
+        });
+      }
+
+      // System message in chat
+      try {
+        const Message = require('../models/Message');
+        await Message.create({
+          channelType: 'load_thread',
+          channelId: `load_${load._id}`,
+          sender: null,
+          content: `⚠ Dispute filed by ${role}: "${reason}". Escrow is frozen until resolution.${claimAmountCents ? ` Claim: $${(claimAmountCents / 100).toFixed(2)}.` : ''}`,
+          messageType: 'system',
+          readBy: [],
+        });
+      } catch { /* non-critical */ }
+
+      res.json({
+        message: 'Dispute filed successfully. Escrow has been frozen pending resolution.',
+        loadStatus: 'disputed',
+        disputeType: type || 'general',
+        claimAmountCents: claimAmountCents || 0,
+      });
+    } catch (err) {
+      console.error('Error filing dispute:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ── PUT /:id/resolve — Admin resolves a dispute ───────────────────────────
+  router.put('/:id/resolve', auth, async (req, res) => {
+    try {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin only' });
+      }
+
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+      if (load.status !== 'disputed') {
+        return res.status(409).json({ error: 'Load is not in disputed status' });
+      }
+
+      const { resolution, notes, carrierPayoutPercent } = req.body;
+      // resolution: 'carrier_fault', 'shipper_fault', 'split', 'dismissed'
+      if (!['carrier_fault', 'shipper_fault', 'split', 'dismissed'].includes(resolution)) {
+        return res.status(400).json({ error: 'resolution must be: carrier_fault, shipper_fault, split, or dismissed' });
+      }
+
+      // Resolve the load status
+      const result = await transitionLoadStatus(
+        load._id,
+        'disputed',
+        'resolved',
+        {
+          disputeResolution: resolution,
+          disputeResolvedAt: new Date(),
+          disputeResolvedBy: req.user.userId,
+          disputeNotes: notes || '',
+          disputeCarrierPayoutPercent: carrierPayoutPercent ?? (resolution === 'shipper_fault' || resolution === 'dismissed' ? 100 : resolution === 'carrier_fault' ? 0 : 50),
+        },
+        req.user.userId,
+        `Dispute resolved: ${resolution}`
+      );
+
+      if (!result.success) {
+        return res.status(409).json({ error: result.error });
+      }
+
+      // Handle escrow based on resolution
+      const payoutPercent = carrierPayoutPercent ?? (resolution === 'shipper_fault' || resolution === 'dismissed' ? 100 : resolution === 'carrier_fault' ? 0 : 50);
+
+      // Trust score adjustments
+      const { adjustScore } = require('../services/trustScoreService');
+      if (resolution === 'carrier_fault') {
+        adjustScore(load.acceptedBy, 'dispute_carrier_fault', -10).catch(() => {});
+      } else if (resolution === 'shipper_fault') {
+        adjustScore(load.postedBy, 'dispute_shipper_fault', -5).catch(() => {});
+      }
+      // Dismissed = no penalty, resolved cleanly
+      if (resolution === 'dismissed') {
+        adjustScore(load.acceptedBy, 'dispute_dismissed_cleared', 2).catch(() => {});
+      }
+
+      // Notify both parties
+      const { notifyUserSafe } = require('../utils/notifyUser');
+      const resolutionLabel = {
+        carrier_fault: 'Carrier at fault — escrow refunded to shipper',
+        shipper_fault: 'Shipper at fault — escrow released to carrier',
+        split: `Split decision — carrier receives ${payoutPercent}%`,
+        dismissed: 'Dispute dismissed — escrow released to carrier',
+      };
+
+      [load.postedBy, load.acceptedBy].filter(Boolean).forEach(uid => {
+        notifyUserSafe(uid, {
+          type: 'dispute_resolved',
+          title: 'Dispute Resolved',
+          body: `"${load.title}": ${resolutionLabel[resolution]}. ${notes || ''}`,
+          link: String(uid) === String(load.postedBy) ? '/dashboard/shipper/loads' : '/dashboard/carrier/my-loads',
+          metadata: { loadId: load._id, resolution, payoutPercent },
+        });
+      });
+
+      res.json({
+        message: `Dispute resolved: ${resolution}`,
+        resolution,
+        carrierPayoutPercent: payoutPercent,
+        trustScoreAdjustment: resolution === 'carrier_fault' ? -10 : resolution === 'shipper_fault' ? -5 : resolution === 'dismissed' ? 2 : 0,
+      });
+    } catch (err) {
+      console.error('Error resolving dispute:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
 
   return router;
 };

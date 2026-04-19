@@ -22,6 +22,7 @@ import SideNav from '../../features/shipperDashboard/sections/components/SideNav
 import NotificationBell from '../../features/shared/NotificationBell';
 import { disconnectSocket } from '../../services/socket';
 import { brand, surface, gradient } from '../../theme/tokens';
+import VerificationBanner from '../../components/VerificationBanner';
 
 // Utility to highlight nav based on route:
 const sectionFromPath = (pathname) => {
@@ -31,8 +32,10 @@ const sectionFromPath = (pathname) => {
   if (pathname.includes('/documents')) return 'documents';
   if (pathname.includes('/analytics')) return 'analytics';
   if (pathname.includes('/payments')) return 'payments';
+  if (pathname.includes('/ai-insights')) return 'ai-insights';
   if (pathname.includes('/tax')) return 'tax';
   if (pathname.includes('/edi')) return 'edi';
+  if (pathname.includes('/verification')) return 'verification';
   if (pathname.includes('/chat')) return 'chat';
   if (pathname.includes('/profile')) return 'profile';
   return 'loads';
@@ -167,8 +170,10 @@ export default function ShipperDashboard() {
             else if (key === 'documents') navigate('/dashboard/shipper/documents');
             else if (key === 'analytics') navigate('/dashboard/shipper/analytics');
             else if (key === 'payments') navigate('/dashboard/shipper/payments');
+            else if (key === 'ai-insights') navigate('/dashboard/shipper/ai-insights');
             else if (key === 'tax') navigate('/dashboard/shipper/tax');
             else if (key === 'edi') navigate('/dashboard/shipper/edi');
+            else if (key === 'verification') navigate('/dashboard/shipper/verification');
             else if (key === 'chat') navigate('/dashboard/shipper/chat');
             else if (key === 'profile') navigate('/dashboard/shipper/profile');
             if (!mdUp) setDrawerOpen(false);
@@ -187,6 +192,7 @@ export default function ShipperDashboard() {
           background: 'none',
         }}
       >
+        <VerificationBanner role="shipper" />
         <Outlet />
       </Box>
     </Box>
