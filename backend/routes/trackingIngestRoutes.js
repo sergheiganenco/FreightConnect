@@ -17,9 +17,20 @@ const Load = require('../models/Load');
 const trackingService = require('../services/trackingService');
 
 // ── Stateless per-load tracking token (HMAC of loadId with the server secret) ──
+// The HMAC key MUST come from real configured secret material. There is NO
+// hardcoded fallback: a guessable key would let anyone forge tokens and inject
+// fake GPS via these unauthenticated ingest endpoints. Fails closed if unset.
+function getTrackingSecret() {
+  const secret = process.env.TRACKING_TOKEN_SECRET || process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('TRACKING_TOKEN_SECRET or JWT_SECRET must be configured for tracking ingest tokens');
+  }
+  return secret;
+}
+
 function tokenForLoad(loadId) {
   return crypto
-    .createHmac('sha256', process.env.JWT_SECRET || 'fallback-secret')
+    .createHmac('sha256', getTrackingSecret())
     .update(String(loadId))
     .digest('hex')
     .slice(0, 24);
@@ -27,7 +38,12 @@ function tokenForLoad(loadId) {
 
 function verifyToken(loadId, token) {
   if (!loadId || !token) return false;
-  const expected = tokenForLoad(loadId);
+  let expected;
+  try {
+    expected = tokenForLoad(loadId);
+  } catch (_) {
+    return false; // no secret configured → reject (fail closed), never accept
+  }
   const a = Buffer.from(String(token));
   const b = Buffer.from(expected);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
