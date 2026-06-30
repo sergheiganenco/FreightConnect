@@ -226,6 +226,7 @@ router.get('/pending', auth, async (req, res) => {
 // ────────────────────────────────────────────────────────────────────────────
 router.get(
   '/user/:userId',
+  auth,
   [
     param('userId').isMongoId().withMessage('Valid userId required'),
     query('page').optional().isInt({ min: 1 }),
@@ -279,6 +280,7 @@ router.get(
 // ────────────────────────────────────────────────────────────────────────────
 router.get(
   '/load/:loadId',
+  auth,
   [param('loadId').isMongoId().withMessage('Valid loadId required')],
   validate,
   async (req, res) => {

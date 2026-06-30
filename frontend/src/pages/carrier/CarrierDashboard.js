@@ -10,6 +10,8 @@ import {
   Chip,
   Menu,
   MenuItem,
+  Dialog,
+  Button,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -27,6 +29,8 @@ import CarrierScorecard from '../../components/CarrierScorecard';
 import { disconnectSocket } from '../../services/socket';
 import { surface } from '../../theme/tokens';
 import VerificationBanner from '../../components/VerificationBanner';
+import OnboardingWizard from '../../components/OnboardingWizard';
+import api from '../../services/api';
 
 export default function CarrierDashboard() {
   const navigate = useNavigate();
@@ -47,6 +51,28 @@ export default function CarrierDashboard() {
 
   const [anchorEl, setAnchorEl] = useState(null);
   const profMenuOpen = Boolean(anchorEl);
+
+  // First-run onboarding wizard
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/users/me')
+      .then(({ data }) => {
+        if (active && data && data.onboardingComplete !== true) {
+          setShowOnboarding(true);
+        }
+      })
+      .catch(() => { /* non-blocking: never trap the user */ });
+    return () => { active = false; };
+  }, []);
+
+  const finishOnboarding = async () => {
+    try {
+      await api.put('/users/me/onboarding-complete');
+    } catch (_) { /* ignore — close regardless so the user is never trapped */ }
+    setShowOnboarding(false);
+  };
 
   const fullW = 240;
   const miniW = 72;
@@ -76,6 +102,7 @@ export default function CarrierDashboard() {
   else if (path.includes('/network')) currentSection = 'network';
   else if (path.includes('/ai-insights')) currentSection = 'ai-insights';
   else if (path.includes('/scorecard')) currentSection = 'scorecard';
+  else if (path.includes('/drivers')) currentSection = 'drivers';
   else if (path.includes('/fleet')) currentSection = 'fleet';
   else if (path.includes('/chat')) currentSection = 'chat';
   else if (path.includes('/verification')) currentSection = 'verification';
@@ -169,6 +196,7 @@ export default function CarrierDashboard() {
               if (key === "loads") navigate("/dashboard/carrier/loads");
               else if (key === "documents") navigate("/dashboard/carrier/documents");
               else if (key === "myLoads") navigate("/dashboard/carrier/my-loads");
+              else if (key === "drivers") navigate("/dashboard/carrier/drivers");
               else if (key === "fleet") navigate("/dashboard/carrier/fleet");
               else if (key === "fleetMap") navigate("/dashboard/carrier/fleet-map");
               else if (key === "analytics") navigate("/dashboard/carrier/analytics");
@@ -206,6 +234,29 @@ export default function CarrierDashboard() {
         </Box>
 
         <LogisticsAssistant />
+
+        {/* First-run onboarding wizard (skippable, persisted server-side) */}
+        <Dialog
+          fullScreen
+          open={showOnboarding}
+          aria-labelledby="carrier-onboarding"
+        >
+          <Box sx={{ position: 'relative' }}>
+            <Button
+              onClick={finishOnboarding}
+              sx={{
+                position: 'absolute',
+                top: 16,
+                right: 16,
+                zIndex: 2,
+                color: '#fff',
+              }}
+            >
+              Skip for now
+            </Button>
+            <OnboardingWizard role="carrier" onComplete={finishOnboarding} />
+          </Box>
+        </Dialog>
       </Box>
     </DashboardProvider>
   );

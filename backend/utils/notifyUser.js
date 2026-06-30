@@ -61,4 +61,20 @@ async function notifyUserSafe(userId, payload) {
   }
 }
 
-module.exports = { notifyUser, notifyUserSafe };
+/**
+ * Notify ALL admin users. Resolves real admin accounts (the literal string
+ * 'admin' is NOT a valid userId). Fire-and-forget safe — never throws.
+ */
+async function notifyAdmins(payload) {
+  try {
+    const User = require('../models/User');
+    const admins = await User.find({ role: 'admin' }).select('_id').lean();
+    await Promise.all(admins.map((a) => notifyUserSafe(a._id, payload)));
+    return admins.length;
+  } catch (err) {
+    console.error('[notifyAdmins] Failed:', err.message);
+    return 0;
+  }
+}
+
+module.exports = { notifyUser, notifyUserSafe, notifyAdmins };

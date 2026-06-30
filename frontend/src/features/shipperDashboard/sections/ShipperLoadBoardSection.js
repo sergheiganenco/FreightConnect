@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Box, Typography, Select, MenuItem, FormControl, InputLabel, Pagination, Stack, Chip } from "@mui/material";
 import LoadGrid from "./components/LoadGrid";
 import { useShipperLoads } from "../hooks/useShipperLoads";
@@ -23,6 +24,7 @@ const LOADS_PER_PAGE = 6;
 
 export default function ShipperLoadBoardSection() {
   const { loads = [], isLoading, error } = useShipperLoads();
+  const navigate = useNavigate();
 
   const [page, setPage] = useState(1);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -111,6 +113,7 @@ export default function ShipperLoadBoardSection() {
         loading={isLoading}
         errorMsg={error}
         onSelect={setSelectedLoad}
+        onPostLoad={() => navigate("/dashboard/shipper/post-load")}
       />
 
       {/* Pagination */}

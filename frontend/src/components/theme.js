@@ -91,6 +91,114 @@ let theme = createTheme({
         },
       },
     },
+    /* ── Chip — glass-style chips ── */
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          backdropFilter: 'blur(8px)',
+          fontWeight: 500,
+        },
+        outlined: {
+          borderColor: surface.glassBorder,
+          backgroundColor: surface.glassSubtle,
+        },
+      },
+    },
+    /* ── Dialog — glass panels ── */
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          background: surface.cardBg,
+          backdropFilter: 'blur(24px)',
+          border: `1px solid ${surface.glassBorder}`,
+          borderRadius: 16,
+        },
+      },
+    },
+    /* ── Tooltip — dark glass ── */
+    MuiTooltip: {
+      styleOverrides: {
+        tooltip: {
+          background: 'rgba(15,10,40,0.95)',
+          backdropFilter: 'blur(12px)',
+          border: `1px solid ${surface.glassBorder}`,
+          borderRadius: 8,
+          fontSize: '0.8125rem',
+        },
+      },
+    },
+    /* ── TextField — consistent dark input ── */
+    MuiTextField: {
+      styleOverrides: {
+        root: {
+          '& .MuiInputBase-root': {
+            color: T.primary,
+            backgroundColor: surface.glass,
+          },
+          '& .MuiOutlinedInput-notchedOutline': {
+            borderColor: surface.glassBorder,
+          },
+          '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
+            borderColor: 'rgba(255,255,255,0.3)',
+          },
+          '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
+            borderColor: brand.primary,
+          },
+          '& .MuiInputLabel-root': {
+            color: T.secondary,
+          },
+          '& .MuiInputLabel-root.Mui-focused': {
+            color: brand.primary,
+          },
+        },
+      },
+    },
+    /* ── Alert — glass alert ── */
+    MuiAlert: {
+      styleOverrides: {
+        root: {
+          backdropFilter: 'blur(12px)',
+          borderRadius: 12,
+        },
+      },
+    },
+    /* ── Card — default glass card ── */
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          background: surface.glass,
+          backdropFilter: 'blur(20px)',
+          border: `1px solid ${surface.glassBorder}`,
+          borderRadius: 16,
+        },
+      },
+    },
+    /* ── Tab — styled for dark theme ── */
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          color: T.secondary,
+          textTransform: 'none',
+          fontWeight: 500,
+          '&.Mui-selected': {
+            color: T.primary,
+          },
+        },
+      },
+    },
+    /* ── TableCell — dark theme table ── */
+    MuiTableCell: {
+      styleOverrides: {
+        root: {
+          borderColor: surface.glassBorder,
+          color: T.primary,
+        },
+        head: {
+          color: T.secondary,
+          fontWeight: 600,
+        },
+      },
+    },
   },
 });
 

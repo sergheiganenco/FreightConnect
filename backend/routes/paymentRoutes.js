@@ -22,7 +22,9 @@ const { getIO } = require('../utils/socket');
 const escrowService = require('../services/escrowService');
 const { handleWebhookEvent } = require('../services/webhookHandler');
 const { validateAmountCents, calculatePlatformFee, calculateCarrierPayout, centsToDollars } = require('../services/paymentValidator');
-const { notifyUserSafe } = require('../utils/notifyUser');
+const { notifyUserSafe, notifyAdmins } = require('../utils/notifyUser');
+const ledgerService = require('../services/ledgerService');
+const { resolvePayee } = require('../services/factoringPaymentRouter');
 
 // ── Stripe client (graceful degradation if key missing) ──────────────────────
 let stripe = null;
@@ -132,7 +134,7 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
       return res.json({ clientSecret: existing.stripeClientSecret, paymentId: existing._id });
     }
 
-    const amountCents = Math.round(load.rate * 100);
+    const amountCents = load.rateCents != null ? load.rateCents : Math.round(load.rate * 100);
     const feeCents    = calculatePlatformFee(amountCents);
     const payoutCents = calculateCarrierPayout(amountCents);
 
@@ -168,6 +170,54 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
   } catch (err) {
     console.error('Create intent error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /api/payments/fund-escrow/:loadId — shipper authorizes the escrow hold
+// (creates or reuses a manual-capture PaymentIntent and returns a clientSecret
+//  for the shipper to confirm via Stripe Elements on the client).
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/fund-escrow/:loadId', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'shipper') return res.status(403).json({ error: 'Shippers only' });
+
+    const load = await Load.findById(req.params.loadId);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (load.postedBy.toString() !== req.user.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (load.status !== 'accepted') return res.status(409).json({ error: 'Load must be accepted before funding' });
+
+    // Record the shipper's mandate authorizing later off-session accessorial
+    // charges (detention/lumper). Required before any Path B collection.
+    if (req.body && req.body.mandateAccepted) {
+      await User.findByIdAndUpdate(req.user.userId, {
+        'stripe.accessorialMandate': {
+          acceptedAt: new Date(),
+          version: req.body.mandateVersion || 'v1',
+          ip: req.ip || (req.headers && req.headers['x-forwarded-for']) || null,
+        },
+      });
+    }
+
+    const result = await createEscrowHoldForLoad(load._id);
+
+    if (result.error) {
+      // Stripe not configured → surface a clear 503; other helper errors → 502
+      if (/not configured/i.test(result.error)) {
+        return res.status(503).json({ error: 'Payment system not configured' });
+      }
+      return res.status(502).json({ error: result.error });
+    }
+
+    res.json({
+      clientSecret: result.clientSecret,
+      paymentIntentId: result.paymentIntentId,
+      alreadyFunded: result.funded === true,
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || process.env.REACT_APP_STRIPE_PUBLIC_KEY || null,
+    });
+  } catch (err) {
+    console.error('[payments] fund-escrow failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -335,4 +385,215 @@ async function generateInvoice(load, payment) {
   return invoice;
 }
 
+/**
+ * Returns true if the shipper has a usable payment method on file
+ * (Stripe customer with default payment method, OR a funded escrow capability).
+ */
+async function shipperHasPaymentMethod(shipperId) {
+  try {
+    const user = await User.findById(shipperId).select('stripe');
+    if (!user) return false;
+    // Consider payment assured if shipper has a Stripe customer id (card on file)
+    return Boolean(user.stripe && user.stripe.customerId);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Create (or reuse) a manual-capture escrow hold for a load at booking time.
+ * Returns { funded, paymentIntentId, clientSecret, error }.
+ * funded=true only once the hold is confirmed (via webhook). At creation time
+ * funded=false but a clientSecret is returned for the shipper to confirm.
+ */
+async function createEscrowHoldForLoad(loadId) {
+  try {
+    if (!stripe) return { funded: false, error: 'Stripe not configured' };
+    const load = await Load.findById(loadId);
+    if (!load) return { funded: false, error: 'Load not found' };
+
+    // Reuse existing hold if present
+    const existing = await Payment.findOne({ loadId: load._id, status: { $in: ['pending', 'in_escrow'] } });
+    if (existing) {
+      return { funded: existing.status === 'in_escrow', paymentIntentId: existing.stripePaymentIntentId, clientSecret: existing.stripeClientSecret };
+    }
+
+    const amountCents = load.rateCents != null ? load.rateCents : Math.round(load.rate * 100);
+    const feeCents = calculatePlatformFee(amountCents);
+    const payoutCents = calculateCarrierPayout(amountCents);
+
+    // Ensure the shipper has a Stripe customer so the card can be SAVED for
+    // later off-session accessorial (detention) charges — Path B prerequisite.
+    const shipper = await User.findById(load.postedBy).select('stripe email name');
+    let customerId = shipper && shipper.stripe && shipper.stripe.customerId;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: shipper && shipper.email,
+        name: shipper && shipper.name,
+        metadata: { userId: String(load.postedBy) },
+      });
+      customerId = customer.id;
+      await User.findByIdAndUpdate(load.postedBy, { 'stripe.customerId': customerId });
+    }
+
+    const intent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: 'usd',
+      capture_method: 'manual',  // hold/authorize, capture on delivery
+      customer: customerId,
+      // Save the card for later merchant-initiated accessorial charges (Path B).
+      setup_future_usage: 'off_session',
+      metadata: { loadId: String(load._id), shipperId: String(load.postedBy), carrierId: String(load.acceptedBy || ''), type: 'freight_escrow' },
+    });
+
+    await Payment.create({
+      loadId: load._id,
+      shipperId: load.postedBy,
+      carrierId: load.acceptedBy,
+      amountCents, platformFeeCents: feeCents, carrierPayoutCents: payoutCents,
+      amount: amountCents / 100, platformFee: feeCents / 100, carrierPayout: payoutCents / 100,
+      status: 'pending',
+      stripePaymentIntentId: intent.id,
+      stripeClientSecret: intent.client_secret,
+    });
+
+    await Load.findByIdAndUpdate(load._id, { escrowPaymentIntentId: intent.id });
+    return { funded: false, paymentIntentId: intent.id, clientSecret: intent.client_secret };
+  } catch (err) {
+    return { funded: false, error: err.message };
+  }
+}
+
+/**
+ * Settle (pay out) an approved accessorial charge to the carrier.
+ * For simplicity, creates a Stripe transfer to the carrier's connect account.
+ * Returns { ok, transferId, error }.
+ */
+async function settleAccessorialCharge(loadId, chargeId) {
+  try {
+    const load = await Load.findById(loadId);
+    if (!load) return { ok: false, error: 'Load not found' };
+    const charge = load.accessorialCharges.id(chargeId);
+    if (!charge) return { ok: false, error: 'Charge not found' };
+    if (charge.status !== 'approved') return { ok: false, error: 'Charge not approved' };
+
+    // Idempotency: guard against double-paying the same accessorial charge.
+    // If already processed, return without transferring again.
+    const alreadyProcessed = await ledgerService.markProcessedOnce('accessorial_' + chargeId, 'accessorial_settle');
+    if (alreadyProcessed) return { ok: true, alreadySettled: true };
+
+    // UCC §9-406 (see factoringPaymentRouter.js): if a factoring Notice of
+    // Assignment is on file, the carrier's earnings (including accessorials)
+    // may NOT be paid to the carrier. FAIL SAFE — if the resolver throws, HOLD.
+    let payee;
+    try {
+      payee = await resolvePayee(load.acceptedBy);
+    } catch (e) {
+      console.error('[settleAccessorialCharge] resolvePayee failed — holding:', e.message);
+      payee = { payTo: 'hold', reason: 'Could not resolve factoring status — held for safety' };
+    }
+
+    // ── Path B: active verified NOA → owe the factor, do NOT pay carrier ──
+    // Charge stays 'approved' (NOT 'paid'); it is owed to the factor and
+    // settled out-of-band via AP.
+    if (payee.payTo === 'factor') {
+      const factorName = payee.assignment?.factorCompanyName || 'factor';
+      const remitTo = payee.assignment?.factorRemitTo || 'remit-to on file';
+      try {
+        await ledgerService.record({
+          transactionId: 'accessorial_' + chargeId,
+          loadId: load._id,
+          entryType: 'factor_remit',
+          amountCents: charge.amountCents,
+          debitAccount: 'accessorial_payable',
+          creditAccount: 'factor_payable',
+          description: `Accessorial (${charge.type}) REDIRECTED to factor "${factorName}" (${remitTo}) for Load ${load._id} per NOA (§9-406)`,
+          stripeRef: null,
+        });
+      } catch (e) {
+        console.error('[settleAccessorialCharge] ledger factor_remit record failed:', e.message);
+      }
+      charge.note = `Redirected to factor "${factorName}" per NOA (§9-406) — pay out-of-band, not carrier.`;
+      await load.save();
+      await notifyAdmins({
+        type: 'factoring:remit_due',
+        title: 'Factor remittance due (accessorial)',
+        body: `Load ${load._id}: $${(charge.amountCents / 100).toFixed(2)} accessorial owed to factor "${factorName}" — pay AP, NOT carrier.`,
+        link: '/dashboard/admin',
+        metadata: { loadId: String(load._id), chargeId: String(chargeId), amountCents: charge.amountCents, factorCompanyName: factorName },
+      });
+      return { ok: true, redirectedToFactor: true };
+    }
+
+    // ── Path C: hold (pending NOA, competing claims, or resolver failure) ──
+    if (payee.payTo === 'hold') {
+      try {
+        await ledgerService.record({
+          transactionId: 'accessorial_' + chargeId,
+          loadId: load._id,
+          entryType: 'payout_held',
+          amountCents: charge.amountCents,
+          debitAccount: 'accessorial_payable',
+          creditAccount: 'payout_held',
+          description: `Accessorial (${charge.type}) HELD for Load ${load._id}: ${payee.reason || 'factoring NOA unresolved'} (§9-406)`,
+          stripeRef: null,
+        });
+      } catch (e) {
+        console.error('[settleAccessorialCharge] ledger payout_held record failed:', e.message);
+      }
+      await notifyAdmins({
+        type: 'factoring:payout_held',
+        title: 'Accessorial payout held — NOA review',
+        body: `Load ${load._id}: $${(charge.amountCents / 100).toFixed(2)} accessorial withheld. ${payee.reason || 'Factoring NOA unresolved.'}`,
+        link: '/dashboard/admin',
+        metadata: { loadId: String(load._id), chargeId: String(chargeId), amountCents: charge.amountCents, reason: payee.reason },
+      });
+      return { ok: true, held: true, reason: payee.reason };
+    }
+
+    // ── Path A: no NOA → normal carrier settlement (prior behavior) ──
+    let transferId;
+    if (stripe) {
+      const carrier = await User.findById(load.acceptedBy).select('stripe');
+      if (carrier?.stripe?.connectAccountId) {
+        const transfer = await stripe.transfers.create({
+          amount: charge.amountCents,
+          currency: 'usd',
+          destination: carrier.stripe.connectAccountId,
+          transfer_group: `load_${load._id}`,
+          metadata: { loadId: String(load._id), accessorialType: charge.type },
+        });
+        transferId = transfer.id;
+      }
+    }
+    charge.status = 'paid';
+    charge.paidAt = new Date();
+    await load.save();
+
+    // Ledger: accessorial payable is settled to the carrier. Never let a ledger
+    // failure undo the actual transfer/state change above.
+    try {
+      await ledgerService.record({
+        transactionId: 'accessorial_' + chargeId,
+        loadId: load._id,
+        entryType: 'accessorial_settle',
+        amountCents: charge.amountCents,
+        debitAccount: 'accessorial_payable',
+        creditAccount: 'carrier_payable',
+        description: `Accessorial (${charge.type}) settled for Load ${load._id}`,
+        stripeRef: transferId || null,
+      });
+    } catch (e) {
+      console.error('[settleAccessorialCharge] ledger record failed:', e.message);
+    }
+
+    return { ok: true, transferId };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 module.exports = router;
+module.exports.shipperHasPaymentMethod = shipperHasPaymentMethod;
+module.exports.createEscrowHoldForLoad = createEscrowHoldForLoad;
+module.exports.settleAccessorialCharge = settleAccessorialCharge;

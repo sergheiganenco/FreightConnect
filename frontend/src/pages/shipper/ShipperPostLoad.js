@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   TextField, Button, Grid, Typography, Box, Paper, Snackbar, Alert, Select, MenuItem,
   FormControl, InputLabel, FormControlLabel, Switch, Divider, Chip, IconButton,
-  CircularProgress, Collapse, Tooltip,
+  CircularProgress, Collapse, Tooltip, Stepper, Step, StepLabel,
 } from "@mui/material";
 import Autocomplete from "@mui/material/Autocomplete";
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
@@ -35,6 +35,8 @@ const initialLoad = {
   commodityCategory: "",
   weight: "",
   equipmentType: "",
+  equipmentSubtype: "",
+  requiredEndorsements: [],
   origin: "",
   pickupWindowStart: "",
   pickupWindowEnd: "",
@@ -90,12 +92,26 @@ const initialLoad = {
   overweightPermitNumber: "",
 };
 
+const EQUIPMENT_SUBTYPES = {
+  Reefer:    [{ value: 'multi_temp', label: 'Multi-Temp' }, { value: 'frozen', label: 'Frozen' }, { value: 'produce', label: 'Produce' }],
+  Flatbed:   [{ value: 'tarp', label: 'Tarp' }, { value: 'chains', label: 'Chains' }, { value: 'conestoga', label: 'Conestoga' }, { value: 'step_deck', label: 'Step Deck' }, { value: 'oversize', label: 'Oversize' }],
+  'Dry Van': [{ value: 'power_only', label: 'Power Only' }, { value: 'drop_hook', label: 'Drop & Hook' }],
+};
+const GENERIC_SUBTYPES = [{ value: 'standard', label: 'Standard' }, { value: 'expedited', label: 'Expedited' }, { value: 'team', label: 'Team' }];
+
+const REQUIRED_ENDORSEMENT_OPTIONS = [
+  { value: 'hazmat',          label: 'Hazmat' },
+  { value: 'tanker',          label: 'Tanker' },
+  { value: 'doubles_triples', label: 'Doubles/Triples' },
+];
+
 export default function ShipperPostLoad() {
   const navigate = useNavigate();
   const [newLoad, setNewLoad] = useState(initialLoad);
   const [openSnackbar, setOpenSnackbar] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
+  const [activeStep, setActiveStep] = useState(0);
   const [uploadNames, setUploadNames] = useState({
     cargoPhotos: [],
     rateConfirmationUpload: [],
@@ -150,6 +166,28 @@ export default function ShipperPostLoad() {
     }, 800);
     return () => clearTimeout(timer);
   }, [newLoad.origin, newLoad.destination, newLoad.equipmentType]);
+
+  // ── Auto-add hazmat endorsement when hazmat toggle is on ─────────────────
+  useEffect(() => {
+    setNewLoad((prev) => {
+      const has = prev.requiredEndorsements.includes('hazmat');
+      if (prev.hazardousMaterial && !has) {
+        return { ...prev, requiredEndorsements: [...prev.requiredEndorsements, 'hazmat'] };
+      }
+      return prev;
+    });
+  }, [newLoad.hazardousMaterial]);
+
+  // ── Reset subtype if equipment type changes away from a valid option ─────
+  useEffect(() => {
+    setNewLoad((prev) => {
+      const opts = EQUIPMENT_SUBTYPES[prev.equipmentType] || (prev.equipmentType ? GENERIC_SUBTYPES : []);
+      if (prev.equipmentSubtype && !opts.some((o) => o.value === prev.equipmentSubtype)) {
+        return { ...prev, equipmentSubtype: '' };
+      }
+      return prev;
+    });
+  }, [newLoad.equipmentType]);
 
   // ── Multi-Stop state ─────────────────────────────────────────────────────
   const [stops, setStops] = useState([]);
@@ -222,6 +260,61 @@ export default function ShipperPostLoad() {
     return Object.keys(errors).length === 0;
   };
 
+  // ── Wizard ───────────────────────────────────────────────────────────────
+  const STEP_LABELS = ['Load Basics', 'Route & Schedule', 'Pricing, Docs & Review'];
+
+  // Required fields per step (subset of requiredFields). Step 3 is gated by the
+  // full validateFields() in handleSubmit, so it has no separate "Next".
+  const STEP_REQUIRED = [
+    // Step 1 — Load Basics
+    ['title', 'commodityCategory', 'commodityType', 'weight', 'equipmentType'],
+    // Step 2 — Route & Schedule
+    ['origin', 'pickupWindowStart', 'destination', 'deliveryFacilityName',
+      'deliveryAddress', 'deliveryContactName', 'deliveryContactPhone', 'deliveryWindowStart'],
+  ];
+
+  const validateStep = (step) => {
+    let errors = {};
+    (STEP_REQUIRED[step] || []).forEach((k) => {
+      if (!newLoad[k]) errors[k] = true;
+    });
+    // Step 1: block advancing while overweight is not acknowledged
+    if (step === 0 && newLoad.weight && newLoad.equipmentType) {
+      const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
+      if (maxLbs && Number(newLoad.weight) > maxLbs && !newLoad.overweightAcknowledged) {
+        errors["overweightAcknowledged"] = true;
+      }
+    }
+    // Step 2: pickup must be before delivery
+    if (
+      step === 1 &&
+      newLoad.pickupWindowStart &&
+      newLoad.deliveryWindowStart &&
+      new Date(newLoad.pickupWindowStart) >= new Date(newLoad.deliveryWindowStart)
+    ) {
+      errors["pickupWindowStart"] = true;
+      errors["deliveryWindowStart"] = true;
+    }
+    setFieldErrors((prev) => ({ ...prev, ...errors }));
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleNext = () => {
+    if (!validateStep(activeStep)) {
+      const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
+      const isOverweightBlocked = activeStep === 0 && maxLbs &&
+        Number(newLoad.weight) > maxLbs && !newLoad.overweightAcknowledged;
+      setError(isOverweightBlocked
+        ? "This load exceeds the weight limit. Please acknowledge the overweight permit requirement before continuing."
+        : "Please fill all required fields on this step before continuing.");
+      setOpenSnackbar(true);
+      return;
+    }
+    setActiveStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
+  };
+
+  const handleBack = () => setActiveStep((s) => Math.max(s - 1, 0));
+
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -229,6 +322,10 @@ export default function ShipperPostLoad() {
       // Check overweight specifically for a targeted error message
       const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
       const isOverweightBlocked = maxLbs && Number(newLoad.weight) > maxLbs && !newLoad.overweightAcknowledged;
+      // Jump back to the first step that has a missing/invalid field so the
+      // shipper can see the highlighted error indicators.
+      if (!validateStep(0)) setActiveStep(0);
+      else if (!validateStep(1)) setActiveStep(1);
       setError(isOverweightBlocked
         ? "This load exceeds the weight limit. Please acknowledge the overweight permit requirement before posting."
         : "Please fill all required fields correctly.");
@@ -334,6 +431,7 @@ export default function ShipperPostLoad() {
 
   const showDimensionsProminent = DIMENSION_PROMINENT_TYPES.includes(newLoad.equipmentType);
   const isReefer = newLoad.equipmentType === 'Reefer';
+  const subtypeOptions = EQUIPMENT_SUBTYPES[newLoad.equipmentType] || (newLoad.equipmentType ? GENERIC_SUBTYPES : []);
 
   // ── Dimension fields helper ──────────────────────────────────────────────
   const DimensionFields = () => (
@@ -411,8 +509,35 @@ export default function ShipperPostLoad() {
         Post a New Load
       </Typography>
 
+      {/* ── Wizard progress ─────────────────────────────────────────────── */}
+      <Stepper
+        activeStep={activeStep}
+        alternativeLabel
+        sx={{
+          mb: 4,
+          "& .MuiStepLabel-label": { color: "rgba(255,255,255,0.55)", fontWeight: 600 },
+          "& .MuiStepLabel-label.Mui-active": { color: "#fff", fontWeight: 800 },
+          "& .MuiStepLabel-label.Mui-completed": { color: "rgba(255,255,255,0.85)" },
+          "& .MuiStepIcon-root": { color: "rgba(255,255,255,0.25)" },
+          "& .MuiStepIcon-root.Mui-active": { color: "#22d3ee" },
+          "& .MuiStepIcon-root.Mui-completed": { color: "#34d399" },
+          "& .MuiStepConnector-line": { borderColor: "rgba(255,255,255,0.18)" },
+        }}
+      >
+        {STEP_LABELS.map((label) => (
+          <Step key={label}>
+            <StepLabel>{label}</StepLabel>
+          </Step>
+        ))}
+      </Stepper>
+
       <Box component="form" onSubmit={handleSubmit}>
 
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* STEP 1 — LOAD BASICS                                               */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {activeStep === 0 && (
+        <Box>
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* 1. LOAD DETAILS                                                    */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
@@ -585,6 +710,211 @@ export default function ShipperPostLoad() {
             })()}
           </Grid>
         </Grid>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* 5. CARGO & EQUIPMENT                                               */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <SectionHeader icon={<LocalShippingIcon fontSize="large" sx={{ color: "#fbbf24" }} />} label="Cargo & Equipment" />
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          {/* Equipment Type (expanded dropdown) */}
+          <Grid item xs={12} sm={6}>
+            <FormControl fullWidth error={fieldErrors.equipmentType}>
+              <InputLabel required>Equipment Type</InputLabel>
+              <Select
+                required
+                value={newLoad.equipmentType}
+                label="Equipment Type"
+                onChange={e => handleChange("equipmentType", e.target.value)}
+              >
+                <MenuItem value="">Select</MenuItem>
+                {EQUIPMENT_TYPES.map(eq => (
+                  <MenuItem value={eq} key={eq}>{eq}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {/* Equipment Subtype (conditional on equipment type) */}
+          {subtypeOptions.length > 0 && (
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Equipment Subtype</InputLabel>
+                <Select
+                  value={newLoad.equipmentSubtype}
+                  label="Equipment Subtype"
+                  onChange={e => handleChange("equipmentSubtype", e.target.value)}
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {subtypeOptions.map(s => (
+                    <MenuItem value={s.value} key={s.value}>{s.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+          )}
+
+          {/* Required Endorsements (multi-select) */}
+          <Grid item xs={12} sm={6}>
+            <Autocomplete
+              multiple
+              options={REQUIRED_ENDORSEMENT_OPTIONS}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(o, v) => o.value === v.value}
+              value={REQUIRED_ENDORSEMENT_OPTIONS.filter(o => newLoad.requiredEndorsements.includes(o.value))}
+              onChange={(_, val) => handleChange("requiredEndorsements", val.map(v => v.value))}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip {...getTagProps({ index })} key={option.value} label={option.label} size="small"
+                    sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff' }} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField {...params} label="Required Endorsements" placeholder="Driver CDL endorsements..." />
+              )}
+            />
+          </Grid>
+
+          {/* Dimensions — shown prominently for flatbed/step deck/etc */}
+          {showDimensionsProminent && <DimensionFields />}
+
+          {/* Special Handling (multi-select chips) */}
+          <Grid item xs={12} sm={6}>
+            <Autocomplete
+              multiple
+              options={SPECIAL_HANDLING_OPTIONS}
+              value={newLoad.specialHandling}
+              onChange={(_, val) => handleChange("specialHandling", val)}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip {...getTagProps({ index })} key={option} label={option} size="small"
+                    sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff' }} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField {...params} label="Special Handling" placeholder="Select requirements..." />
+              )}
+            />
+          </Grid>
+
+          {/* Special Instructions (free text — intentionally kept) */}
+          <Grid item xs={12}>
+            <TextField
+              label="Special Instructions"
+              fullWidth
+              multiline
+              minRows={2}
+              value={newLoad.specialInstructions}
+              onChange={e => handleChange("specialInstructions", e.target.value, limits.specialInstructions)}
+              inputProps={{ maxLength: limits.specialInstructions }}
+              helperText={`Optional. ${newLoad.specialInstructions.length}/${limits.specialInstructions}`}
+            />
+          </Grid>
+        </Grid>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* 5a. REEFER SETTINGS (conditional)                                  */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <Collapse in={isReefer}>
+          <SectionHeader icon={<AcUnitIcon fontSize="large" sx={{ color: "#38bdf8" }} />} label="Reefer / Temperature Control" />
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                label="Temperature Min"
+                type="number"
+                fullWidth
+                value={newLoad.temperatureMin}
+                onChange={e => handleChange("temperatureMin", e.target.value, limits.temperatureMin)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                label="Temperature Max"
+                type="number"
+                fullWidth
+                value={newLoad.temperatureMax}
+                onChange={e => handleChange("temperatureMax", e.target.value, limits.temperatureMax)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth>
+                <InputLabel>Temperature Unit</InputLabel>
+                <Select value={newLoad.temperatureUnit} label="Temperature Unit"
+                  onChange={e => handleChange("temperatureUnit", e.target.value)}>
+                  <MenuItem value="F">Fahrenheit (&deg;F)</MenuItem>
+                  <MenuItem value="C">Celsius (&deg;C)</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
+        </Collapse>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* 5b. HAZMAT (conditional)                                           */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <Box sx={{ mt: 1, mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={newLoad.hazardousMaterial}
+                onChange={e => handleChange("hazardousMaterial", e.target.checked)}
+              />
+            }
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <WarningAmberIcon sx={{ color: '#fbbf24', fontSize: 20 }} />
+                <Typography color="#fff">Hazardous Material</Typography>
+              </Box>
+            }
+          />
+        </Box>
+        <Collapse in={newLoad.hazardousMaterial}>
+          <Box sx={{ p: 2, mb: 2, borderRadius: 3, bgcolor: 'rgba(251,191,36,0.08)', border: '1.5px solid rgba(251,191,36,0.25)' }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={4}>
+                <FormControl fullWidth>
+                  <InputLabel>Hazard Class</InputLabel>
+                  <Select value={newLoad.hazmatClass} label="Hazard Class"
+                    onChange={e => handleChange("hazmatClass", e.target.value)}>
+                    <MenuItem value="">Select</MenuItem>
+                    {HAZMAT_CLASSES.map(h => (
+                      <MenuItem value={h.value} key={h.value}>{h.label}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <FormControl fullWidth>
+                  <InputLabel>Packing Group</InputLabel>
+                  <Select value={newLoad.hazmatPackingGroup} label="Packing Group"
+                    onChange={e => handleChange("hazmatPackingGroup", e.target.value)}>
+                    <MenuItem value="">Select</MenuItem>
+                    {HAZMAT_PACKING_GROUPS.map(p => (
+                      <MenuItem value={p.value} key={p.value}>{p.label}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  label="UN Number"
+                  fullWidth
+                  value={newLoad.dangerousGoodsUN}
+                  onChange={e => handleChange("dangerousGoodsUN", e.target.value, limits.dangerousGoodsUN)}
+                  inputProps={{ maxLength: limits.dangerousGoodsUN }}
+                  placeholder="e.g. UN1203"
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </Collapse>
+        </Box>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* STEP 2 — ROUTE & SCHEDULE                                          */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {activeStep === 1 && (
+        <Box>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* 2. PICKUP LOCATION                                                 */}
@@ -821,163 +1151,14 @@ export default function ShipperPostLoad() {
         >
           Add Intermediate Stop
         </Button>
-
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* 5. CARGO & EQUIPMENT                                               */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <SectionHeader icon={<LocalShippingIcon fontSize="large" sx={{ color: "#fbbf24" }} />} label="Cargo & Equipment" />
-        <Grid container spacing={2} sx={{ mb: 2 }}>
-          {/* Equipment Type (expanded dropdown) */}
-          <Grid item xs={12} sm={6}>
-            <FormControl fullWidth error={fieldErrors.equipmentType}>
-              <InputLabel required>Equipment Type</InputLabel>
-              <Select
-                required
-                value={newLoad.equipmentType}
-                label="Equipment Type"
-                onChange={e => handleChange("equipmentType", e.target.value)}
-              >
-                <MenuItem value="">Select</MenuItem>
-                {EQUIPMENT_TYPES.map(eq => (
-                  <MenuItem value={eq} key={eq}>{eq}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          {/* Dimensions — shown prominently for flatbed/step deck/etc */}
-          {showDimensionsProminent && <DimensionFields />}
-
-          {/* Special Handling (multi-select chips) */}
-          <Grid item xs={12} sm={6}>
-            <Autocomplete
-              multiple
-              options={SPECIAL_HANDLING_OPTIONS}
-              value={newLoad.specialHandling}
-              onChange={(_, val) => handleChange("specialHandling", val)}
-              renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
-                  <Chip {...getTagProps({ index })} key={option} label={option} size="small"
-                    sx={{ bgcolor: 'rgba(255,255,255,0.15)', color: '#fff' }} />
-                ))
-              }
-              renderInput={(params) => (
-                <TextField {...params} label="Special Handling" placeholder="Select requirements..." />
-              )}
-            />
-          </Grid>
-
-          {/* Special Instructions (free text — intentionally kept) */}
-          <Grid item xs={12}>
-            <TextField
-              label="Special Instructions"
-              fullWidth
-              multiline
-              minRows={2}
-              value={newLoad.specialInstructions}
-              onChange={e => handleChange("specialInstructions", e.target.value, limits.specialInstructions)}
-              inputProps={{ maxLength: limits.specialInstructions }}
-              helperText={`Optional. ${newLoad.specialInstructions.length}/${limits.specialInstructions}`}
-            />
-          </Grid>
-        </Grid>
-
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* 5a. REEFER SETTINGS (conditional)                                  */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <Collapse in={isReefer}>
-          <SectionHeader icon={<AcUnitIcon fontSize="large" sx={{ color: "#38bdf8" }} />} label="Reefer / Temperature Control" />
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                label="Temperature Min"
-                type="number"
-                fullWidth
-                value={newLoad.temperatureMin}
-                onChange={e => handleChange("temperatureMin", e.target.value, limits.temperatureMin)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                label="Temperature Max"
-                type="number"
-                fullWidth
-                value={newLoad.temperatureMax}
-                onChange={e => handleChange("temperatureMax", e.target.value, limits.temperatureMax)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Temperature Unit</InputLabel>
-                <Select value={newLoad.temperatureUnit} label="Temperature Unit"
-                  onChange={e => handleChange("temperatureUnit", e.target.value)}>
-                  <MenuItem value="F">Fahrenheit (&deg;F)</MenuItem>
-                  <MenuItem value="C">Celsius (&deg;C)</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        </Collapse>
-
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* 5b. HAZMAT (conditional)                                           */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <Box sx={{ mt: 1, mb: 2 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={newLoad.hazardousMaterial}
-                onChange={e => handleChange("hazardousMaterial", e.target.checked)}
-              />
-            }
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <WarningAmberIcon sx={{ color: '#fbbf24', fontSize: 20 }} />
-                <Typography color="#fff">Hazardous Material</Typography>
-              </Box>
-            }
-          />
         </Box>
-        <Collapse in={newLoad.hazardousMaterial}>
-          <Box sx={{ p: 2, mb: 2, borderRadius: 3, bgcolor: 'rgba(251,191,36,0.08)', border: '1.5px solid rgba(251,191,36,0.25)' }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth>
-                  <InputLabel>Hazard Class</InputLabel>
-                  <Select value={newLoad.hazmatClass} label="Hazard Class"
-                    onChange={e => handleChange("hazmatClass", e.target.value)}>
-                    <MenuItem value="">Select</MenuItem>
-                    {HAZMAT_CLASSES.map(h => (
-                      <MenuItem value={h.value} key={h.value}>{h.label}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth>
-                  <InputLabel>Packing Group</InputLabel>
-                  <Select value={newLoad.hazmatPackingGroup} label="Packing Group"
-                    onChange={e => handleChange("hazmatPackingGroup", e.target.value)}>
-                    <MenuItem value="">Select</MenuItem>
-                    {HAZMAT_PACKING_GROUPS.map(p => (
-                      <MenuItem value={p.value} key={p.value}>{p.label}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  label="UN Number"
-                  fullWidth
-                  value={newLoad.dangerousGoodsUN}
-                  onChange={e => handleChange("dangerousGoodsUN", e.target.value, limits.dangerousGoodsUN)}
-                  inputProps={{ maxLength: limits.dangerousGoodsUN }}
-                  placeholder="e.g. UN1203"
-                />
-              </Grid>
-            </Grid>
-          </Box>
-        </Collapse>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* STEP 3 — PRICING, DOCS & REVIEW                                    */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {activeStep === 2 && (
+        <Box>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* 6. RATE & PAYMENT                                                  */}
@@ -1294,31 +1475,81 @@ export default function ShipperPostLoad() {
         {fieldErrors.termsAccepted && (
           <Typography color="error" fontSize="0.9em">You must accept Terms & Conditions</Typography>
         )}
+        </Box>
+        )}
 
-        <Button
-          variant="contained"
-          color="primary"
-          type="submit"
-          fullWidth
-          sx={{
-            fontWeight: 900,
-            borderRadius: 3.2,
-            mt: 2,
-            py: 1.28,
-            fontSize: "1.14em",
-            background: "linear-gradient(90deg,#ec4899,#9333ea)",
-            boxShadow: "0 8px 32px #e1129a44, 0 2px 12px #32159e22",
-            letterSpacing: "0.06em",
-            transition: "box-shadow 0.2s cubic-bezier(.21,1.11,.81,.99),transform 0.1s",
-            "&:hover": {
-              boxShadow: "0 12px 40px #6a1fcf55, 0 4px 24px #e1129a33",
-              background: "linear-gradient(90deg,#e1129a 10%,#6a1fcf 90%)",
-              transform: "scale(1.015)"
-            }
-          }}
-        >
-          Post Load
-        </Button>
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* WIZARD FOOTER NAVIGATION                                           */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 4 }}>
+          <Button
+            type="button"
+            variant="outlined"
+            disabled={activeStep === 0}
+            onClick={handleBack}
+            sx={{
+              fontWeight: 700,
+              borderRadius: 3.2,
+              py: 1.1,
+              px: 3,
+              color: "#fff",
+              borderColor: "rgba(255,255,255,0.4)",
+              "&:hover": { borderColor: "#fff", bgcolor: "rgba(255,255,255,0.08)" },
+              "&.Mui-disabled": { color: "rgba(255,255,255,0.3)", borderColor: "rgba(255,255,255,0.12)" },
+            }}
+          >
+            Back
+          </Button>
+          <Box sx={{ flex: 1 }} />
+          {activeStep < STEP_LABELS.length - 1 ? (
+            <Button
+              type="button"
+              variant="contained"
+              onClick={handleNext}
+              sx={{
+                fontWeight: 900,
+                borderRadius: 3.2,
+                py: 1.1,
+                px: 4,
+                fontSize: "1.02em",
+                letterSpacing: "0.04em",
+                background: "linear-gradient(90deg,#ec4899,#9333ea)",
+                boxShadow: "0 8px 32px #e1129a44, 0 2px 12px #32159e22",
+                "&:hover": {
+                  boxShadow: "0 12px 40px #6a1fcf55, 0 4px 24px #e1129a33",
+                  background: "linear-gradient(90deg,#e1129a 10%,#6a1fcf 90%)",
+                  transform: "scale(1.015)",
+                },
+              }}
+            >
+              Next
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="primary"
+              type="submit"
+              sx={{
+                fontWeight: 900,
+                borderRadius: 3.2,
+                py: 1.28,
+                px: 5,
+                fontSize: "1.14em",
+                background: "linear-gradient(90deg,#ec4899,#9333ea)",
+                boxShadow: "0 8px 32px #e1129a44, 0 2px 12px #32159e22",
+                letterSpacing: "0.06em",
+                transition: "box-shadow 0.2s cubic-bezier(.21,1.11,.81,.99),transform 0.1s",
+                "&:hover": {
+                  boxShadow: "0 12px 40px #6a1fcf55, 0 4px 24px #e1129a33",
+                  background: "linear-gradient(90deg,#e1129a 10%,#6a1fcf 90%)",
+                  transform: "scale(1.015)"
+                }
+              }}
+            >
+              Post Load
+            </Button>
+          )}
+        </Box>
       </Box>
 
       {/* Snackbar */}

@@ -1,8 +1,23 @@
-// API base URL — change to your backend address
-// For local dev on physical device, use your computer's LAN IP (not localhost)
-// For emulator: Android=10.0.2.2, iOS=localhost
-export const API_URL = 'http://10.0.2.2:5000/api';
-export const SOCKET_URL = 'http://10.0.2.2:5000';
+// API base URL — environment-aware.
+// Production/staging URLs come from app config 'extra' (app.json or EAS env).
+// In dev, falls back to emulator/simulator host: Android=10.0.2.2, iOS=localhost.
+// For a physical device in dev, set extra.apiUrl / extra.socketUrl to your LAN IP.
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+
+const extra = Constants.expoConfig?.extra || Constants.manifest?.extra || {};
+
+// Production / staging URL from app config 'extra', set via app.json or EAS env
+const CONFIGURED_API = extra.apiUrl;
+const CONFIGURED_SOCKET = extra.socketUrl;
+
+function devHost() {
+  // Android emulator reaches host machine via 10.0.2.2; iOS sim via localhost
+  return Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+}
+
+export const API_URL = CONFIGURED_API || `http://${devHost()}:5000/api`;
+export const SOCKET_URL = CONFIGURED_SOCKET || `http://${devHost()}:5000`;
 
 // Tracking
 export const LOCATION_TASK_NAME = 'background-location-task';

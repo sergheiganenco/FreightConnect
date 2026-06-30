@@ -1,5 +1,5 @@
-import React from "react";
-import { Tooltip, Badge } from "@mui/material";
+import React, { useState, useEffect } from "react";
+import { Tooltip, Badge, Collapse } from "@mui/material";
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import AddBoxIcon from '@mui/icons-material/AddBox';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -13,6 +13,8 @@ import CodeIcon from '@mui/icons-material/Code';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
 import { brand, surface, text as T, tint } from '../../../../theme/tokens';
 
@@ -29,23 +31,108 @@ function ChatNavItem() {
   );
 }
 
-const navItems = [
+// CORE — shipper's daily essentials, always visible
+const coreItems = [
   { key: "loads",     label: "Loads",     icon: <LocalShippingIcon fontSize="medium" /> },
   { key: "post-load", label: "Post Load", icon: <AddBoxIcon fontSize="medium" /> },
-  { key: "contracts",    label: "Contracts",    icon: <AssignmentIcon fontSize="medium" /> },
-  { key: "appointments", label: "Appointments", icon: <CalendarMonthIcon fontSize="medium" /> },
-  { key: "documents",    label: "Documents",    icon: <DescriptionIcon fontSize="medium" /> },
-  { key: "analytics", label: "Analytics", icon: <BarChartIcon /> },
-  { key: "ai-insights", label: "AI Insights", icon: <PsychologyIcon fontSize="medium" /> },
-  { key: "payments",  label: "Payments",  icon: <AccountBalanceWalletIcon fontSize="medium" /> },
-  { key: "tax",       label: "Tax",       icon: <ReceiptLongIcon fontSize="medium" /> },
-  { key: "edi",       label: "EDI",       icon: <CodeIcon fontSize="medium" /> },
-  { key: "verification", label: "Verification", icon: <VerifiedUserIcon fontSize="medium" /> },
   { key: "chat",      label: "Messages",  icon: <ChatNavItem /> },
+  { key: "payments",  label: "Payments",  icon: <AccountBalanceWalletIcon fontSize="medium" /> },
+  { key: "documents", label: "Documents", icon: <DescriptionIcon fontSize="medium" /> },
   { key: "profile",   label: "Profile",   icon: <AccountCircleIcon fontSize="medium" /> },
 ];
 
+// MORE — secondary tools, collapsed by default
+const moreItems = [
+  { key: "contracts",    label: "Contracts",    icon: <AssignmentIcon fontSize="medium" /> },
+  { key: "appointments", label: "Appointments", icon: <CalendarMonthIcon fontSize="medium" /> },
+  { key: "analytics",    label: "Analytics",    icon: <BarChartIcon /> },
+  { key: "ai-insights",  label: "AI Insights",  icon: <PsychologyIcon fontSize="medium" /> },
+  { key: "tax",          label: "Tax",          icon: <ReceiptLongIcon fontSize="medium" /> },
+  { key: "edi",          label: "EDI",          icon: <CodeIcon fontSize="medium" /> },
+  { key: "verification", label: "Verification", icon: <VerifiedUserIcon fontSize="medium" /> },
+];
+
+const moreKeys = moreItems.map((it) => it.key);
+
 export default function SideNav({ current, collapsed, onSelect }) {
+  // Auto-expand the More group when the active section lives inside it
+  const [moreOpen, setMoreOpen] = useState(() => moreKeys.includes(current));
+
+  useEffect(() => {
+    if (moreKeys.includes(current)) setMoreOpen(true);
+  }, [current]);
+
+  const renderItem = (item) => {
+    const isActive = current === item.key;
+    return (
+      <li key={item.key}>
+        <Tooltip title={collapsed ? item.label : ""} placement="right" arrow>
+          <div
+            tabIndex={0}
+            role="button"
+            aria-label={item.label}
+            onClick={() => onSelect(item.key)}
+            onKeyDown={e => {
+              if (e.key === "Enter" || e.key === " ") onSelect(item.key);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              height: 48,
+              margin: "4px 0",
+              padding: collapsed ? "0 8px" : "0 22px 0 18px",
+              borderRadius: "14px",
+              cursor: "pointer",
+              color: isActive ? brand.primary : brand.lavender,
+              background: isActive ? surface.glassActive : surface.glassLight,
+              borderLeft: isActive
+                ? `4px solid ${brand.primary}`
+                : "4px solid transparent",
+              fontWeight: isActive ? 700 : 500,
+              boxShadow: isActive
+                ? `0 1px 12px ${tint(brand.primary, 0.13)}`
+                : undefined,
+              outline: "none",
+              transition: "background 0.17s, color 0.18s, border-left 0.18s, box-shadow 0.15s",
+            }}
+            onFocus={e => (e.target.style.boxShadow = `0 0 0 2px ${tint(brand.secondary, 0.27)}`)}
+            onBlur={e => (e.target.style.boxShadow = isActive ? `0 1px 12px ${tint(brand.primary, 0.13)}` : "none")}
+            onMouseOver={e => (e.currentTarget.style.background = surface.glassMid)}
+            onMouseOut={e => (e.currentTarget.style.background = isActive ? surface.glassActive : surface.glassLight)}
+          >
+            <span
+              style={{
+                minWidth: 32,
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                color: isActive ? brand.primary : brand.softIndigo,
+                transition: "color 0.18s",
+              }}
+            >
+              {item.icon}
+            </span>
+            {!collapsed && (
+              <span
+                style={{
+                  marginLeft: 16,
+                  fontSize: "1.06rem",
+                  letterSpacing: 0.5,
+                  fontWeight: isActive ? 700 : 500,
+                  whiteSpace: "nowrap",
+                  color: isActive ? T.primary : T.navInactive,
+                  transition: "color 0.18s",
+                }}
+              >
+                {item.label}
+              </span>
+            )}
+          </div>
+        </Tooltip>
+      </li>
+    );
+  };
+
   return (
     <nav style={{ width: "100%" }}>
       <ul
@@ -58,43 +145,44 @@ export default function SideNav({ current, collapsed, onSelect }) {
           gap: 4,
         }}
       >
-        {navItems.map((item) => {
-          const isActive = current === item.key;
-          return (
-            <li key={item.key}>
-              <Tooltip title={collapsed ? item.label : ""} placement="right" arrow>
+        {coreItems.map(renderItem)}
+
+        {collapsed ? (
+          // Mini mode: no room for a text toggle — render More items flat as
+          // icons so nothing becomes unreachable.
+          moreItems.map(renderItem)
+        ) : (
+          <>
+            <li key="__more_toggle">
+              <Tooltip title="" placement="right" arrow>
                 <div
                   tabIndex={0}
                   role="button"
-                  aria-label={item.label}
-                  onClick={() => onSelect(item.key)}
+                  aria-label={moreOpen ? "Show less" : "Show more"}
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen((v) => !v)}
                   onKeyDown={e => {
-                    if (e.key === "Enter" || e.key === " ") onSelect(item.key);
+                    if (e.key === "Enter" || e.key === " ") setMoreOpen((v) => !v);
                   }}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     height: 48,
                     margin: "4px 0",
-                    padding: collapsed ? "0 8px" : "0 22px 0 18px",
+                    padding: "0 22px 0 18px",
                     borderRadius: "14px",
                     cursor: "pointer",
-                    color: isActive ? brand.primary : brand.lavender,
-                    background: isActive ? surface.glassActive : surface.glassLight,
-                    borderLeft: isActive
-                      ? `4px solid ${brand.primary}`
-                      : "4px solid transparent",
-                    fontWeight: isActive ? 700 : 500,
-                    boxShadow: isActive
-                      ? `0 1px 12px ${tint(brand.primary, 0.13)}`
-                      : undefined,
+                    color: brand.lavender,
+                    background: surface.glassLight,
+                    borderLeft: "4px solid transparent",
+                    fontWeight: 600,
                     outline: "none",
-                    transition: "background 0.17s, color 0.18s, border-left 0.18s, box-shadow 0.15s",
+                    transition: "background 0.17s, color 0.18s, box-shadow 0.15s",
                   }}
                   onFocus={e => (e.target.style.boxShadow = `0 0 0 2px ${tint(brand.secondary, 0.27)}`)}
-                  onBlur={e => (e.target.style.boxShadow = isActive ? `0 1px 12px ${tint(brand.primary, 0.13)}` : "none")}
+                  onBlur={e => (e.target.style.boxShadow = "none")}
                   onMouseOver={e => (e.currentTarget.style.background = surface.glassMid)}
-                  onMouseOut={e => (e.currentTarget.style.background = isActive ? surface.glassActive : surface.glassLight)}
+                  onMouseOut={e => (e.currentTarget.style.background = surface.glassLight)}
                 >
                   <span
                     style={{
@@ -102,32 +190,42 @@ export default function SideNav({ current, collapsed, onSelect }) {
                       display: "flex",
                       justifyContent: "center",
                       alignItems: "center",
-                      color: isActive ? brand.primary : brand.softIndigo,
-                      transition: "color 0.18s",
+                      color: brand.softIndigo,
                     }}
                   >
-                    {item.icon}
+                    {moreOpen ? <ExpandLess /> : <ExpandMore />}
                   </span>
-                  {!collapsed && (
-                    <span
-                      style={{
-                        marginLeft: 16,
-                        fontSize: "1.06rem",
-                        letterSpacing: 0.5,
-                        fontWeight: isActive ? 700 : 500,
-                        whiteSpace: "nowrap",
-                        color: isActive ? T.primary : T.navInactive,
-                        transition: "color 0.18s",
-                      }}
-                    >
-                      {item.label}
-                    </span>
-                  )}
+                  <span
+                    style={{
+                      marginLeft: 16,
+                      fontSize: "1.06rem",
+                      letterSpacing: 0.5,
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                      color: T.navInactive,
+                    }}
+                  >
+                    {moreOpen ? "Less" : "More"}
+                  </span>
                 </div>
               </Tooltip>
             </li>
-          );
-        })}
+            <Collapse in={moreOpen} timeout="auto" unmountOnExit component="li" sx={{ listStyle: "none" }}>
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                {moreItems.map(renderItem)}
+              </ul>
+            </Collapse>
+          </>
+        )}
       </ul>
     </nav>
   );

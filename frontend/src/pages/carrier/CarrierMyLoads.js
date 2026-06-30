@@ -18,6 +18,7 @@ import { useTheme } from '@mui/material/styles';
 import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
+import { glassCard } from '../../theme/tokens';
 
 export default function CarrierMyLoads({ embedded = false }) {
   const theme = useTheme();
@@ -156,8 +157,8 @@ export default function CarrierMyLoads({ embedded = false }) {
             viewLoads.map((l) => (
               <Grid item xs={12} md={6} key={l._id}>
                 <Paper
-                  className="glass-card"
                   sx={{
+                    ...glassCard.standard,
                     p: 2,
                     borderLeft: `6px solid ${accent[l.status] || accent.open}`,
                     cursor: 'pointer'

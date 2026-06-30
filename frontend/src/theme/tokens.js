@@ -133,6 +133,112 @@ export const darkFieldSx = {
   '& .MuiInputAdornment-root':  { color: text.secondary },
 };
 
+// ── Spacing Scale ──────────────────────────────────────────────
+export const space = {
+  xxs: 2,
+  xs:  4,
+  sm:  8,
+  md:  16,
+  lg:  24,
+  xl:  32,
+  xxl: 48,
+  xxxl: 64,
+};
+
+// ── Radius Scale ───────────────────────────────────────────────
+export const radius = {
+  xs:   4,
+  sm:   8,
+  md:   12,
+  lg:   16,
+  xl:   24,
+  pill:  9999,
+  circle: '50%',
+};
+
+// ── Z-Index Scale ──────────────────────────────────────────────
+export const zIndex = {
+  dropdown:   1000,
+  sticky:     1020,
+  overlay:    1040,
+  modal:      1060,
+  popover:    1070,
+  tooltip:    1080,
+  toast:      1090,
+};
+
+// ── Transitions ────────────────────────────────────────────────
+export const transition = {
+  fast:     '0.15s ease',
+  normal:   '0.25s ease',
+  slow:     '0.4s ease',
+  bounce:   '0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
+  spring:   '0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+};
+
+// ── Button Variant Styles ──────────────────────────────────────
+export const buttonVariants = {
+  gradient: {
+    background: gradient.primary,
+    color: '#ffffff',
+    border: 'none',
+    '&:hover': {
+      background: 'linear-gradient(90deg, #7b2fe0, #f0239f)',
+      transform: 'translateY(-1px)',
+      boxShadow: '0 4px 20px rgba(106,31,207,0.4)',
+    },
+  },
+  glass: {
+    background: surface.glass,
+    backdropFilter: 'blur(12px)',
+    color: text.primary,
+    border: `1px solid ${surface.glassBorder}`,
+    '&:hover': {
+      background: surface.glassHover,
+      borderColor: 'rgba(255,255,255,0.2)',
+    },
+  },
+  ghost: {
+    background: 'transparent',
+    color: text.secondary,
+    border: 'none',
+    '&:hover': {
+      background: surface.glassSubtle,
+      color: text.primary,
+    },
+  },
+};
+
+// ── Glass Card Presets ─────────────────────────────────────────
+export const glassCard = {
+  standard: {
+    background: surface.glass,
+    backdropFilter: 'blur(20px)',
+    border: `1px solid ${surface.glassBorder}`,
+    borderRadius: radius.xl,
+    boxShadow: shadow.card,
+  },
+  elevated: {
+    background: surface.cardBg,
+    backdropFilter: 'blur(24px)',
+    border: `1px solid ${surface.glassBorder}`,
+    borderRadius: radius.xl,
+    boxShadow: shadow.modal,
+  },
+  subtle: {
+    background: surface.glassSubtle,
+    backdropFilter: 'blur(12px)',
+    border: `1px solid rgba(255,255,255,0.05)`,
+    borderRadius: radius.lg,
+  },
+};
+
+// ── Focus Ring (accessibility) ─────────────────────────────────
+export const focusRing = {
+  outline: `2px solid ${brand.indigoLight}`,
+  outlineOffset: '2px',
+};
+
 // ── Convenience helpers ─────────────────────────────────────────
 
 /** Semi-transparent background from any hex color: tint('#34d399', 0.08) → 'rgba(52,211,153,0.08)' */

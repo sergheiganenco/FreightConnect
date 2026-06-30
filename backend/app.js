@@ -21,12 +21,24 @@ const { sanitizeInput } = require('./middlewares/sanitize');
 const { requestId } = require('./middlewares/requestId');
 const { apiKeyAuth } = require('./middlewares/apiKeyAuth');
 
+// ── Sentry error tracking (guarded — optional dep + env-gated) ─────────────────
+let Sentry = null;
+if (process.env.SENTRY_DSN) {
+  try { Sentry = require('@sentry/node'); Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || 'development', tracesSampleRate: 0.1 }); console.log('[Startup] Sentry error tracking enabled'); }
+  catch (e) { console.warn('[Startup] Sentry requested but @sentry/node not installed'); }
+}
+
 // ── Startup validation ────────────────────────────────────────────────────────
 const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'];
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missing.length) {
   console.error(`[Startup] Missing required environment variables: ${missing.join(', ')}`);
   process.exit(1);
+}
+
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  console.error('[Startup] JWT_SECRET is too weak (<32 chars). Use a 64+ char random string.');
+  if (process.env.NODE_ENV === 'production') process.exit(1);
 }
 
 // Warn about optional keys that degrade specific features
@@ -80,6 +92,20 @@ const io = new Server(server, {
 const { setIO } = require('./utils/socket');
 setIO(io);
 
+// ── Socket.IO Redis adapter (guarded — optional deps + env-gated) ──────────────
+// Enables multi-instance / horizontal scaling so socket events fan out across nodes.
+if (process.env.REDIS_URL) {
+  try {
+    const { createAdapter } = require('@socket.io/redis-adapter');
+    const { createClient } = require('redis');
+    const pubClient = createClient({ url: process.env.REDIS_URL });
+    const subClient = pubClient.duplicate();
+    Promise.all([pubClient.connect(), subClient.connect()])
+      .then(() => { io.adapter(createAdapter(pubClient, subClient)); console.log('[Startup] Socket.IO Redis adapter enabled (multi-instance ready)'); })
+      .catch(e => console.warn('[Startup] Redis adapter failed:', e.message));
+  } catch (e) { console.warn('[Startup] Redis adapter requested but packages not installed'); }
+}
+
 // HTTP request logging (skip in test)
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
@@ -90,7 +116,11 @@ if (process.env.NODE_ENV !== 'test') {
 app.use(express.json({
   limit: '10mb',
   verify: (req, _res, buf) => {
-    if (req.originalUrl.startsWith('/api/payments/webhook')) {
+    // Both Stripe and ELD provider webhooks need the raw body for HMAC signature verification.
+    if (
+      req.originalUrl.startsWith('/api/payments/webhook') ||
+      req.originalUrl.startsWith('/api/eld-integration/webhook')
+    ) {
       req.rawBody = buf;
     }
   },
@@ -159,6 +189,14 @@ app.use('/api/tos', tosRoutes);
 const userRoutes = require('./routes/userRoutes');
 app.use('/api/users', userRoutes);
 
+// Driver Routes (fleet driver roster + compliance alerts)
+const driverRoutes = require('./routes/driverRoutes');
+app.use('/api/drivers', driverRoutes);
+
+// Factoring NOA Routes (UCC §9-406 payment redirection — admin verify/release)
+const factoringAssignmentRoutes = require('./routes/factoringAssignmentRoutes');
+app.use('/api/factoring-assignments', factoringAssignmentRoutes);
+
 // Load Routes
 const loadRoutes = require('./routes/loadRoutes')(io); // call with io ONCE
 app.use('/api/loads', loadRoutes); // use as router middleware
@@ -193,35 +231,19 @@ io.on('connection', (socket) => {
   // ── Carrier location tracking ──────────────────────────────────
   socket.on('updateCarrierLocation', async ({ loadId, latitude, longitude, speed, heading, accuracy, source }) => {
     try {
-      const Load = require('./models/Load');
-      const locationData = {
+      // Delegate to the unified tracking service: it updates Load.carrierLocation,
+      // appends a TrackingEvent breadcrumb, runs the geofence/dwell check, and emits
+      // 'carrierLocationUpdate' to the shipper + carrier personal rooms.
+      const trackingService = require('./services/trackingService');
+      await trackingService.recordLocation({
+        loadId,
         latitude,
         longitude,
-        speed:     speed ?? null,
-        heading:   heading ?? null,
-        accuracy:  accuracy ?? null,
-        source:    source || 'browser',
-        updatedAt: new Date(),
-      };
-      const load = await Load.findByIdAndUpdate(loadId, { carrierLocation: locationData }, { new: false });
-      if (!load) return;
-      const payload = { loadId, ...locationData };
-      // Emit to shipper + carrier personal rooms
-      if (load.postedBy) {
-        io.to(`user_${load.postedBy}`).emit('carrierLocationUpdate', payload);
-      }
-      io.to(`user_${socket.userId}`).emit('carrierLocationUpdate', payload);
-
-      // Geofenced auto check-in/check-out for dwell tracking
-      try {
-        const { checkGeofence } = require('./services/geofenceService');
-        await checkGeofence(socket.userId, latitude, longitude);
-      } catch (geoErr) {
-        // Non-fatal — dwell tracking is secondary to location updates
-        if (geoErr.message !== 'Cannot read properties of undefined') {
-          console.error('Geofence check failed (non-fatal):', geoErr.message);
-        }
-      }
+        speed,
+        heading,
+        accuracy,
+        source: source || 'browser',
+      });
     } catch (error) {
       console.error('Error updating carrier location:', error);
     }
@@ -349,6 +371,10 @@ app.use('/api/trips', tripRoutes);
 const eldRoutes = require('./routes/eldRoutes');
 app.use('/api/eld', eldRoutes);
 
+// ELD Integration Routes (provider webhooks + connection management)
+const eldIntegrationRoutes = require('./routes/eldIntegrationRoutes');
+app.use('/api/eld-integration', eldIntegrationRoutes);
+
 // Reefer Temperature Routes
 const reeferRoutes = require('./routes/reeferRoutes');
 app.use('/api/reefer', reeferRoutes);
@@ -368,6 +394,11 @@ app.use('/api/tax', taxRoutes);
 // Expense Tracking Routes
 const expenseRoutes = require('./routes/expenseRoutes');
 app.use('/api/expenses', expenseRoutes);
+
+// Free third-party tracker ingest (OwnTracks / Traccar) — mount BEFORE /api/tracking
+// so the deeper /ingest/* paths resolve before trackingRoutes' /:loadId.
+const trackingIngestRoutes = require('./routes/trackingIngestRoutes');
+app.use('/api/tracking/ingest', trackingIngestRoutes);
 
 const trackingRoutes = require('./routes/trackingRoutes');
 app.use('/api/tracking', trackingRoutes);
@@ -411,6 +442,12 @@ app.use('/api/ai', aiRoutes);
 const fraudRoutes = require('./routes/fraudRoutes');
 app.use('/api/fraud', fraudRoutes);
 
+// Ledger Routes (double-entry accounting)
+app.use('/api/ledger', require('./routes/ledgerRoutes'));
+
+// Review Queue Routes (manual review / moderation)
+app.use('/api/review-queue', require('./routes/reviewQueueRoutes'));
+
 // ── Client-side routing catch-all (production only) ─────────────────────────
 // Serves index.html for any non-API route so React Router handles navigation.
 // Must be AFTER all /api routes and BEFORE the 404 handler.
@@ -433,6 +470,9 @@ app.use('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
 });
 
+// ── Sentry error capture (guarded — only active if Sentry initialized) ────────
+app.use((err, req, res, next) => { if (Sentry) Sentry.captureException(err); next(err); });
+
 // ── Global error handler (must be last middleware) ────────────────────────────
 app.use(errorHandler);
 
@@ -444,11 +484,13 @@ server.listen(PORT, () => {
   if (process.env.NODE_ENV !== 'test') {
     require('./jobs/insuranceMonitor').start();
     require('./jobs/overdueLoadMonitor').start();
+    require('./jobs/escrowExpiryMonitor').start();
     require('./jobs/contractAutoPost').start();
     require('./jobs/contractMonitor').start();
     require('./jobs/loadAlertDigest').start();
     require('./jobs/invoiceEmailer').start();
     require('./jobs/fraudMonitor').start();
+    require('./jobs/eldPoller').start();
     // AI Agents
     require('./agents').initializeAgents();
   }

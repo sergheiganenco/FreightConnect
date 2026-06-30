@@ -18,8 +18,9 @@ const Company = require('../models/Company');
 const companyNormalize = require('../utils/companyNormalize');
 const { generateBOL } = require('../utils/pdfGenerator');
 const crypto = require('crypto');
-const { sendEmailWithAttachment } = require('../services/emailService');
+const { sendEmailWithAttachment, sendEmail } = require('../services/emailService');
 const verificationService = require('../services/verificationService');
+const mfaService = require('../services/mfaService');
 
 
 
@@ -171,6 +172,80 @@ router.get('/verify-email', async (req, res) => {
 });
 
 // ----------------------
+// 1c) Forgot Password
+// ----------------------
+router.post('/forgot-password', authLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    const user = await User.findOne({ email });
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      user.set('passwordResetToken', token);
+      user.set('passwordResetExpires', new Date(Date.now() + 3600000)); // 1 hour
+      await user.save();
+
+      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
+      try {
+        await sendEmail({
+          to: email,
+          subject: 'Reset your FreightConnect password',
+          html: `<h2>Password Reset</h2><p>You requested a password reset. Click the link below to set a new password:</p><p><a href="${resetUrl}">Reset Password</a></p><p>This link expires in 1 hour. If you did not request this, you can safely ignore this email.</p>`,
+        });
+      } catch (emailErr) {
+        console.error('[ForgotPassword] Email send failed (non-fatal):', emailErr.message);
+      }
+    }
+
+    // Always return the same response to prevent email enumeration
+    return res.json({ message: 'If an account exists, a reset link has been sent.' });
+  } catch (err) {
+    console.error('[ForgotPassword] Error:', err.message);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ----------------------
+// 1d) Reset Password
+// ----------------------
+const resetPasswordValidation = [
+  body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('token').notEmpty().withMessage('Reset token is required'),
+  body('password')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter')
+    .matches(/[a-z]/).withMessage('Password must contain at least one lowercase letter')
+    .matches(/[0-9]/).withMessage('Password must contain at least one number')
+    .matches(/[!@#$%^&*(),.?":{}|<>]/).withMessage('Password must contain at least one special character'),
+];
+
+router.post('/reset-password', authLimiter, resetPasswordValidation, validate, async (req, res) => {
+  try {
+    const { email, token, password } = req.body;
+
+    const user = await User.findOne({
+      email,
+      passwordResetToken: token,
+      passwordResetExpires: { $gt: new Date() },
+    });
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired reset link' });
+    }
+
+    user.password = await bcrypt.hash(password, 10);
+    user.set('passwordResetToken', undefined);
+    user.set('passwordResetExpires', undefined);
+    await user.save();
+
+    return res.json({ success: true, message: 'Password reset successfully' });
+  } catch (err) {
+    console.error('[ResetPassword] Error:', err.message);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ----------------------
 // 2) Login Route
 // ----------------------
 const loginValidation = [
@@ -179,9 +254,10 @@ const loginValidation = [
 ];
 
 router.post("/login", authLimiter, loginValidation, validate, async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, mfaToken } = req.body;
   try {
-    const user = await User.findOne({ email }).select('+password');
+    // Re-query mfa.secret too (select:false on both password and mfa.secret)
+    const user = await User.findOne({ email }).select('+password +mfa.secret');
     if (!user) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
@@ -190,6 +266,25 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
 
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // ── MFA enforcement ──────────────────────────────────────────
+    if (user.mfa && user.mfa.enabled) {
+      // No code provided yet — tell the client to prompt for it (do NOT issue JWT)
+      if (!mfaToken) {
+        return res.status(200).json({ mfaRequired: true });
+      }
+      let mfaValid = false;
+      try {
+        mfaValid = mfaService.verifyToken(user.mfa.secret, mfaToken);
+      } catch (mfaErr) {
+        // MFA library unavailable — treat as a server-side failure
+        console.error('[Login] MFA verification error:', mfaErr.message);
+        return res.status(503).json({ error: 'MFA not available' });
+      }
+      if (!mfaValid) {
+        return res.status(401).json({ error: 'Invalid MFA code' });
+      }
     }
 
     const token = jwt.sign(
@@ -211,6 +306,95 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
   } catch (error) {
     console.error("Error during login:", error);
     return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ----------------------
+// 2a) MFA — Setup / Enable / Disable
+// ----------------------
+
+// POST /api/users/mfa/setup — generate a secret (not enabled yet), return otpauthUrl + qr
+router.post('/mfa/setup', auth, async (req, res) => {
+  try {
+    if (!mfaService.isAvailable()) {
+      return res.status(503).json({ error: 'MFA not available' });
+    }
+    const user = await User.findById(req.user.userId).select('+mfa.secret');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const { base32, otpauthUrl } = mfaService.generateSecret(user.email);
+    user.mfa.secret = base32;
+    user.mfa.enabled = false; // not enabled until verified
+    await user.save();
+
+    const qr = await mfaService.qrDataUrl(otpauthUrl);
+    return res.json({ otpauthUrl, qr });
+  } catch (err) {
+    console.error('[MFA setup] Error:', err.message);
+    return res.status(500).json({ error: 'Failed to set up MFA' });
+  }
+});
+
+// POST /api/users/mfa/enable — verify token, then enable MFA
+router.post('/mfa/enable', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'MFA token is required' });
+
+    const user = await User.findById(req.user.userId).select('+mfa.secret');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.mfa || !user.mfa.secret) {
+      return res.status(400).json({ error: 'MFA not set up. Call /mfa/setup first.' });
+    }
+
+    let valid = false;
+    try {
+      valid = mfaService.verifyToken(user.mfa.secret, token);
+    } catch (mfaErr) {
+      return res.status(503).json({ error: 'MFA not available' });
+    }
+    if (!valid) return res.status(400).json({ error: 'Invalid MFA code' });
+
+    user.mfa.enabled = true;
+    user.mfa.verifiedAt = new Date();
+    await user.save();
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[MFA enable] Error:', err.message);
+    return res.status(500).json({ error: 'Failed to enable MFA' });
+  }
+});
+
+// POST /api/users/mfa/disable — verify token, then disable MFA + clear secret
+router.post('/mfa/disable', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'MFA token is required' });
+
+    const user = await User.findById(req.user.userId).select('+mfa.secret');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.mfa || !user.mfa.enabled || !user.mfa.secret) {
+      return res.status(400).json({ error: 'MFA is not enabled' });
+    }
+
+    let valid = false;
+    try {
+      valid = mfaService.verifyToken(user.mfa.secret, token);
+    } catch (mfaErr) {
+      return res.status(503).json({ error: 'MFA not available' });
+    }
+    if (!valid) return res.status(400).json({ error: 'Invalid MFA code' });
+
+    user.mfa.enabled = false;
+    user.mfa.secret = null;
+    user.mfa.verifiedAt = null;
+    await user.save();
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[MFA disable] Error:', err.message);
+    return res.status(500).json({ error: 'Failed to disable MFA' });
   }
 });
 
@@ -927,6 +1111,80 @@ router.put('/me/preferences', auth, async (req, res) => {
   } catch (err) {
     console.error('Error saving preferences:', err);
     res.status(500).json({ error: 'Failed to save preferences' });
+  }
+});
+
+// ----------------------------------------
+// PUT /api/users/me/onboarding — wizard per-step save + completion
+// Body (per-step): { step, role, data: { companyInfo, equipmentTypes, preferredLanes, fleet, shipmentTypes, primaryLanes, ... } }
+// Body (complete):  { complete: true, role }
+// Maps wizard fields onto whitelisted safe profile fields.
+// ----------------------------------------
+router.put('/me/onboarding', auth, async (req, res) => {
+  try {
+    const { data, complete } = req.body || {};
+    const update = {};
+
+    // Final completion signal from the wizard
+    if (complete === true) {
+      update.onboardingComplete = true;
+    }
+
+    // Per-step data — whitelist safe profile fields only
+    if (data && typeof data === 'object') {
+      const info = data.companyInfo;
+      if (info && typeof info === 'object') {
+        if (typeof info.name === 'string' && info.name.trim()) update.companyName = info.name.trim();
+        if (typeof info.dotNumber === 'string') update.dotNumber = info.dotNumber;
+        if (typeof info.mcNumber === 'string') update.mcNumber = info.mcNumber;
+      }
+      if (Array.isArray(data.equipmentTypes)) {
+        update['preferences.equipmentTypes'] = data.equipmentTypes;
+      }
+      // Carrier preferred lanes OR shipper primary lanes → preferences.preferredLanes
+      const lanes = Array.isArray(data.preferredLanes)
+        ? data.preferredLanes
+        : (Array.isArray(data.primaryLanes) ? data.primaryLanes : null);
+      if (lanes) {
+        update['preferences.preferredLanes'] = lanes
+          .filter(l => l && l.origin && l.destination)
+          .map(l => ({ origin: String(l.origin), destination: String(l.destination) }));
+      }
+      // Shipper shipment equipment preferences
+      if (data.shipmentTypes && Array.isArray(data.shipmentTypes.equipment)) {
+        update['preferences.equipmentTypes'] = data.shipmentTypes.equipment;
+      }
+    }
+
+    if (Object.keys(update).length === 0) {
+      // Nothing to persist (e.g. document-only step) — still a success
+      return res.json({ success: true });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user.userId,
+      { $set: update },
+      { new: true }
+    ).select('-password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({ success: true, user });
+  } catch (err) {
+    console.error('PUT /me/onboarding error:', err.message);
+    res.status(500).json({ error: 'Failed to save onboarding progress' });
+  }
+});
+
+// ----------------------------------------
+// PUT /api/users/me/onboarding-complete — durably mark onboarding done (also used for "Skip")
+// ----------------------------------------
+router.put('/me/onboarding-complete', auth, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user.userId, { $set: { onboardingComplete: true } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('PUT /me/onboarding-complete error:', err.message);
+    res.status(500).json({ error: 'Failed to complete onboarding' });
   }
 });
 

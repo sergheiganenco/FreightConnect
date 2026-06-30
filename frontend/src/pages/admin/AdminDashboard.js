@@ -59,6 +59,9 @@ export default function AdminDashboard() {
   else if (path.includes("/companies")) currentSection = "companies";
   else if (path.includes("/verifications")) currentSection = "verifications";
   else if (path.includes("/exceptions")) currentSection = "exceptions";
+  else if (path.includes("/ledger")) currentSection = "ledger";
+  else if (path.includes("/review-queue")) currentSection = "review-queue";
+  else if (path.includes("/factoring")) currentSection = "factoring";
   else if (path.includes("/profile")) currentSection = "profile";
 
   // Responsive drawer width
@@ -74,6 +77,9 @@ export default function AdminDashboard() {
     else if (key === "companies") navigate("/dashboard/admin/companies");
     else if (key === "verifications") navigate("/dashboard/admin/verifications");
     else if (key === "exceptions") navigate("/dashboard/admin/exceptions");
+    else if (key === "ledger") navigate("/dashboard/admin/ledger");
+    else if (key === "review-queue") navigate("/dashboard/admin/review-queue");
+    else if (key === "factoring") navigate("/dashboard/admin/factoring");
     else if (key === "profile") navigate("/dashboard/admin/profile");
     if (!mdUp) setDrawerOpen(false);
   };

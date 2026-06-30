@@ -9,11 +9,7 @@ import App from './App';
 // ① React-Query
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import './styles/marketing.css';
-import './styles/Navbar.css';
 import './index.css';
-import './styles/Login.css';
-import './styles/Dashboard.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 

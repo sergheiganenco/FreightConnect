@@ -16,6 +16,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import api from "../../services/api";
 import TrustScoreBadge from "../../components/TrustScoreBadge";
+import GpsConsentCard from "../../components/GpsConsentCard";
 
 const EQUIPMENT_TYPES = [
   "Dry Van", "Flatbed", "Reefer", "Step Deck", "Lowboy",
@@ -317,6 +318,7 @@ export default function Profile() {
           );
         })()}
         <Stack spacing={3} alignItems="stretch" sx={{ mt: 2 }}>
+          {user.role === "carrier" && <GpsConsentCard />}
           <TextField
             label="Full Name"
             name="name"

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Snackbar, Alert, Slide } from '@mui/material';
 import { WifiOff, Wifi } from '@mui/icons-material';
+import { semantic, text } from '../theme/tokens';
 
 const FAILED_REQUESTS_KEY = 'fc_offline_queue';
 
@@ -107,10 +108,10 @@ export default function OfflineDetector({ apiInstance }) {
           sx={{
             width: '100%',
             borderRadius: 0,
-            background: 'rgba(251,191,36,0.95)',
-            color: '#0f172a',
+            background: semantic.warning,
+            color: text.dark,
             fontWeight: 600,
-            '& .MuiAlert-icon': { color: '#0f172a' },
+            '& .MuiAlert-icon': { color: text.dark },
           }}
         >
           You're offline. Changes will sync when reconnected.
@@ -130,10 +131,10 @@ export default function OfflineDetector({ apiInstance }) {
           icon={<Wifi />}
           onClose={() => setShowOnlineToast(false)}
           sx={{
-            background: 'rgba(52,211,153,0.95)',
-            color: '#0f172a',
+            background: semantic.success,
+            color: text.dark,
             fontWeight: 600,
-            '& .MuiAlert-icon': { color: '#0f172a' },
+            '& .MuiAlert-icon': { color: text.dark },
           }}
         >
           Back online!

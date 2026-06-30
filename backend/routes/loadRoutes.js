@@ -10,12 +10,14 @@ module.exports = (io) => {
   const axios = require("axios");
   require("dotenv").config();
   const User = require("../models/User");
-  const { generateRateConfirmation } = require("../utils/pdfGenerator");
+  const { generateRateConfirmation, generateBOL } = require("../utils/pdfGenerator");
   const { transitionLoadStatus, canTransition } = require('../services/loadStateMachine');
   const StatusHistory = require('../models/StatusHistory');
   const { checkScheduleConflicts } = require('../services/scheduleConflictService');
   const PreferredCarrier = require('../models/PreferredCarrier');
   const { notifyUserSafe } = require('../utils/notifyUser');
+  const antiFraudGuard = require('../services/antiFraudGuard');
+  const { checkLoadEligibility } = require('../services/loadEligibility');
 
   // ── Helper: auto-generate Rate Confirmation (non-blocking) ─────────────────
   async function autoGenerateRateCon(loadId, carrierId, shipperId) {
@@ -32,6 +34,25 @@ module.exports = (io) => {
       try { io.to(`user_${shipperId}`).emit('doc:generated', { loadId, type: 'rateConfirmation', path: filePath }); } catch (_) {}
     } catch (err) {
       console.error('[RateCon] Auto-generate failed (non-fatal):', err.message);
+    }
+  }
+
+  // ── Helper: auto-generate Bill of Lading on delivery (non-blocking) ────────
+  async function autoGenerateBOL(loadId) {
+    try {
+      const load = await Load.findById(loadId);
+      if (!load || (load.documents && load.documents.bol)) return; // skip if already generated
+      const [carrier, shipper] = await Promise.all([
+        load.acceptedBy ? User.findById(load.acceptedBy).select('name email companyName mcNumber dotNumber') : null,
+        load.postedBy ? User.findById(load.postedBy).select('name email companyName') : null,
+      ]);
+      if (!carrier || !shipper || typeof generateBOL !== 'function') return;
+      const filePath = await generateBOL(load, carrier, shipper);
+      await Load.findByIdAndUpdate(loadId, { 'documents.bol': filePath });
+      try { io.to(`user_${load.acceptedBy}`).emit('doc:generated', { loadId, type: 'bol', path: filePath }); } catch (_) {}
+      try { io.to(`user_${load.postedBy}`).emit('doc:generated', { loadId, type: 'bol', path: filePath }); } catch (_) {}
+    } catch (err) {
+      console.error('[BOL] Auto-generate failed (non-fatal):', err.message);
     }
   }
 
@@ -329,16 +350,34 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       return res.status(403).json({ error: 'Only shippers can post loads.' });
     }
 
-    // ---------- geocode -------------
+    // ---------- geocode (resilient — a geocoding outage must NOT block posting) ----------
+    // Nominatim requires a valid User-Agent or it returns "Access denied".
     const fetchCoords = async (location) => {
-      const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`);
-      const data = await resp.json();
-      if (!data.length) throw new Error(`Could not geocode ${location}`);
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 6000);
+        const resp = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(location)}`,
+          { headers: { 'User-Agent': 'FreightConnect/1.0 (loads@freightconnect.app)' }, signal: ctrl.signal }
+        );
+        clearTimeout(t);
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        if (!Array.isArray(data) || !data.length) return null;
+        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } catch (geoErr) {
+        console.warn(`[loads] geocode failed for "${location}" (non-fatal):`, geoErr.message);
+        return null; // post the load anyway; coords can be filled later
+      }
     };
 
-    const originC      = await fetchCoords(origin);
-    const destinationC = await fetchCoords(destination);
+    // Prefer client-supplied coords; otherwise best-effort geocode.
+    const originC = (req.body.originLat && req.body.originLng)
+      ? { lat: Number(req.body.originLat), lng: Number(req.body.originLng) }
+      : (await fetchCoords(origin)) || {};
+    const destinationC = (req.body.destinationLat && req.body.destinationLng)
+      ? { lat: Number(req.body.destinationLat), lng: Number(req.body.destinationLng) }
+      : (await fetchCoords(destination)) || {};
 
     // ---------- build & save ---------
     // Parse array fields that may arrive as JSON strings (FormData uploads)
@@ -507,28 +546,47 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   // ----------------------------------------
   router.put("/:id/accept", auth, async (req, res) => {
     try {
-      // Require carrier to be verified before accepting loads
-      const carrier = await User.findById(req.user.userId).select('verification');
-      if (carrier?.verification?.status !== 'verified') {
-        return res.status(403).json({
-          error: 'Complete carrier verification before accepting loads',
-          verificationStatus: carrier?.verification?.status || 'unverified',
-        });
+      // Pre-fetch the carrier (full verification sub-doc) and the load for the
+      // anti-fraud evaluation.
+      const carrier = await User.findById(req.user.userId)
+        .select('role verification fleet carrierEndorsements');
+      const loadToCheck = await Load.findById(req.params.id);
+      if (!loadToCheck) {
+        return res.status(404).json({ error: "Load not found" });
       }
 
-      // Insurance must not be lapsed
-      const insuranceStatus = carrier?.verification?.insurance?.status;
-      if (insuranceStatus === 'lapsed') {
+      // ── Eligibility guard: equipment subtype + endorsement requirements ─────
+      // Carrier-level endorsements are checked here; the assigned driver is
+      // re-checked at PUT /:id/assign-driver (driver may not be set yet).
+      {
+        const eligibility = checkLoadEligibility({ load: loadToCheck, carrier });
+        if (!eligibility.eligible) {
+          return res.status(403).json({
+            error: 'Not eligible for this load',
+            reasons: eligibility.reasons,
+          });
+        }
+      }
+
+      // ── Anti-fraud guard: identity, insurance, double-broker / bot signals ──
+      // Hard-blocks unverified identity and lapsed/expired insurance (no stolen
+      // MC numbers). Replaces the old inline verification + insurance checks.
+      const fraudResult = await antiFraudGuard.evaluateAcceptance({
+        load: loadToCheck,
+        carrier,
+        req,
+      });
+      if (!fraudResult.allowed) {
         return res.status(403).json({
-          error: 'Your insurance has lapsed. Update your Certificate of Insurance before accepting loads.',
-          insuranceStatus: 'lapsed',
+          error: 'Cannot accept load: ' + fraudResult.reasons.join('; '),
+          reasons: fraudResult.reasons,
+          verificationStatus: carrier?.verification?.status || 'unverified',
         });
       }
 
       // Schedule conflict check — block if "blocking" conflicts exist
       // (carrier can bypass warnings with ?force=true)
-      const loadToCheck = await Load.findById(req.params.id);
-      if (loadToCheck) {
+      {
         const scheduleResult = await checkScheduleConflicts(req.user.userId, loadToCheck);
         if (!scheduleResult.canAccept && req.query.force !== 'true') {
           return res.status(409).json({
@@ -539,10 +597,20 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         }
       }
 
-      // Atomic: only succeeds if load is still open and not yet accepted
+      // Atomic: only succeeds if load is still open and not yet accepted.
+      // Also records the device/identity fingerprint + any soft risk flags for audit.
+      const acceptanceFingerprint = antiFraudGuard.buildFingerprint(req, req.user.userId);
+      const acceptUpdate = {
+        status: "accepted",
+        acceptedBy: req.user.userId,
+        acceptanceFingerprint,
+      };
+      if (fraudResult.riskFlags && fraudResult.riskFlags.length > 0) {
+        acceptUpdate.riskFlags = fraudResult.riskFlags;
+      }
       const load = await Load.findOneAndUpdate(
         { _id: req.params.id, status: "open", acceptedBy: null },
-        { $set: { status: "accepted", acceptedBy: req.user.userId } },
+        { $set: acceptUpdate },
         { new: true }
       );
 
@@ -551,6 +619,31 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         if (!exists) return res.status(404).json({ error: "Load not found" });
         return res.status(409).json({ error: "Load is no longer available — already accepted by another carrier" });
       }
+
+      if (fraudResult.riskFlags && fraudResult.riskFlags.length > 0) {
+        console.warn(`[antiFraudGuard] Load ${load._id} accepted by carrier ${req.user.userId} with risk flags: ${fraudResult.riskFlags.join(', ')}`);
+      }
+
+      // ── Payment-assured trust signal (non-blocking) ─────────────────────
+      // Carriers can trust loads where the shipper has a payment method on file.
+      // Never blocks acceptance; the helper may not exist yet.
+      let paymentAssured = false;
+      try {
+        const { shipperHasPaymentMethod } = require('./paymentRoutes');
+        if (typeof shipperHasPaymentMethod === 'function') {
+          paymentAssured = await shipperHasPaymentMethod(load.postedBy);
+        }
+      } catch (_) {}
+      try { await Load.findByIdAndUpdate(load._id, { paymentAssured }); } catch (_) {}
+
+      // ── Funded escrow hold at booking (non-blocking) ────────────────────
+      try {
+        const { createEscrowHoldForLoad } = require('./paymentRoutes');
+        if (typeof createEscrowHoldForLoad === 'function') {
+          const escrow = await createEscrowHoldForLoad(load._id);
+          if (escrow && escrow.error) console.warn('[accept] escrow hold:', escrow.error);
+        }
+      } catch (e) { console.warn('[accept] escrow hold failed (non-fatal):', e.message); }
 
       if (!load.originLat || !load.originLng || !load.destinationLat || !load.destinationLng) {
         return res.status(400).json({ error: "Load is missing required location coordinates" });
@@ -792,16 +885,39 @@ router.put("/:id/deliver", auth, async (req, res) => {
       return res.status(404).json({ error: "Load not found" });
     }
 
-    // Ensure that the carrier attempting to update the load is the one assigned to it
-    if (String(load.acceptedBy) !== req.user.userId) {
-      return res.status(403).json({ error: "You are not authorized to update this load" });
+    // ── Anti double-brokering: the account marking delivered MUST be the same
+    //    carrier that accepted the load. ─────────────────────────────────────
+    const haulerCheck = antiFraudGuard.verifyHaulerMatchesAcceptor(load, req.user.userId);
+    if (!haulerCheck.ok) {
+      return res.status(403).json({ error: haulerCheck.reason });
     }
 
-    // Update the status to delivered
-    load.status = "delivered";
-    await load.save();
+    // Atomic, audited transition via the state machine (in-transit/accepted → delivered)
+    const result = await transitionLoadStatus(
+      req.params.id,
+      load.status,
+      'delivered',
+      { deliveredAt: new Date() },
+      req.user.userId,
+      'Delivered by carrier'
+    );
+    if (!result.success) {
+      return res.status(409).json({ error: result.error });
+    }
+    const deliveredLoad = result.load;
 
-    res.json({ message: "Load marked as delivered successfully", load });
+    res.json({ message: "Load marked as delivered successfully", load: deliveredLoad });
+
+    // Notify shipper + carrier rooms in real time
+    try {
+      const payload = {
+        loadId: deliveredLoad._id,
+        status: deliveredLoad.status,
+        acceptedBy: deliveredLoad.acceptedBy?._id || deliveredLoad.acceptedBy,
+      };
+      io.to(`user_${deliveredLoad.postedBy?._id || deliveredLoad.postedBy}`).emit("loadStatusUpdated", payload);
+      io.to(`user_${deliveredLoad.acceptedBy?._id || deliveredLoad.acceptedBy}`).emit("loadStatusUpdated", payload);
+    } catch (_) {}
   } catch (err) {
     console.error("Error marking load as delivered:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -827,12 +943,18 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(403).json({ error: "Unauthorized action." });
     }
 
-    // Use state machine for atomic transition
-    const result = await transitionLoadStatus(req.params.id, existingLoad.status, status, {}, req.user.userId, `Status updated by carrier`);
+    // On delivery, also stamp deliveredAt (so the timestamp + downstream docs are recorded)
+    const updateFields = status === 'delivered' ? { deliveredAt: new Date() } : {};
+    const result = await transitionLoadStatus(req.params.id, existingLoad.status, status, updateFields, req.user.userId, `Status updated by carrier`);
     if (!result.success) {
       return res.status(409).json({ error: result.error });
     }
     const load = result.load;
+
+    // Auto-generate Bill of Lading on delivery (non-blocking)
+    if (status === 'delivered') {
+      autoGenerateBOL(load._id);
+    }
 
     // Emit only to the shipper and carrier involved — not all connected users
     io.to(`user_${load.postedBy}`).emit("loadStatusUpdated", {
@@ -1193,10 +1315,15 @@ router.post('/voice-command', auth, async (req, res) => {
         const { adjustScore } = require('../services/trustScoreService');
         adjustScore(userId, 'carrier_cancelled_load', -5).catch(() => {});
 
-        // Re-open the load so shipper can find another carrier
+        // Re-open the load so shipper can find another carrier.
+        // 'cancelled' → 'open' is NOT a valid state-machine transition, so we do
+        // a single atomic update AND manually record StatusHistory to avoid an
+        // orphaned-history gap. Clear the acceptance fingerprint so the next
+        // accepting carrier gets a fresh audit trail.
         await Load.findByIdAndUpdate(load._id, {
-          $set: { status: 'open', acceptedBy: null, assignedTruckId: null },
+          $set: { status: 'open', acceptedBy: null, assignedTruckId: null, acceptanceFingerprint: null },
         });
+        StatusHistory.record('load', load._id, 'cancelled', 'open', userId, 'Reopened after carrier cancellation').catch(() => {});
 
         const { notifyUserSafe } = require('../utils/notifyUser');
         notifyUserSafe(load.postedBy, {
@@ -1493,6 +1620,416 @@ router.post('/voice-command', auth, async (req, res) => {
       });
     } catch (err) {
       console.error('Error resolving dispute:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ========================================================================
+  //  DRIVER ASSIGNMENT — Carrier assigns a fleet driver to an accepted load
+  //  Re-checks endorsement eligibility at the driver level (hazmat, etc.)
+  // ========================================================================
+  router.put('/:id/assign-driver', auth, async (req, res) => {
+    try {
+      const { driverId } = req.body;
+      if (!driverId) return res.status(400).json({ error: 'driverId is required' });
+
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      // Must be the carrier who accepted this load
+      if (String(load.acceptedBy) !== req.user.userId) {
+        return res.status(403).json({ error: 'Only the carrier who accepted this load can assign a driver' });
+      }
+
+      const carrier = await User.findById(req.user.userId).select('drivers carrierEndorsements');
+      if (!carrier) return res.status(404).json({ error: 'Carrier not found' });
+
+      const driver = (carrier.drivers || []).find(d => d.driverId === driverId);
+      if (!driver) return res.status(404).json({ error: 'Driver not found in your roster' });
+      if (driver.status !== 'active') {
+        return res.status(409).json({ error: `Driver is not active (status: ${driver.status})` });
+      }
+
+      // Re-run eligibility with the specific driver's endorsements
+      const eligibility = checkLoadEligibility({ load, carrier, driver });
+      if (!eligibility.eligible) {
+        return res.status(403).json({
+          error: 'Driver is not eligible for this load',
+          reasons: eligibility.reasons,
+        });
+      }
+
+      load.assignedDriverId = driver.driverId;
+      load.assignedDriverName = driver.name;
+      await load.save();
+
+      try {
+        io.to(`user_${load.postedBy}`).emit('load:driverAssigned', {
+          loadId: load._id,
+          driverId: driver.driverId,
+          driverName: driver.name,
+        });
+      } catch (_) {}
+
+      res.json({ message: 'Driver assigned', load });
+    } catch (err) {
+      console.error('Error assigning driver:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ========================================================================
+  //  RECONSIGNMENT — Shipper (or admin) changes delivery destination mid-haul
+  //  Allowed only while accepted or in-transit. Shipper-initiated fee is owed
+  //  to the carrier and auto-approved.
+  // ========================================================================
+  router.put('/:id/reconsign', auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      const isShipper = String(load.postedBy) === req.user.userId;
+      const isAdmin = req.user.role === 'admin';
+      if (!isShipper && !isAdmin) {
+        return res.status(403).json({ error: 'Only the shipper or an admin can reconsign a load' });
+      }
+
+      if (!['accepted', 'in-transit'].includes(load.status)) {
+        return res.status(409).json({ error: `Cannot reconsign a load in "${load.status}" status` });
+      }
+
+      const { newDestination, newDestinationLat, newDestinationLng, reason, feeCents } = req.body;
+      if (!newDestination) return res.status(400).json({ error: 'newDestination is required' });
+
+      const fee = Number.isInteger(feeCents) && feeCents > 0 ? feeCents : 0;
+
+      load.reconsignment = {
+        changed: true,
+        originalDestination: load.destination,
+        newDestination,
+        newDestinationLat: newDestinationLat ?? null,
+        newDestinationLng: newDestinationLng ?? null,
+        reason: reason || null,
+        feeChargedCents: fee,
+        changedAt: new Date(),
+        changedBy: req.user.userId,
+      };
+
+      load.destination = newDestination;
+      if (newDestinationLat != null) load.destinationLat = newDestinationLat;
+      if (newDestinationLng != null) load.destinationLng = newDestinationLng;
+
+      if (fee > 0) {
+        load.accessorialCharges.push({
+          type: 'reconsignment',
+          description: `Reconsignment: ${reason || 'destination change'}`,
+          amountCents: fee,
+          status: 'approved',
+          requestedBy: load.postedBy,
+          approvedBy: load.postedBy,
+          approvedAt: new Date(),
+        });
+      }
+
+      await load.save();
+
+      try {
+        const payload = { loadId: load._id, newDestination, feeChargedCents: fee };
+        if (load.acceptedBy) io.to(`user_${load.acceptedBy}`).emit('load:reconsigned', payload);
+        io.to(`user_${load.postedBy}`).emit('load:reconsigned', payload);
+      } catch (_) {}
+
+      res.json({ message: 'Load reconsigned', load });
+    } catch (err) {
+      console.error('Error reconsigning load:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ========================================================================
+  //  REDELIVERY — Receiver closed / missed appointment / refused
+  //  Carrier, shipper, or admin can record. Fee (if any) needs shipper approval.
+  // ========================================================================
+  router.post('/:id/redeliver', auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      const isShipper = String(load.postedBy) === req.user.userId;
+      const isCarrier = String(load.acceptedBy) === req.user.userId;
+      const isAdmin = req.user.role === 'admin';
+      if (!isShipper && !isCarrier && !isAdmin) {
+        return res.status(403).json({ error: 'Only the carrier, shipper, or an admin can record a redelivery' });
+      }
+
+      const { reason, rescheduledFor, feeCents } = req.body;
+      const allowedReasons = ['receiver_closed', 'missed_appointment', 'refused'];
+      if (!allowedReasons.includes(reason)) {
+        return res.status(400).json({ error: `reason must be one of: ${allowedReasons.join(', ')}` });
+      }
+
+      const fee = Number.isInteger(feeCents) && feeCents > 0 ? feeCents : 0;
+      const rescheduled = rescheduledFor ? new Date(rescheduledFor) : null;
+
+      if (!load.redelivery) load.redelivery = {};
+      load.redelivery.required = true;
+      load.redelivery.reason = reason;
+      load.redelivery.originalDeliveryAt = load.deliveredAt || null;
+      load.redelivery.rescheduledFor = rescheduled;
+      load.redelivery.feeChargedCents = (load.redelivery.feeChargedCents || 0) + fee;
+      load.redelivery.count = (load.redelivery.count || 0) + 1;
+      load.redelivery.history = load.redelivery.history || [];
+      load.redelivery.history.push({ reason, at: new Date(), rescheduledFor: rescheduled });
+
+      if (fee > 0) {
+        load.accessorialCharges.push({
+          type: 'redelivery',
+          description: `Redelivery: ${reason}`,
+          amountCents: fee,
+          status: 'pending',
+          requestedBy: req.user.userId,
+        });
+      }
+
+      await load.save();
+
+      try {
+        const payload = { loadId: load._id, reason, rescheduledFor: rescheduled, feeChargedCents: fee };
+        if (load.acceptedBy) io.to(`user_${load.acceptedBy}`).emit('load:redelivery', payload);
+        io.to(`user_${load.postedBy}`).emit('load:redelivery', payload);
+      } catch (_) {}
+
+      res.json({ message: 'Redelivery recorded', load });
+    } catch (err) {
+      console.error('Error recording redelivery:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ========================================================================
+  //  ACCESSORIAL CHARGES — The settlement loop
+  //  Carrier requests → shipper approves (settles payout) or rejects.
+  // ========================================================================
+
+  // POST /:id/accessorials — carrier requests an accessorial charge
+  router.post('/:id/accessorials', auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      const isCarrier = String(load.acceptedBy) === req.user.userId;
+      const isAdmin = req.user.role === 'admin';
+      if (!isCarrier && !isAdmin) {
+        return res.status(403).json({ error: 'Only the assigned carrier or an admin can request accessorials' });
+      }
+
+      const { type, description, amountCents, evidenceUrls } = req.body;
+
+      // Detention charges are system-generated from verified dwell events and are
+      // NEVER carrier-creatable — their amount is server-authoritative
+      // (see services/detentionBillingService.js). Block manual creation.
+      if (type === 'detention') {
+        return res.status(403).json({ error: 'Detention charges are generated automatically from verified dwell events and cannot be created manually.' });
+      }
+
+      const allowedTypes = ['lumper', 'tonu', 'layover', 'other'];
+      if (!allowedTypes.includes(type)) {
+        return res.status(400).json({ error: `type must be one of: ${allowedTypes.join(', ')}` });
+      }
+      if (!Number.isInteger(amountCents) || amountCents <= 0) {
+        return res.status(400).json({ error: 'amountCents must be a positive integer (cents)' });
+      }
+
+      load.accessorialCharges.push({
+        type,
+        description: description || null,
+        amountCents,
+        status: 'pending',
+        requestedBy: req.user.userId,
+        requestedAt: new Date(),
+        evidenceUrls: Array.isArray(evidenceUrls) ? evidenceUrls : [],
+      });
+      await load.save();
+
+      const charge = load.accessorialCharges[load.accessorialCharges.length - 1];
+
+      try {
+        await notifyUserSafe(load.postedBy, {
+          type: 'accessorial_requested',
+          title: 'Accessorial Charge Requested',
+          body: `Carrier requested a ${type} charge of $${(amountCents / 100).toFixed(2)} on "${load.title}".`,
+          link: '/dashboard/shipper/loads',
+          metadata: { loadId: load._id, chargeId: charge._id, type, amountCents },
+        });
+      } catch (_) {}
+      try {
+        io.to(`user_${load.postedBy}`).emit('load:accessorialRequested', {
+          loadId: load._id,
+          chargeId: charge._id,
+          type,
+          amountCents,
+        });
+      } catch (_) {}
+
+      res.status(201).json({ charge });
+    } catch (err) {
+      console.error('Error requesting accessorial:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // PUT /:id/accessorials/:chargeId/approve — shipper approves + settles payout
+  router.put('/:id/accessorials/:chargeId/approve', auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      const isShipper = String(load.postedBy) === req.user.userId;
+      const isAdmin = req.user.role === 'admin';
+      if (!isShipper && !isAdmin) {
+        return res.status(403).json({ error: 'Only the shipper or an admin can approve accessorials' });
+      }
+
+      const charge = load.accessorialCharges.id(req.params.chargeId);
+      if (!charge) return res.status(404).json({ error: 'Charge not found' });
+      if (charge.status !== 'pending') {
+        return res.status(409).json({ error: `Charge is not pending (status: ${charge.status})` });
+      }
+
+      // Detention is frozen: the shipper may only approve the exact amount +
+      // evidence they were shown. If a recalculation re-proposed a new amount,
+      // the stored evidenceHash changed and the stale approval is rejected.
+      if (charge.source === 'system_detention') {
+        const { evidenceHashShown } = req.body;
+        if (!evidenceHashShown || evidenceHashShown !== charge.evidenceHash) {
+          return res.status(409).json({
+            error: 'This detention charge was updated since you last viewed it. Please re-review the current amount and evidence before approving.',
+          });
+        }
+      }
+
+      // Path B — for system detention, COLLECT from the shipper off-session
+      // before settling to the carrier. Falls back to accrual (Path A) when
+      // Stripe / saved card / mandate aren't available.
+      let collect = null;
+      if (charge.source === 'system_detention') {
+        try {
+          const escrow = require('../services/escrowService');
+          collect = await escrow.collectAccessorialFromShipper(load._id, charge._id);
+        } catch (e) {
+          console.error('[accessorial collect] error:', e.message);
+          collect = { ok: false, code: 'error', error: e.message };
+        }
+        // A genuine card failure (declined, etc.) → keep the charge pending and
+        // surface to the shipper. Missing Stripe/card/mandate falls back to Path A.
+        if (collect && collect.ok === false && !collect.requiresAction &&
+            !['stripe_unavailable', 'no_payment_method', 'no_mandate'].includes(collect.code)) {
+          return res.status(402).json({ error: collect.error || 'Shipper payment failed', code: collect.code });
+        }
+      }
+
+      charge.status = 'approved';
+      charge.approvedBy = req.user.userId;
+      charge.approvedAt = new Date();
+      // Tamper-evident approval record — this, not the click, is the chargeback defense.
+      if (charge.source === 'system_detention') {
+        charge.approvalAudit = {
+          approverUserId: req.user.userId,
+          approvedAt: charge.approvedAt,
+          amountCentsApproved: charge.amountCents,
+          evidenceHashShown: charge.evidenceHash,
+        };
+        if (collect && collect.requiresAction) {
+          charge.shipperPaymentStatus = 'requires_action';
+          charge.shipperPaymentIntentId = collect.paymentIntentId || null;
+        } else if (collect && collect.ok) {
+          charge.shipperPaymentStatus = 'collected';
+          charge.shipperPaymentIntentId = collect.paymentIntentId || null;
+        }
+      }
+      await load.save();
+
+      // SCA required — do NOT settle yet; the webhook settles once the shipper
+      // completes authentication and the collection PI succeeds.
+      if (collect && collect.requiresAction) {
+        return res.json({ charge, requiresAction: true, clientSecret: collect.clientSecret });
+      }
+
+      // Settle the payout to the carrier (Path B: funded by the collection above;
+      // Path A fallback: from platform float when collection wasn't possible).
+      try {
+        const { settleAccessorialCharge } = require('./paymentRoutes');
+        if (typeof settleAccessorialCharge === 'function') {
+          const r = await settleAccessorialCharge(load._id, req.params.chargeId);
+          if (r && r.error) console.warn('[accessorial settle]', r.error);
+        }
+      } catch (e) { console.warn('[accessorial settle] failed:', e.message); }
+
+      if (load.acceptedBy) {
+        try {
+          await notifyUserSafe(load.acceptedBy, {
+            type: 'accessorial_approved',
+            title: 'Accessorial Charge Approved',
+            body: `Your ${charge.type} charge of $${(charge.amountCents / 100).toFixed(2)} on "${load.title}" was approved.`,
+            link: '/dashboard/carrier/my-loads',
+            metadata: { loadId: load._id, chargeId: charge._id },
+          });
+        } catch (_) {}
+        try {
+          io.to(`user_${load.acceptedBy}`).emit('load:accessorialApproved', {
+            loadId: load._id,
+            chargeId: charge._id,
+          });
+        } catch (_) {}
+      }
+
+      res.json({ charge });
+    } catch (err) {
+      console.error('Error approving accessorial:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // PUT /:id/accessorials/:chargeId/reject — shipper rejects
+  router.put('/:id/accessorials/:chargeId/reject', auth, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+
+      const isShipper = String(load.postedBy) === req.user.userId;
+      const isAdmin = req.user.role === 'admin';
+      if (!isShipper && !isAdmin) {
+        return res.status(403).json({ error: 'Only the shipper or an admin can reject accessorials' });
+      }
+
+      const charge = load.accessorialCharges.id(req.params.chargeId);
+      if (!charge) return res.status(404).json({ error: 'Charge not found' });
+      if (charge.status !== 'pending') {
+        return res.status(409).json({ error: `Charge is not pending (status: ${charge.status})` });
+      }
+
+      const { reason } = req.body;
+      charge.status = 'rejected';
+      charge.rejectionReason = reason || null;
+      charge.rejectedBy = req.user.userId;
+      charge.rejectedAt = new Date();
+      await load.save();
+
+      if (load.acceptedBy) {
+        try {
+          await notifyUserSafe(load.acceptedBy, {
+            type: 'accessorial_rejected',
+            title: 'Accessorial Charge Rejected',
+            body: `Your ${charge.type} charge of $${(charge.amountCents / 100).toFixed(2)} on "${load.title}" was rejected.${reason ? ` Reason: ${reason}` : ''}`,
+            link: '/dashboard/carrier/my-loads',
+            metadata: { loadId: load._id, chargeId: charge._id },
+          });
+        } catch (_) {}
+      }
+
+      res.json({ charge });
+    } catch (err) {
+      console.error('Error rejecting accessorial:', err);
       res.status(500).json({ error: 'Server error' });
     }
   });

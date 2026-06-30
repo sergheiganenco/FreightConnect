@@ -50,7 +50,9 @@ import {
 } from 'recharts';
 import { surface, semantic, brand } from '../../theme/tokens';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// Normalize to origin so `${API}/api/...` never doubles `/api`
+// (REACT_APP_API_URL is conventionally http://host/api).
+const API = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/api\/?$/, '');
 
 function cToF(c) { return c != null ? Math.round((c * 9 / 5 + 32) * 10) / 10 : null; }
 function fmtTemp(c, unit) {

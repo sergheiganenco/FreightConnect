@@ -47,7 +47,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import TimerIcon from '@mui/icons-material/Timer';
 import { semantic, brand, surface } from '../../theme/tokens';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// Normalize to origin so `${API}/api/...` never doubles `/api`
+// (REACT_APP_API_URL is conventionally http://host/api).
+const API = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/api\/?$/, '');
 
 const STATUSES = [
   { key: 'OFF_DUTY',            label: 'Off Duty',          short: 'OFF',  color: semantic.muted, icon: <HotelIcon /> },

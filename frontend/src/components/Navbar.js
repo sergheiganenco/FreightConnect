@@ -10,14 +10,33 @@ import {
   IconButton,
   Menu,
   MenuItem,
-  Chip
+  Chip,
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemText,
+  Divider,
 } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
+import CloseIcon from '@mui/icons-material/Close';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { disconnectSocket } from '../services/socket';
-import { text as T, surface, tint } from '../theme/tokens';
+import { text as T, surface, brand, focusRing, tint } from '../theme/tokens';
+
+const focusVisibleSx = {
+  '&:focus-visible': focusRing,
+};
+
+const NAV_LINKS = [
+  { label: 'Home',     path: '/home' },
+  { label: 'About',    path: '/about' },
+  { label: 'Features', path: '/features' },
+  { label: 'Contact',  path: '/contact' },
+];
 
 export default function Navbar() {
   const [anchorEl, setAnchorEl] = useState(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -34,16 +53,20 @@ export default function Navbar() {
   const handleMenuOpen  = (e) => setAnchorEl(e.currentTarget);
   const handleMenuClose = () => setAnchorEl(null);
 
-  const isAuthPage = ['/login','/signup'].includes(location.pathname);
+  const isAuthPage = ['/login', '/signup'].includes(location.pathname);
 
-  // Correct profile route for all roles, fallback if role is missing
   const handleProfile = () => {
-    if (role === "carrier" || role === "shipper" || role === "admin") {
+    if (role === 'carrier' || role === 'shipper' || role === 'admin') {
       navigate(`/dashboard/${role}/profile`);
     } else {
-      navigate('/profile'); // fallback for unexpected cases
+      navigate('/profile');
     }
     handleMenuClose();
+  };
+
+  const handleMobileNav = (path) => {
+    navigate(path);
+    setMobileOpen(false);
   };
 
   return (
@@ -51,18 +74,54 @@ export default function Navbar() {
       position="absolute"
       elevation={0}
       sx={{
-        background: 'transparent',
+        background: surface.appBar,
+        backdropFilter: 'blur(16px)',
+        borderBottom: `1px solid ${surface.glassBorder}`,
         color: T.primary,
-        py: 2
+        py: 1,
       }}
     >
+      {/* Skip to content link */}
+      <Box
+        component="a"
+        href="#main-content"
+        sx={{
+          position: 'absolute',
+          left: '-9999px',
+          '&:focus': {
+            left: 16,
+            top: 16,
+            zIndex: 9999,
+            background: brand.primary,
+            color: '#fff',
+            px: 2,
+            py: 1,
+            borderRadius: 2,
+            textDecoration: 'none',
+          },
+        }}
+      >
+        Skip to content
+      </Box>
+
       <Toolbar sx={{ justifyContent: 'space-between' }}>
         {/* Branding + role badge */}
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <Typography
             variant="h6"
-            sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+            component="button"
+            aria-label="Go to home page"
             onClick={() => navigate('/home')}
+            sx={{
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              background: 'none',
+              border: 'none',
+              color: 'inherit',
+              font: 'inherit',
+              p: 0,
+              ...focusVisibleSx,
+            }}
           >
             FreightConnect
           </Typography>
@@ -74,15 +133,21 @@ export default function Navbar() {
               sx={{
                 ml: 1,
                 color: T.primary,
-                borderColor: T.strong
+                borderColor: T.strong,
               }}
             />
           )}
         </Box>
 
         {token ? (
+          /* ── Authenticated: profile menu ── */
           <Box>
-            <IconButton color="inherit" onClick={handleMenuOpen}>
+            <IconButton
+              color="inherit"
+              onClick={handleMenuOpen}
+              aria-label="Account settings"
+              sx={focusVisibleSx}
+            >
               <AccountCircleIcon />
             </IconButton>
             <Menu
@@ -90,15 +155,27 @@ export default function Navbar() {
               open={Boolean(anchorEl)}
               onClose={handleMenuClose}
               anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-              transformOrigin={{ vertical: 'top',    horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              slotProps={{
+                paper: {
+                  sx: {
+                    background: surface.appBar,
+                    backdropFilter: 'blur(16px)',
+                    border: `1px solid ${surface.glassBorder}`,
+                    color: T.primary,
+                  },
+                },
+              }}
             >
-              <MenuItem onClick={handleProfile}>Profile</MenuItem>
-              {/* For admin: add future admin-only links here */}
+              <MenuItem onClick={handleProfile} sx={focusVisibleSx}>
+                Profile
+              </MenuItem>
               <MenuItem
                 onClick={() => {
                   handleLogout();
                   handleMenuClose();
                 }}
+                sx={focusVisibleSx}
               >
                 Logout
               </MenuItem>
@@ -106,26 +183,139 @@ export default function Navbar() {
           </Box>
         ) : (
           !isAuthPage && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <Button onClick={() => navigate('/home')}     color="inherit">Home</Button>
-              <Button onClick={() => navigate('/about')}    color="inherit">About</Button>
-              <Button onClick={() => navigate('/features')} color="inherit">Features</Button>
-              <Button onClick={() => navigate('/contact')}  color="inherit">Contact</Button>
-              <Button onClick={() => navigate('/login')}    color="inherit">Login</Button>
-              <Button
-                onClick={() => navigate('/signup')}
+            <>
+              {/* ── Desktop nav links ── */}
+              <Box
                 sx={{
-                  backgroundColor: surface.glassBadge,
-                  color: T.primary,
-                  px: 2,
-                  borderRadius: '12px',
-                  fontWeight: 600,
-                  '&:hover': { backgroundColor: tint('#ffffff', 0.25) },
+                  display: { xs: 'none', md: 'flex' },
+                  alignItems: 'center',
+                  gap: 3,
                 }}
               >
-                Sign Up
-              </Button>
-            </Box>
+                {NAV_LINKS.map(({ label, path }) => (
+                  <Button
+                    key={path}
+                    onClick={() => navigate(path)}
+                    color="inherit"
+                    sx={{
+                      color: T.primary,
+                      ...focusVisibleSx,
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+                <Button
+                  onClick={() => navigate('/login')}
+                  color="inherit"
+                  sx={{
+                    color: T.primary,
+                    ...focusVisibleSx,
+                  }}
+                >
+                  Login
+                </Button>
+                <Button
+                  onClick={() => navigate('/signup')}
+                  sx={{
+                    backgroundColor: surface.glassBadge,
+                    color: T.primary,
+                    px: 2,
+                    borderRadius: '12px',
+                    fontWeight: 600,
+                    '&:hover': { backgroundColor: tint('#ffffff', 0.25) },
+                    ...focusVisibleSx,
+                  }}
+                >
+                  Sign Up
+                </Button>
+              </Box>
+
+              {/* ── Mobile hamburger button ── */}
+              <IconButton
+                color="inherit"
+                aria-label="Open navigation menu"
+                onClick={() => setMobileOpen(true)}
+                sx={{
+                  display: { xs: 'flex', md: 'none' },
+                  ...focusVisibleSx,
+                }}
+              >
+                <MenuIcon />
+              </IconButton>
+
+              {/* ── Mobile drawer ── */}
+              <Drawer
+                anchor="right"
+                open={mobileOpen}
+                onClose={() => setMobileOpen(false)}
+                PaperProps={{
+                  sx: {
+                    width: 260,
+                    background: surface.appBar,
+                    backdropFilter: 'blur(16px)',
+                    color: T.primary,
+                    borderLeft: `1px solid ${surface.glassBorder}`,
+                  },
+                }}
+              >
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    p: 1,
+                  }}
+                >
+                  <IconButton
+                    onClick={() => setMobileOpen(false)}
+                    aria-label="Close navigation menu"
+                    sx={{ color: T.primary, ...focusVisibleSx }}
+                  >
+                    <CloseIcon />
+                  </IconButton>
+                </Box>
+                <Divider sx={{ borderColor: surface.glassBorder }} />
+                <List>
+                  {NAV_LINKS.map(({ label, path }) => (
+                    <ListItemButton
+                      key={path}
+                      onClick={() => handleMobileNav(path)}
+                      sx={{
+                        color: T.primary,
+                        '&:hover': { backgroundColor: surface.glassHover },
+                        ...focusVisibleSx,
+                      }}
+                    >
+                      <ListItemText primary={label} />
+                    </ListItemButton>
+                  ))}
+                  <Divider sx={{ borderColor: surface.glassBorder, my: 1 }} />
+                  <ListItemButton
+                    onClick={() => handleMobileNav('/login')}
+                    sx={{
+                      color: T.primary,
+                      '&:hover': { backgroundColor: surface.glassHover },
+                      ...focusVisibleSx,
+                    }}
+                  >
+                    <ListItemText primary="Login" />
+                  </ListItemButton>
+                  <ListItemButton
+                    onClick={() => handleMobileNav('/signup')}
+                    sx={{
+                      color: T.primary,
+                      '&:hover': { backgroundColor: surface.glassHover },
+                      ...focusVisibleSx,
+                    }}
+                  >
+                    <ListItemText
+                      primary="Sign Up"
+                      primaryTypographyProps={{ fontWeight: 600 }}
+                    />
+                  </ListItemButton>
+                </List>
+              </Drawer>
+            </>
           )
         )}
       </Toolbar>

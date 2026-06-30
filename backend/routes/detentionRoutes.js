@@ -40,16 +40,21 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
       return res.status(400).json({ error: 'stopType must be pickup or delivery' });
     }
 
-    // Prevent duplicate active check-ins for same stop
+    // One dwell record per (load, carrier, stop). This blocks BOTH a duplicate
+    // active check-in AND a second check-in after departure — the latter would
+    // otherwise mint a second DwellEvent and double-bill detention for the same
+    // facility visit.
     const existing = await DwellEvent.findOne({
       load: load._id,
       carrier: req.user.userId,
       stopType,
       stopIndex: stopIndex || 0,
-      departedAt: null,
     });
     if (existing) {
-      return res.status(409).json({ error: 'Already checked in at this stop', event: existing });
+      const msg = existing.departedAt
+        ? 'A completed dwell record already exists for this stop'
+        : 'Already checked in at this stop';
+      return res.status(409).json({ error: msg, event: existing });
     }
 
     // Get detention rates (from contract or defaults)
@@ -72,6 +77,9 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
 
     res.status(201).json(event);
   } catch (err) {
+    if (err && err.code === 11000) {
+      return res.status(409).json({ error: 'A dwell record already exists for this stop' });
+    }
     console.error('Error checking in:', err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -133,6 +141,17 @@ router.patch('/depart/:eventId', auth, async (req, res) => {
 // ── GET /load/:loadId — all dwell events for a load ─────────────────────────
 router.get('/load/:loadId', auth, async (req, res) => {
   try {
+    // Party authorization: only the load's shipper, its assigned carrier, or an
+    // admin may view dwell events (they expose facility timing + detention $).
+    const load = await Load.findById(req.params.loadId).select('postedBy acceptedBy');
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    const isShipper = String(load.postedBy) === req.user.userId;
+    const isCarrier = String(load.acceptedBy) === req.user.userId;
+    const isAdmin = req.user.role === 'admin';
+    if (!isShipper && !isCarrier && !isAdmin) {
+      return res.status(403).json({ error: 'Not authorized to view dwell events for this load' });
+    }
+
     const events = await DwellEvent.find({ load: req.params.loadId })
       .sort({ arrivedAt: 1 })
       .populate('nextLoadId', 'title origin pickupTimeWindow');

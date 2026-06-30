@@ -59,6 +59,25 @@ const UserSchema = new mongoose.Schema({
   // -- For Carrier Accounts Only --
   fleet: [TruckSchema],
 
+  // ── Driver roster (embedded, consistent with fleet[] pattern) ─────────────
+  drivers: [{
+    driverId:        { type: String, required: true },
+    name:            { type: String, required: true },
+    phone:           String,
+    licenseNumber:   String,
+    licenseState:    String,
+    licenseExpiry:   Date,
+    endorsements:    { type: [String], default: [] }, // ['hazmat','tanker','doubles_triples','passenger','school_bus']
+    hazmatExpiry:    Date,
+    medicalCardExpiry: Date,
+    status:          { type: String, enum: ['active','inactive','on_leave'], default: 'active' },
+    assignedTruckId: { type: String, default: null },
+    createdAt:       { type: Date, default: Date.now },
+  }],
+
+  // ── Carrier-level (company authority) endorsements ────────────────────────
+  carrierEndorsements: { type: [String], default: [] },
+
   // -- Universal/Optional Fields --
   location: {
     latitude: Number,
@@ -80,6 +99,31 @@ const UserSchema = new mongoose.Schema({
     connectPayoutsEnabled:{ type: Boolean, default: false },
     // Shippers: Stripe Customer for card-on-file
     customerId: String,
+    // Shippers: saved payment method for OFF-SESSION (merchant-initiated) charges
+    // such as approved accessorials/detention. Captured at escrow funding when the
+    // card is saved with setup_future_usage='off_session'.
+    defaultPaymentMethodId: String,
+    // Mandate the shipper accepted authorizing post-load variable accessorial
+    // charges (detention/lumper/layover). Required before any off-session charge.
+    accessorialMandate: {
+      acceptedAt: { type: Date, default: null },
+      version:    { type: String, default: null },
+      ip:         { type: String, default: null },
+    },
+  },
+
+  // ── GPS tracking consent (privacy) ──────────────────────────────
+  // Drivers/carriers must explicitly consent before their background location
+  // is ingested or geofenced. Purpose-limited to load tracking, detention
+  // documentation, and ETA. Consent is revocable.
+  tracking: {
+    gpsConsent: {
+      granted:   { type: Boolean, default: false },
+      grantedAt: { type: Date, default: null },
+      version:   { type: String, default: null },
+      ip:        { type: String, default: null },
+      revokedAt: { type: Date, default: null },
+    },
   },
 
   // ── Carrier Preferences (for smart matching) ────────────────────
@@ -156,7 +200,7 @@ const UserSchema = new mongoose.Schema({
     businessVerified: { type: Boolean, default: false },
     dunsNumber:       String,
     stateOfIncorporation: String,
-    businessType:     { type: String, enum: ['llc', 'corporation', 'sole_proprietor', 'partnership', 'other'], default: null },
+    businessType:     { type: String, enum: ['llc', 'corporation', 'sole_proprietor', 'partnership', 'other', null], default: null },
 
     // Step 2: Email domain check
     emailDomainVerified: { type: Boolean, default: false },
@@ -194,6 +238,13 @@ const UserSchema = new mongoose.Schema({
     firstLoadCompleted:      { type: Boolean, default: false },
   },
 
+  // ── Multi-Factor Authentication (TOTP) ──────────────────────────
+  mfa: {
+    enabled: { type: Boolean, default: false },
+    secret:  { type: String, default: null, select: false }, // TOTP secret, hidden by default
+    verifiedAt: { type: Date, default: null },
+  },
+
   // ── Trust Score ─────────────────────────────────────────────────
   trustScore: {
     score: { type: Number, default: 50, min: 0, max: 100 },
@@ -211,6 +262,15 @@ const UserSchema = new mongoose.Schema({
     }],
   },
 
+  // ── Email Verification & Password Reset ──────────────────────────
+  emailVerificationToken: { type: String, default: null, select: false },
+  emailVerified: { type: Boolean, default: false },
+  passwordResetToken: { type: String, default: null, select: false },
+  passwordResetExpires: { type: Date, default: null, select: false },
+
+  // ── First-Run Onboarding ─────────────────────────────────────────
+  onboardingComplete: { type: Boolean, default: false },
+
   // ── Terms of Service Acceptance ──────────────────────────────────
   tosAccepted: { type: Boolean, default: false },
   tosAcceptedAt: { type: Date },
@@ -224,6 +284,10 @@ const UserSchema = new mongoose.Schema({
 });
 
 
+
+// Indexes for common query patterns (email already unique-indexed via field option)
+UserSchema.index({ role: 1 });
+UserSchema.index({ 'verification.status': 1 });
 
 // Export the model
 module.exports = mongoose.model('User', UserSchema);

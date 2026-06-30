@@ -9,8 +9,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import RemoveRedEyeIcon from "@mui/icons-material/RemoveRedEye";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DeleteIcon from "@mui/icons-material/Delete";
-import BRAND from "../../config/branding";
-import { brand } from '../../theme/tokens';
+import { brand, surface } from '../../theme/tokens';
 
 const STATUS_COLOR = {
   uploaded: "info",
@@ -46,7 +45,7 @@ export default function DocumentCard({
         p: 2,
         mb: 2,
         borderRadius: 3,
-        background: BRAND.glass,
+        background: surface.glass,
         backdropFilter: "blur(16px)",
         display: "flex",
         alignItems: "center",

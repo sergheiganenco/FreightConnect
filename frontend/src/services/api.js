@@ -26,15 +26,63 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Auto-redirect to login when token expires or is invalid
+// Helper: clear session and redirect to login
+function forceLogout() {
+  localStorage.clear();
+  window.location.href = '/login';
+}
+
+// On a 401, attempt a single token refresh before giving up.
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.clear();
-      window.location.href = '/login';
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Only handle 401s; bail if no request config to retry.
+    if (error.response?.status !== 401 || !originalRequest) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    // Don't try to refresh the refresh call itself, and only retry once.
+    const isRefreshCall = originalRequest.url?.includes('/users/refresh-token');
+    if (isRefreshCall || originalRequest._retry) {
+      forceLogout();
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    try {
+      // Use the current token to request a new one.
+      const token = localStorage.getItem('token');
+      const refreshRes = await api.post(
+        '/users/refresh-token',
+        {},
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+
+      const newToken = refreshRes.data?.token;
+      if (!newToken) {
+        forceLogout();
+        return Promise.reject(error);
+      }
+
+      // Persist the new token and (optionally) updated user.
+      localStorage.setItem('token', newToken);
+      if (refreshRes.data?.user?.role) {
+        localStorage.setItem('role', refreshRes.data.user.role);
+      }
+
+      // Update default + original request headers, then retry.
+      api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
+      originalRequest.headers = originalRequest.headers || {};
+      originalRequest.headers.Authorization = `Bearer ${newToken}`;
+
+      return api(originalRequest);
+    } catch (refreshErr) {
+      forceLogout();
+      return Promise.reject(refreshErr);
+    }
   }
 );
 

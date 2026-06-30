@@ -72,5 +72,8 @@ const DwellEventSchema = new Schema({
 DwellEventSchema.index({ facilityName: 1, stopType: 1 });
 DwellEventSchema.index({ carrier: 1, createdAt: -1 });
 DwellEventSchema.index({ shipper: 1, facilityName: 1 });
+// One dwell record per (load, carrier, stop). DB-level enforcement closes the
+// check-in race (two concurrent check-ins) that would otherwise double-bill.
+DwellEventSchema.index({ load: 1, carrier: 1, stopType: 1, stopIndex: 1 }, { unique: true });
 
 module.exports = mongoose.model('DwellEvent', DwellEventSchema);

@@ -10,6 +10,8 @@ import {
   Chip,
   Menu,
   MenuItem,
+  Dialog,
+  Button,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -23,6 +25,8 @@ import NotificationBell from '../../features/shared/NotificationBell';
 import { disconnectSocket } from '../../services/socket';
 import { brand, surface, gradient } from '../../theme/tokens';
 import VerificationBanner from '../../components/VerificationBanner';
+import OnboardingWizard from '../../components/OnboardingWizard';
+import api from '../../services/api';
 
 // Utility to highlight nav based on route:
 const sectionFromPath = (pathname) => {
@@ -52,6 +56,28 @@ export default function ShipperDashboard() {
   const [anchorEl, setAnchorEl] = useState(null);
   const profMenuOpen = Boolean(anchorEl);
 
+  // First-run onboarding wizard
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/users/me')
+      .then(({ data }) => {
+        if (active && data && data.onboardingComplete !== true) {
+          setShowOnboarding(true);
+        }
+      })
+      .catch(() => { /* non-blocking: never trap the user */ });
+    return () => { active = false; };
+  }, []);
+
+  const finishOnboarding = async () => {
+    try {
+      await api.put('/users/me/onboarding-complete');
+    } catch (_) { /* ignore — close regardless so the user is never trapped */ }
+    setShowOnboarding(false);
+  };
+
   const fullW = 240;
   const miniW = 72;
   const drawerW = collapsed && mdUp ? miniW : fullW;
@@ -76,7 +102,6 @@ export default function ShipperDashboard() {
           ? undefined
           : gradient.dashboardBg,
       }}
-      className="dashboard-page"
     >
       {/* AppBar */}
       <AppBar
@@ -195,6 +220,29 @@ export default function ShipperDashboard() {
         <VerificationBanner role="shipper" />
         <Outlet />
       </Box>
+
+      {/* First-run onboarding wizard (skippable, persisted server-side) */}
+      <Dialog
+        fullScreen
+        open={showOnboarding}
+        aria-labelledby="shipper-onboarding"
+      >
+        <Box sx={{ position: 'relative' }}>
+          <Button
+            onClick={finishOnboarding}
+            sx={{
+              position: 'absolute',
+              top: 16,
+              right: 16,
+              zIndex: 2,
+              color: '#fff',
+            }}
+          >
+            Skip for now
+          </Button>
+          <OnboardingWizard role="shipper" onComplete={finishOnboarding} />
+        </Box>
+      </Dialog>
     </Box>
   );
 }

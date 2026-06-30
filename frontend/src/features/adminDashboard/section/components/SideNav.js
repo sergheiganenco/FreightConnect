@@ -8,6 +8,9 @@ import AccountBoxIcon from "@mui/icons-material/AccountBox";
 import BusinessIcon from "@mui/icons-material/Business";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
+import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 
 const NAV = [
   { key: "overview",       icon: <DashboardIcon />,    label: "Overview" },
@@ -16,6 +19,9 @@ const NAV = [
   { key: "companies",      icon: <BusinessIcon />,      label: "Companies" },
   { key: "verifications",  icon: <VerifiedUserIcon />,  label: "Verifications" },
   { key: "exceptions",     icon: <WarningAmberIcon />,  label: "Exceptions" },
+  { key: "ledger",         icon: <AccountBalanceIcon />, label: "Ledger" },
+  { key: "review-queue",   icon: <FactCheckIcon />,     label: "Review Queue" },
+  { key: "factoring",      icon: <RequestQuoteIcon />,  label: "Factoring" },
   { key: "profile",        icon: <AccountBoxIcon />,    label: "Profile" },
 ];
 

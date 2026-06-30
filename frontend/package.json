@@ -9,6 +9,8 @@
     "@mui/material": "^6.4.12",
     "@react-google-maps/api": "^2.20.5",
     "@react-pdf/renderer": "^4.3.0",
+    "@stripe/react-stripe-js": "^2.9.0",
+    "@stripe/stripe-js": "^4.10.0",
     "@tanstack/react-query": "^5.75.7",
     "@types/react": "^19.0.8",
     "ajv": "^8.17.1",

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Box, Paper, Typography, TextField, Button, CircularProgress, Snackbar, Alert, Divider } from "@mui/material";
 import api from '../../services/api';
+import MfaSetup from '../../components/MfaSetup';
 
 export default function AdminProfileSection() {
   const [profile, setProfile] = useState(null);
@@ -35,7 +36,7 @@ export default function AdminProfileSection() {
   if (!profile) return <Box textAlign="center" pt={6}><CircularProgress /></Box>;
 
   return (
-    <Box sx={{ py: 5, px: 2, minHeight: "90vh", display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
+    <Box sx={{ py: 5, px: 2, minHeight: "90vh", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
       <Paper sx={{
         minWidth: { xs: "97vw", sm: 420 }, maxWidth: 520,
         mx: "auto", py: 4, px: { xs: 2, sm: 5 },
@@ -103,6 +104,12 @@ export default function AdminProfileSection() {
         <Divider sx={{ my: 4, borderColor: "#bcbcff55" }} />
         <Typography variant="h6" color="#fff" mb={2}>Activity Log (Coming Soon)</Typography>
       </Paper>
+
+      {/* Security — MFA setup (admin MFA required by runbook) */}
+      <Box sx={{ width: "100%", maxWidth: 520 }}>
+        <MfaSetup />
+      </Box>
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={3500}

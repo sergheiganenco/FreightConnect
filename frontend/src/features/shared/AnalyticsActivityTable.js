@@ -3,7 +3,7 @@ import React from "react";
 import {
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer, Paper, Chip
 } from "@mui/material";
-import BRAND from "../../config/branding";
+import { brand, surface, text } from "../../theme/tokens";
 
 const statusColor = {
   Delivered: "success",
@@ -18,7 +18,7 @@ export default function AnalyticsActivityTable({ rows = [], type = "shipper" }) 
       component={Paper}
       sx={{
         mt: 4,
-        bgcolor: BRAND.glass,
+        bgcolor: surface.glass,
         borderRadius: 4,
         boxShadow: 4,
         minWidth: 300,
@@ -68,7 +68,7 @@ export default function AnalyticsActivityTable({ rows = [], type = "shipper" }) 
                 <a
                   href={`/dashboard/${type}/loads/${row.loadId || row.id}`}
                   style={{
-                    color: BRAND.primaryColor,
+                    color: brand.primary,
                     fontWeight: 600,
                     textDecoration: "none"
                   }}

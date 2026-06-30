@@ -1,5 +1,5 @@
 // src/components/LoadDetailsModal.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Modal, Paper, Typography, Button, Stack, DialogActions, Box,
   Divider, TextField, Chip, CircularProgress, Collapse, Alert,
@@ -18,6 +18,7 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import StarIcon from '@mui/icons-material/Star';
 import RatingDialog from './RatingDialog';
+import FundEscrowDialog from './FundEscrowDialog';
 import api from '../services/api';
 import { getSocket } from '../services/socket';
 import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
@@ -25,7 +26,7 @@ import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
 import ReputationBadges from './ReputationBadges';
 import {
   brand, status as ST, semantic, severity as SEV, exceptionStatus as EXC_ST,
-  bidStatus as BID_ST, surface, text as T, shadow, tint, darkFieldSx,
+  bidStatus as BID_ST, surface, text as T, shadow, tint, darkFieldSx, gradient,
 } from '../theme/tokens';
 
 const EXCEPTION_TYPES = [
@@ -43,6 +44,21 @@ const EXCEPTION_SEVERITIES = [
   { value: 'critical', label: 'Critical' },
 ];
 const CONFIDENCE_COLOR = { high: semantic.success, medium: semantic.warning, low: semantic.muted, none: '#475569' };
+
+// Detention is NOT carrier-requestable — it is auto-documented from facility
+// dwell (see backend detentionBillingService). Carriers request the rest.
+const ACCESSORIAL_TYPES = [
+  { value: 'lumper',    label: 'Lumper' },
+  { value: 'tonu',      label: 'TONU' },
+  { value: 'layover',   label: 'Layover' },
+  { value: 'other',     label: 'Other' },
+];
+const REDELIVERY_REASONS = [
+  { value: 'receiver_closed',    label: 'Receiver Closed' },
+  { value: 'missed_appointment', label: 'Missed Appointment' },
+  { value: 'refused',            label: 'Refused' },
+];
+const ACC_STATUS_COLOR = { pending: semantic.warning, approved: semantic.success, rejected: semantic.error };
 
 const TRUCK_ICON = new L.Icon({
   iconUrl: 'https://cdn-icons-png.flaticon.com/512/1086/1086933.png',
@@ -65,6 +81,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [invoice, setInvoice] = useState(null);
+  const [fundOpen, setFundOpen] = useState(false);   // Fund Escrow dialog
 
   // ── Bidding state ───────────────────────────────────────────────
   const [suggestion, setSuggestion] = useState(null);
@@ -79,6 +96,8 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [showBids, setShowBids] = useState(false);   // shipper accordion
   const [showBidForm, setShowBidForm] = useState(false); // carrier form toggle
   const [counterInput, setCounterInput] = useState({}); // {[bidId]: amount}
+  const [accepting, setAccepting] = useState(false);     // accept request in flight
+  const bidSectionRef = useRef(null);                    // scroll target for "Place Bid"
 
   // ── Multi-stop state ────────────────────────────────────────────
   const [stops, setStops] = useState(loadState.stops || []);
@@ -144,6 +163,33 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [excClaim, setExcClaim] = useState('');
   const [excSaving, setExcSaving] = useState(false);
   const [excError, setExcError] = useState('');
+
+  // ── Driver assignment state ─────────────────────────────────────
+  const [drivers, setDrivers] = useState([]);
+  const [selectedDriver, setSelectedDriver] = useState('');
+  const [assigningDriver, setAssigningDriver] = useState(false);
+
+  // ── Accessorial state ───────────────────────────────────────────
+  const [accType, setAccType] = useState('lumper');
+  const [accAmount, setAccAmount] = useState('');
+  const [accDesc, setAccDesc] = useState('');
+  const [accSaving, setAccSaving] = useState(false);
+  const [accBusyId, setAccBusyId] = useState(null);
+  const [opError, setOpError] = useState('');
+
+  // ── Reconsignment dialog state ──────────────────────────────────
+  const [showReconForm, setShowReconForm] = useState(false);
+  const [reconDest, setReconDest] = useState('');
+  const [reconReason, setReconReason] = useState('');
+  const [reconFee, setReconFee] = useState('');
+  const [reconSaving, setReconSaving] = useState(false);
+
+  // ── Redelivery dialog state ─────────────────────────────────────
+  const [showRedeliverForm, setShowRedeliverForm] = useState(false);
+  const [redelivReason, setRedelivReason] = useState('receiver_closed');
+  const [redelivWhen, setRedelivWhen] = useState('');
+  const [redelivFee, setRedelivFee] = useState('');
+  const [redelivSaving, setRedelivSaving] = useState(false);
 
   // ── Real-time status ────────────────────────────────────────────
   useEffect(() => {
@@ -261,6 +307,162 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
     setExcSaving(false);
   };
 
+  // ── Role flags ──────────────────────────────────────────────────
+  const isOwner = userRole === 'shipper';
+  const isCarrier = userRole === 'carrier';
+  const isOpen = loadState.status === 'open';
+
+  // ── Operational: load this carrier's accepted load? ─────────────
+  const isAssignedLoad = ['accepted', 'in-transit', 'delivered'].includes(loadState.status);
+  const accCharges = loadState.accessorialCharges || [];
+
+  // Fetch carrier's drivers (for driver assignment select)
+  useEffect(() => {
+    if (!isCarrier || !isAssignedLoad) return;
+    (async () => {
+      try {
+        const { data } = await api.get('/drivers');
+        const list = Array.isArray(data) ? data : (data.drivers || data.data || []);
+        setDrivers(list);
+      } catch { /* non-critical */ }
+    })();
+  }, [isCarrier, isAssignedLoad]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Assign driver ───────────────────────────────────────────────
+  const handleAssignDriver = async () => {
+    if (!selectedDriver) return;
+    setAssigningDriver(true);
+    setOpError('');
+    try {
+      const { data } = await api.put(`/loads/${loadState._id}/assign-driver`, { driverId: selectedDriver });
+      const drv = drivers.find((d) => (d._id || d.driverId) === selectedDriver);
+      setLoadState((p) => ({
+        ...p,
+        assignedDriverId: selectedDriver,
+        assignedDriverName: data?.assignedDriverName || drv?.name || p.assignedDriverName,
+      }));
+      setOk('Driver assigned.');
+    } catch (err) {
+      setOpError(err.response?.data?.error || 'Failed to assign driver.');
+    }
+    setAssigningDriver(false);
+  };
+
+  // ── Accessorials ────────────────────────────────────────────────
+  const handleRequestAccessorial = async () => {
+    const dollars = Number(accAmount);
+    if (!dollars || dollars <= 0) { setOpError('Enter a valid amount.'); return; }
+    setAccSaving(true);
+    setOpError('');
+    try {
+      const { data } = await api.post(`/loads/${loadState._id}/accessorials`, {
+        type: accType,
+        description: accDesc.trim(),
+        amountCents: Math.round(dollars * 100),
+      });
+      setLoadState((p) => ({ ...p, accessorialCharges: data?.accessorialCharges || data?.load?.accessorialCharges || [
+        ...(p.accessorialCharges || []),
+        { _id: data?.charge?._id || Math.random().toString(36), type: accType, description: accDesc.trim(), amountCents: Math.round(dollars * 100), status: 'pending' },
+      ] }));
+      setAccAmount(''); setAccDesc('');
+      setOk('Accessorial requested.');
+    } catch (err) {
+      setOpError(err.response?.data?.error || 'Failed to request accessorial.');
+    }
+    setAccSaving(false);
+  };
+
+  const updateChargeLocal = (chargeId, status) => {
+    setLoadState((p) => ({
+      ...p,
+      accessorialCharges: (p.accessorialCharges || []).map((c) =>
+        (c._id || c.id) === chargeId ? { ...c, status } : c),
+    }));
+  };
+
+  const handleApproveCharge = async (charge) => {
+    const chargeId = charge._id || charge.id;
+    setAccBusyId(chargeId);
+    setOpError('');
+    try {
+      // Detention is frozen: echo back the exact evidence hash we were shown so
+      // the server can reject a stale amount (the chargeback defense).
+      const body = charge.source === 'system_detention'
+        ? { evidenceHashShown: charge.evidenceHash }
+        : {};
+      const { data } = await api.put(`/loads/${loadState._id}/accessorials/${chargeId}/approve`, body);
+      updateChargeLocal(chargeId, 'approved');
+      // Path B: the off-session charge may need bank authentication (SCA).
+      setOk(data && data.requiresAction
+        ? 'Approved — your bank needs to verify this payment. Complete authentication to finish collecting it.'
+        : 'Charge approved.');
+    } catch (err) {
+      setOpError(err.response?.data?.error || 'Failed to approve charge.');
+    }
+    setAccBusyId(null);
+  };
+
+  const handleRejectCharge = async (chargeId) => {
+    setAccBusyId(chargeId);
+    setOpError('');
+    try {
+      await api.put(`/loads/${loadState._id}/accessorials/${chargeId}/reject`, { reason: 'Rejected by shipper' });
+      updateChargeLocal(chargeId, 'rejected');
+      setOk('Charge rejected.');
+    } catch (err) {
+      setOpError(err.response?.data?.error || 'Failed to reject charge.');
+    }
+    setAccBusyId(null);
+  };
+
+  // ── Reconsignment (shipper changes delivery destination) ────────
+  const handleReconsign = async () => {
+    if (!reconDest.trim()) { setOpError('Enter a new destination.'); return; }
+    setReconSaving(true);
+    setOpError('');
+    try {
+      const { data } = await api.put(`/loads/${loadState._id}/reconsign`, {
+        newDestination: reconDest.trim(),
+        reason: reconReason.trim(),
+        feeCents: reconFee ? Math.round(Number(reconFee) * 100) : 0,
+      });
+      setLoadState((p) => ({
+        ...p,
+        destination: reconDest.trim(),
+        reconsignment: data?.reconsignment || { newDestination: reconDest.trim(), reason: reconReason.trim(), feeCents: reconFee ? Math.round(Number(reconFee) * 100) : 0 },
+      }));
+      setShowReconForm(false);
+      setReconDest(''); setReconReason(''); setReconFee('');
+      setOk('Delivery reconsigned.');
+    } catch (err) {
+      setOpError(err.response?.data?.error || 'Failed to reconsign.');
+    }
+    setReconSaving(false);
+  };
+
+  // ── Redelivery ──────────────────────────────────────────────────
+  const handleRedeliver = async () => {
+    setRedelivSaving(true);
+    setOpError('');
+    try {
+      const { data } = await api.post(`/loads/${loadState._id}/redeliver`, {
+        reason: redelivReason,
+        rescheduledFor: redelivWhen || undefined,
+        feeCents: redelivFee ? Math.round(Number(redelivFee) * 100) : 0,
+      });
+      setLoadState((p) => ({
+        ...p,
+        redelivery: data?.redelivery || { ...(p.redelivery || {}), count: ((p.redelivery?.count || 0) + 1) },
+      }));
+      setShowRedeliverForm(false);
+      setRedelivWhen(''); setRedelivFee('');
+      setOk('Redelivery reported.');
+    } catch (err) {
+      setOpError(err.response?.data?.error || 'Failed to report redelivery.');
+    }
+    setRedelivSaving(false);
+  };
+
   // ── Carrier: place / update bid ─────────────────────────────────
   const handlePlaceBid = async () => {
     if (!bidAmount || Number(bidAmount) <= 0) return;
@@ -317,12 +519,27 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
   // ── Direct accept (no bid negotiation) ─────────────────────────
   const acceptLoad = async () => {
+    setError('');
+    setAccepting(true);
     try {
       await api.put(`/loads/${loadState._id}/accept`, {});
       setLoadState((prev) => ({ ...prev, status: 'accepted' }));
       setOk('Load accepted!');
       onLoadAccepted?.(loadState._id);
-    } catch (err) { setError(err.response?.data?.error || 'Could not accept load.'); }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not accept load.');
+    } finally {
+      setAccepting(false);
+    }
+  };
+
+  // ── Carrier: jump to the bidding section and open the bid form ──
+  const scrollToBidSection = () => {
+    setShowBidForm(true);
+    // Wait for the form to expand before scrolling it into view.
+    setTimeout(() => {
+      bidSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   };
 
   // ── Shipper: accept bid ─────────────────────────────────────────
@@ -373,10 +590,6 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
     : 'TBD';
 
   const pendingBids = bids.filter((b) => ['pending', 'countered'].includes(b.status));
-  const isOwner = userRole === 'shipper';
-  const isCarrier = userRole === 'carrier';
-  const isOpen = loadState.status === 'open';
-
   // ── Render ───────────────────────────────────────────────────────
   return (
     <Modal open={!!load} onClose={onClose}
@@ -404,7 +617,34 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
               {loadState.origin} → {loadState.destination}
             </Typography>
           </Box>
-          <StatusChip status={loadState.status} />
+          <Stack direction="row" spacing={1} alignItems="center">
+            {loadState.escrowFunded ? (
+              <Chip
+                icon={<LockIcon sx={{ fontSize: 14 }} />}
+                label="Escrow Funded ✓"
+                size="small"
+                sx={{ bgcolor: tint(semantic.success, 0.18), color: semantic.success, fontWeight: 700 }}
+              />
+            ) : (['accepted', 'in-transit'].includes(loadState.status) && (
+              <Chip
+                label="Escrow Pending"
+                size="small"
+                sx={{ bgcolor: tint(semantic.warning, 0.18), color: semantic.warning, fontWeight: 700 }}
+              />
+            ))}
+            {userRole === 'shipper' && loadState.status === 'accepted' && !loadState.escrowFunded && (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<LockIcon sx={{ fontSize: 14 }} />}
+                onClick={() => setFundOpen(true)}
+                sx={{ bgcolor: brand.indigo, borderRadius: 9999, fontWeight: 700, textTransform: 'none', '&:hover': { bgcolor: '#5558e6' } }}
+              >
+                Fund Escrow
+              </Button>
+            )}
+            <StatusChip status={loadState.status} />
+          </Stack>
         </Box>
 
         {/* Counterparty Reputation — carriers see shipper, shippers see carrier */}
@@ -656,7 +896,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
         {/* ── Carrier bidding section ── */}
         {isCarrier && isOpen && (
-          <Box mb={2}>
+          <Box mb={2} ref={bidSectionRef}>
             <Stack direction="row" alignItems="center" spacing={1} mb={1}>
               <GavelIcon sx={{ fontSize: 18, color: brand.indigoLight }} />
               <Typography variant="subtitle1" fontWeight={700}>Bidding</Typography>
@@ -903,6 +1143,238 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
           </Box>
         )}
 
+        {/* ── Operations: driver, accessorials, reconsign, redelivery ── */}
+        {isAssignedLoad && (
+          <Box mb={2}>
+            <Divider sx={{ mb: 2, borderColor: surface.glassBorder }} />
+            <Typography variant="subtitle1" fontWeight={700} mb={1.5}>Operations</Typography>
+
+            {opError && <Alert severity="error" sx={{ mb: 1.5 }}>{opError}</Alert>}
+
+            {/* Driver assignment (carrier) */}
+            {isCarrier && (
+              <Box sx={{ p: 1.5, mb: 2, borderRadius: 2, bgcolor: surface.indigoTint, border: `1px solid ${surface.indigoBorder}` }}>
+                <Typography variant="body2" fontWeight={700} mb={1}>Driver Assignment</Typography>
+                {loadState.assignedDriverName && (
+                  <Typography variant="body2" sx={{ color: semantic.success, mb: 1 }}>
+                    Current: {loadState.assignedDriverName}
+                  </Typography>
+                )}
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
+                  <FormControl size="small" fullWidth sx={darkFieldSx}>
+                    <InputLabel>Select Driver</InputLabel>
+                    <Select value={selectedDriver} label="Select Driver" onChange={(e) => setSelectedDriver(e.target.value)}>
+                      {drivers.length === 0 && <MenuItem value="" disabled>No drivers on roster</MenuItem>}
+                      {drivers.map((d) => (
+                        <MenuItem key={d._id || d.driverId} value={d._id || d.driverId}>{d.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="contained"
+                    onClick={handleAssignDriver}
+                    disabled={!selectedDriver || assigningDriver}
+                    sx={{ bgcolor: brand.indigo, borderRadius: 9999, fontWeight: 700, whiteSpace: 'nowrap', '&:hover': { bgcolor: '#5558e6' } }}
+                  >
+                    {assigningDriver ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Assign Driver'}
+                  </Button>
+                </Stack>
+              </Box>
+            )}
+
+            {/* Accessorials */}
+            <Box sx={{ p: 1.5, mb: 2, borderRadius: 2, bgcolor: surface.glassSubtle, border: `1px solid ${surface.glassBorder}` }}>
+              <Typography variant="body2" fontWeight={700} mb={1}>
+                Accessorial Charges {accCharges.length > 0 ? `(${accCharges.length})` : ''}
+              </Typography>
+
+              {/* Existing charges */}
+              {accCharges.length > 0 ? (
+                <Stack spacing={1} mb={isCarrier ? 1.5 : 0}>
+                  {accCharges.map((c) => {
+                    const cid = c._id || c.id;
+                    const cColor = ACC_STATUS_COLOR[c.status] || semantic.muted;
+                    return (
+                      <Box key={cid} sx={{ p: 1.25, borderRadius: 1.5, bgcolor: surface.glass, border: `1px solid ${surface.glassBorder}` }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+                          <Box>
+                            <Typography variant="body2" fontWeight={700} sx={{ textTransform: 'capitalize' }}>
+                              {c.type} — ${((c.amountCents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </Typography>
+                            {c.description && (
+                              <Typography variant="caption" sx={{ color: T.secondary }}>{c.description}</Typography>
+                            )}
+                            {c.source === 'system_detention' && c.evidence && (
+                              <Box sx={{ mt: 0.75, p: 1, borderRadius: 1, bgcolor: surface.glassSubtle, border: `1px dashed ${surface.glassBorder}` }}>
+                                <Typography variant="caption" sx={{ color: T.secondary, fontWeight: 700, display: 'block' }}>
+                                  Auto-documented from facility dwell
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: T.muted, display: 'block' }}>
+                                  {c.evidence.facilityName ? `${c.evidence.facilityName} · ` : ''}
+                                  dwell {c.evidence.dwellMinutes}m · free {c.evidence.freeMinutes}m · detention {c.evidence.detentionMinutes}m @ ${(((c.evidence.detentionRateCents || 0)) / 100).toFixed(0)}/hr
+                                </Typography>
+                                {c.evidence.arrivedAt && (
+                                  <Typography variant="caption" sx={{ color: T.muted, display: 'block' }}>
+                                    Arrived {new Date(c.evidence.arrivedAt).toLocaleString()} → Departed {c.evidence.departedAt ? new Date(c.evidence.departedAt).toLocaleString() : '—'}
+                                  </Typography>
+                                )}
+                                {(c.evidence.dockInAt || c.evidence.dockOutAt) && (
+                                  <Typography variant="caption" sx={{ color: T.muted, display: 'block' }}>
+                                    Dock in {c.evidence.dockInAt ? new Date(c.evidence.dockInAt).toLocaleTimeString() : '—'} → out {c.evidence.dockOutAt ? new Date(c.evidence.dockOutAt).toLocaleTimeString() : '—'}
+                                  </Typography>
+                                )}
+                              </Box>
+                            )}
+                          </Box>
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Chip label={c.status} size="small"
+                              sx={{ bgcolor: tint(cColor, 0.2), color: cColor, fontWeight: 700, fontSize: '0.65rem', textTransform: 'capitalize' }} />
+                            {isOwner && c.status === 'pending' && (
+                              <>
+                                <Button size="small" variant="contained"
+                                  disabled={accBusyId === cid}
+                                  onClick={() => handleApproveCharge(c)}
+                                  sx={{ bgcolor: semantic.success, color: '#000', fontWeight: 700, borderRadius: 9999, py: 0.25, minWidth: 0, px: 1.25, fontSize: '0.7rem' }}>
+                                  {accBusyId === cid ? <CircularProgress size={12} /> : 'Approve'}
+                                </Button>
+                                <Button size="small" variant="outlined" color="error"
+                                  disabled={accBusyId === cid}
+                                  onClick={() => handleRejectCharge(cid)}
+                                  sx={{ borderRadius: 9999, py: 0.25, minWidth: 0, px: 1.25, fontSize: '0.7rem' }}>
+                                  Reject
+                                </Button>
+                              </>
+                            )}
+                          </Stack>
+                        </Stack>
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              ) : (
+                <Typography variant="caption" sx={{ color: T.muted, display: 'block', mb: isCarrier ? 1.5 : 0 }}>
+                  No accessorial charges yet.
+                </Typography>
+              )}
+
+              {/* Carrier: request form */}
+              {isCarrier && (
+                <Stack spacing={1.5} sx={{ p: 1.5, borderRadius: 2, bgcolor: surface.indigoTintLight, border: `1px solid ${surface.indigoBorderLight}` }}>
+                  <Typography variant="caption" fontWeight={700} sx={{ color: T.secondary }}>Request Accessorial</Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                    <FormControl size="small" fullWidth sx={darkFieldSx}>
+                      <InputLabel>Type</InputLabel>
+                      <Select value={accType} label="Type" onChange={(e) => setAccType(e.target.value)}>
+                        {ACCESSORIAL_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <TextField
+                      size="small" label="Amount" type="number" value={accAmount}
+                      onChange={(e) => setAccAmount(e.target.value)}
+                      sx={{ ...darkFieldSx, width: { sm: 160 } }}
+                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                    />
+                  </Stack>
+                  <TextField size="small" label="Description" fullWidth value={accDesc}
+                    onChange={(e) => setAccDesc(e.target.value)} sx={darkFieldSx} placeholder="e.g. 3 hrs detention at receiver" />
+                  <Box>
+                    <Button variant="contained" onClick={handleRequestAccessorial} disabled={accSaving || !accAmount}
+                      sx={{ bgcolor: brand.indigo, borderRadius: 9999, fontWeight: 700, '&:hover': { bgcolor: '#5558e6' } }}>
+                      {accSaving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Submit Request'}
+                    </Button>
+                  </Box>
+                </Stack>
+              )}
+            </Box>
+
+            {/* Reconsignment (shipper) */}
+            {isOwner && ['accepted', 'in-transit'].includes(loadState.status) && (
+              <Box sx={{ p: 1.5, mb: 2, borderRadius: 2, bgcolor: surface.glassSubtle, border: `1px solid ${surface.glassBorder}` }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={showReconForm ? 1.5 : 0}>
+                  <Box>
+                    <Typography variant="body2" fontWeight={700}>Reconsignment</Typography>
+                    {loadState.reconsignment?.newDestination && (
+                      <Typography variant="caption" sx={{ color: semantic.warning }}>
+                        Changed to: {loadState.reconsignment.newDestination}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Button size="small" variant={showReconForm ? 'outlined' : 'contained'}
+                    onClick={() => setShowReconForm((v) => !v)}
+                    sx={{ borderRadius: 9999, fontWeight: 700, fontSize: '0.75rem',
+                      bgcolor: showReconForm ? 'transparent' : brand.indigo,
+                      borderColor: brand.indigo, color: showReconForm ? brand.indigoLight : '#fff',
+                      '&:hover': { bgcolor: showReconForm ? surface.glassSubtle : '#5558e6' } }}>
+                    {showReconForm ? 'Cancel' : 'Change Delivery'}
+                  </Button>
+                </Stack>
+                <Collapse in={showReconForm}>
+                  <Stack spacing={1.5}>
+                    <TextField size="small" label="New Destination" fullWidth value={reconDest}
+                      onChange={(e) => setReconDest(e.target.value)} sx={darkFieldSx} placeholder="City, State" />
+                    <TextField size="small" label="Reason" fullWidth value={reconReason}
+                      onChange={(e) => setReconReason(e.target.value)} sx={darkFieldSx} />
+                    <TextField size="small" label="Fee (optional)" type="number" value={reconFee}
+                      onChange={(e) => setReconFee(e.target.value)} sx={darkFieldSx}
+                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }} />
+                    <Box>
+                      <Button variant="contained" onClick={handleReconsign} disabled={reconSaving || !reconDest.trim()}
+                        sx={{ bgcolor: brand.indigo, borderRadius: 9999, fontWeight: 700, '&:hover': { bgcolor: '#5558e6' } }}>
+                        {reconSaving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Confirm Reconsignment'}
+                      </Button>
+                    </Box>
+                  </Stack>
+                </Collapse>
+              </Box>
+            )}
+
+            {/* Redelivery (carrier or shipper) */}
+            {['in-transit', 'delivered'].includes(loadState.status) && (
+              <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: surface.glassSubtle, border: `1px solid ${surface.glassBorder}` }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={showRedeliverForm ? 1.5 : 0}>
+                  <Box>
+                    <Typography variant="body2" fontWeight={700}>Redelivery</Typography>
+                    {loadState.redelivery?.count > 0 && (
+                      <Typography variant="caption" sx={{ color: semantic.orange }}>
+                        Redelivery attempts: {loadState.redelivery.count}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Button size="small" variant={showRedeliverForm ? 'outlined' : 'contained'}
+                    onClick={() => setShowRedeliverForm((v) => !v)}
+                    sx={{ borderRadius: 9999, fontWeight: 700, fontSize: '0.75rem',
+                      bgcolor: showRedeliverForm ? 'transparent' : semantic.orange,
+                      borderColor: semantic.orange, color: showRedeliverForm ? semantic.orange : '#fff',
+                      '&:hover': { bgcolor: showRedeliverForm ? surface.glassSubtle : '#ea6c0d' } }}>
+                    {showRedeliverForm ? 'Cancel' : 'Report Redelivery'}
+                  </Button>
+                </Stack>
+                <Collapse in={showRedeliverForm}>
+                  <Stack spacing={1.5}>
+                    <FormControl size="small" fullWidth sx={darkFieldSx}>
+                      <InputLabel>Reason</InputLabel>
+                      <Select value={redelivReason} label="Reason" onChange={(e) => setRedelivReason(e.target.value)}>
+                        {REDELIVERY_REASONS.map((r) => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <TextField size="small" label="Rescheduled For" type="datetime-local" value={redelivWhen}
+                      onChange={(e) => setRedelivWhen(e.target.value)} sx={darkFieldSx} InputLabelProps={{ shrink: true }} />
+                    <TextField size="small" label="Fee (optional)" type="number" value={redelivFee}
+                      onChange={(e) => setRedelivFee(e.target.value)} sx={darkFieldSx}
+                      InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }} />
+                    <Box>
+                      <Button variant="contained" onClick={handleRedeliver} disabled={redelivSaving}
+                        sx={{ bgcolor: semantic.orange, borderRadius: 9999, fontWeight: 700, '&:hover': { bgcolor: '#ea6c0d' } }}>
+                        {redelivSaving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Submit Redelivery'}
+                      </Button>
+                    </Box>
+                  </Stack>
+                </Collapse>
+              </Box>
+            )}
+          </Box>
+        )}
+
         {/* ── Exceptions section ── */}
         {canFileException && (
           <Box mb={2}>
@@ -1044,34 +1516,121 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         {successMessage && <Alert severity="success" sx={{ mb: 1 }}>{successMessage}</Alert>}
         {errorMessage && <Alert severity="error" sx={{ mb: 1 }}>{errorMessage}</Alert>}
 
-        {/* Footer actions */}
-        <DialogActions disableSpacing sx={{ position: 'sticky', bottom: 0, bgcolor: surface.modal, pt: 2, borderTop: `1px solid ${surface.glassBorder}` }}>
-          {isCarrier && (
-            <Button
-              variant="contained"
-              sx={{ mr: 2, bgcolor: brand.indigo, '&:hover': { bgcolor: '#5558e6' } }}
-              disabled={loadState.status !== 'open'}
-              onClick={acceptLoad}
-            >
-              {loadState.status === 'open' ? 'Accept at Listed Rate' : 'Accepted'}
-            </Button>
+        {/* Sticky primary action bar — always reachable without scrolling */}
+        <Box
+          sx={{
+            position: 'sticky',
+            bottom: { xs: -24, md: -32 }, // pin to the bottom edge of the scrollable Paper padding
+            mx: { xs: -3, md: -4 },
+            mt: 2,
+            px: { xs: 3, md: 4 },
+            py: 2,
+            bgcolor: surface.modal,
+            backdropFilter: 'blur(18px)',
+            borderTop: `1px solid ${surface.glassBorder}`,
+            zIndex: 5,
+          }}
+        >
+          {isCarrier && isOpen ? (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems="center">
+              <Button
+                variant="contained"
+                size="large"
+                fullWidth
+                disabled={accepting}
+                onClick={acceptLoad}
+                sx={{
+                  flex: 1,
+                  py: 1.4,
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  textTransform: 'none',
+                  borderRadius: 9999,
+                  background: gradient.primary,
+                  boxShadow: shadow.modal,
+                  '&:hover': { background: 'linear-gradient(90deg, #7b2fe0, #f0239f)' },
+                  '&.Mui-disabled': { color: 'rgba(255,255,255,0.7)' },
+                }}
+              >
+                {accepting
+                  ? <CircularProgress size={22} sx={{ color: '#fff' }} />
+                  : 'Accept Load'}
+              </Button>
+              {loadState.allowCarrierBidding && (
+                <Button
+                  variant="outlined"
+                  size="large"
+                  startIcon={<GavelIcon />}
+                  onClick={scrollToBidSection}
+                  sx={{
+                    py: 1.4,
+                    px: 3,
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    borderRadius: 9999,
+                    whiteSpace: 'nowrap',
+                    borderColor: brand.indigoLight,
+                    color: brand.indigoLight,
+                    '&:hover': { borderColor: brand.indigo, bgcolor: surface.glassSubtle },
+                  }}
+                >
+                  Place Bid
+                </Button>
+              )}
+              <Button
+                variant="text"
+                onClick={onClose}
+                sx={{ color: T.secondary, textTransform: 'none', '&:hover': { bgcolor: surface.glassSubtle } }}
+              >
+                Close
+              </Button>
+            </Stack>
+          ) : (
+            <DialogActions disableSpacing sx={{ p: 0 }}>
+              {isCarrier && (
+                <Button
+                  variant="contained"
+                  sx={{ mr: 2, borderRadius: 9999, fontWeight: 700, textTransform: 'none', bgcolor: brand.indigo, '&:hover': { bgcolor: '#5558e6' } }}
+                  disabled
+                >
+                  Accepted
+                </Button>
+              )}
+              {loadState.status === 'delivered' && (
+                <Button variant="outlined" color="secondary" onClick={() => setRatingOpen(true)} startIcon={<StarIcon />} sx={{ mr: 2, borderRadius: 9999, textTransform: 'none' }}>
+                  Rate {userRole === 'carrier' ? 'Shipper' : 'Carrier'}
+                </Button>
+              )}
+              <Button variant="outlined" onClick={onClose} sx={{ borderRadius: 9999, textTransform: 'none', borderColor: surface.glassBorder, color: T.primary, '&:hover': { borderColor: T.muted, bgcolor: surface.glassSubtle } }}>Close</Button>
+            </DialogActions>
           )}
-          {loadState.status === 'delivered' && (
-            <Button variant="outlined" color="secondary" onClick={() => setRatingOpen(true)} startIcon={<StarIcon />} sx={{ mr: 2 }}>
-              Rate {userRole === 'carrier' ? 'Shipper' : 'Carrier'}
-            </Button>
-          )}
-          <Button variant="outlined" onClick={onClose} sx={{ borderColor: surface.glassBorder, color: T.primary, '&:hover': { borderColor: T.muted, bgcolor: surface.glassSubtle } }}>Close</Button>
-        </DialogActions>
+        </Box>
+
+        {/* Dialogs must live INSIDE the single Modal child (Paper), not as
+            sibling children of Modal — Modal accepts exactly one child element.
+            They portal to <body> regardless of where they're declared. */}
+        <RatingDialog
+          open={ratingOpen}
+          onClose={() => setRatingOpen(false)}
+          loadId={load?._id}
+          toUserId={userRole === 'carrier' ? load?.postedBy : load?.acceptedBy}
+          toRole={userRole === 'carrier' ? 'shipper' : 'carrier'}
+          fromRole={userRole}
+        />
+        <FundEscrowDialog
+          open={fundOpen}
+          onClose={() => setFundOpen(false)}
+          loadId={loadState._id}
+          onFunded={() => {
+            // Optimistically reflect the funded hold + refresh related panels.
+            setLoadState((p) => ({ ...p, escrowFunded: true }));
+            setOk('Escrow authorized — funds held. Carrier can roll.');
+            if (userRole === 'shipper' && ['accepted', 'in-transit', 'delivered'].includes(loadState.status)) {
+              api.get(`/payments/invoice/${loadState._id}`).then(({ data }) => setInvoice(data)).catch(() => {});
+            }
+          }}
+        />
       </Paper>
-      <RatingDialog
-        open={ratingOpen}
-        onClose={() => setRatingOpen(false)}
-        loadId={load?._id}
-        toUserId={userRole === 'carrier' ? load?.postedBy : load?.acceptedBy}
-        toRole={userRole === 'carrier' ? 'shipper' : 'carrier'}
-        fromRole={userRole}
-      />
     </Modal>
   );
 }

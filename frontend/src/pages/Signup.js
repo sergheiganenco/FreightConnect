@@ -2,22 +2,32 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Card,
-  CardContent,
+  Paper,
   TextField,
   Button,
   Typography,
   ToggleButton,
   ToggleButtonGroup,
   Snackbar,
-  Alert
+  Alert,
+  InputAdornment,
+  IconButton,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import { User, Mail, Lock, Eye, EyeOff, Info } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { motion } from 'framer-motion';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
-import '../styles/Login.css'; // reuse your gradient + glass styles
+import {
+  brand,
+  surface,
+  text,
+  gradient,
+  darkFieldSx,
+  shadow,
+} from '../theme/tokens';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -25,7 +35,7 @@ export default function Signup() {
     register,
     handleSubmit,
     setValue,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting },
   } = useForm({ defaultValues: { role: 'carrier' } });
 
   const [role, setRole] = useState('carrier');
@@ -43,13 +53,14 @@ export default function Signup() {
       await api.post('/users/signup', { ...data, tosAccepted: true });
       setSnack({
         open: true,
-        message: `Registered ${data.name} (${data.role}) successfully!`
+        message: `Registered ${data.name} (${data.role}) successfully!`,
       });
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
       setSnack({
         open: true,
-        message: err.response?.data?.error || 'Signup failed. Please try again later.'
+        message:
+          err.response?.data?.error || 'Signup failed. Please try again later.',
       });
     }
   };
@@ -58,203 +69,323 @@ export default function Signup() {
     <>
       <Box
         sx={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
           minHeight: '100vh',
-          background:
-            'linear-gradient(135deg,#1f2dff 0%,#6a1fcf 40%,#e1129a 100%)',
-          p: 2
+          background: gradient.dashboardBg,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          p: 2,
         }}
       >
-        <Card
+        <Paper
+          elevation={0}
           sx={{
-            width: 400,
-            borderRadius: 3,
+            background: surface.cardBg,
             backdropFilter: 'blur(24px)',
-            background: 'rgba(255,255,255,0.05)',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.25)'
+            border: `1px solid ${surface.glassBorder}`,
+            borderRadius: '24px',
+            p: 5,
+            width: '100%',
+            maxWidth: 440,
+            boxShadow: shadow.modal,
           }}
         >
-          <CardContent>
-            <motion.h1
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="login-title"
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            <Typography
+              variant="h4"
+              component="h1"
+              sx={{
+                color: text.primary,
+                fontWeight: 700,
+                textAlign: 'center',
+                mb: 1,
+              }}
             >
               Create Your Account
-            </motion.h1>
-            <motion.p
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1, duration: 0.6 }}
-              className="login-subtitle"
+            </Typography>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.6 }}
+          >
+            <Typography
+              variant="body1"
+              sx={{
+                color: text.secondary,
+                textAlign: 'center',
+                mb: 3,
+              }}
             >
               Join FreightConnect and optimize your freight operations.
-            </motion.p>
+            </Typography>
+          </motion.div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="login-form">
-              {/* Role toggle */}
-              <ToggleButtonGroup
-                value={role}
-                exclusive
-                onChange={(_, v) => v && setRole(v)}
-                fullWidth
-                sx={{ mb: 2 }}
-              >
-                <ToggleButton value="carrier">Carrier</ToggleButton>
-                <ToggleButton value="shipper">Shipper</ToggleButton>
-              </ToggleButtonGroup>
-              <input
-                type="hidden"
-                {...register('role', { required: 'Role is required' })}
-              />
-              {errors.role && <p className="error">{errors.role.message}</p>}
+          <Box
+            component="form"
+            onSubmit={handleSubmit(onSubmit)}
+            sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+          >
+            {/* Role toggle */}
+            <ToggleButtonGroup
+              value={role}
+              exclusive
+              onChange={(_, v) => v && setRole(v)}
+              fullWidth
+              sx={{
+                mb: 1,
+                '& .MuiToggleButton-root': {
+                  color: text.secondary,
+                  borderColor: surface.glassBorder,
+                  '&.Mui-selected': {
+                    color: text.primary,
+                    background: surface.glassActive,
+                    borderColor: brand.indigo,
+                  },
+                },
+              }}
+            >
+              <ToggleButton value="carrier">Carrier</ToggleButton>
+              <ToggleButton value="shipper">Shipper</ToggleButton>
+            </ToggleButtonGroup>
+            <input
+              type="hidden"
+              {...register('role', { required: 'Role is required' })}
+            />
+            {errors.role && (
+              <Typography role="alert" sx={{ color: '#ef4444', fontSize: '0.875rem' }}>
+                {errors.role.message}
+              </Typography>
+            )}
 
-              {/* Name */}
-              <div className="input-group">
-                <User className="input-icon" />
-                <input
+            {/* Name */}
+            <TextField
+              type="text"
+              label="Full Name"
+              placeholder="Full Name"
+              autoComplete="name"
+              aria-label="Full name"
+              fullWidth
+              error={!!errors.name}
+              helperText={errors.name?.message}
+              FormHelperTextProps={{ role: 'alert' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <User size={18} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ ...darkFieldSx }}
+              {...register('name', { required: 'Name is required' })}
+            />
+
+            {/* Email */}
+            <TextField
+              type="email"
+              label="Email"
+              placeholder="Email"
+              autoComplete="email"
+              aria-label="Email address"
+              fullWidth
+              error={!!errors.email}
+              helperText={errors.email?.message}
+              FormHelperTextProps={{ role: 'alert' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Mail size={18} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ ...darkFieldSx }}
+              {...register('email', {
+                required: 'Email is required',
+                pattern: {
+                  value: /\S+@\S+\.\S+/,
+                  message: 'Enter a valid email',
+                },
+              })}
+            />
+
+            {/* Company Name */}
+            {['shipper', 'carrier'].includes(role) && (
+              <>
+                <TextField
                   type="text"
-                  placeholder="Full Name"
-                  {...register('name', { required: 'Name is required' })}
-                />
-              </div>
-              {errors.name && <p className="error">{errors.name.message}</p>}
-
-              {/* Email */}
-              <div className="input-group">
-                <Mail className="input-icon" />
-                <input
-                  type="email"
-                  placeholder="Email"
-                  {...register('email', {
-                    required: 'Email is required',
-                    pattern: {
-                      value: /\S+@\S+\.\S+/,
-                      message: 'Enter a valid email'
-                    }
+                  label="Company Name"
+                  placeholder="Company Name"
+                  autoComplete="organization"
+                  aria-label="Company name"
+                  fullWidth
+                  error={!!errors.companyName}
+                  helperText={errors.companyName?.message}
+                  FormHelperTextProps={{ role: 'alert' }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <User size={18} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ ...darkFieldSx }}
+                  {...register('companyName', {
+                    required: 'Company Name is required',
                   })}
                 />
-              </div>
-              {errors.email && <p className="error">{errors.email.message}</p>}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: text.secondary,
+                    fontSize: '0.85rem',
+                    mt: -1,
+                  }}
+                >
+                  <Info size={16} style={{ marginRight: 5, flexShrink: 0 }} />
+                  If your company is already in our system, enter the same name
+                  to join. If not, a new company will be created.
+                </Box>
+              </>
+            )}
 
-              {/* Company Name */}
-              {["shipper", "carrier"].includes(role) && (
-                <>
-                  <div className="input-group">
-                    <User className="input-icon" />
-                    <input
-                      type="text"
-                      placeholder="Company Name"
-                      {...register('companyName', {
-                        required: 'Company Name is required'
-                      })}
-                    />
-                  </div>
-                  {errors.companyName && <p className="error">{errors.companyName.message}</p>}
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8, color: '#7d76ac', fontSize: '0.93em' }}>
-                    <Info size={16} style={{ marginRight: 5 }} />
-                    If your company is already in our system, enter the same name to join. If not, a new company will be created.
-                  </div>
-                </>
-              )}
+            {/* Password */}
+            <TextField
+              type={showPassword ? 'text' : 'password'}
+              label="Password"
+              placeholder="Password (min 6 chars)"
+              autoComplete="new-password"
+              aria-label="Password"
+              fullWidth
+              error={!!errors.password}
+              helperText={errors.password?.message}
+              FormHelperTextProps={{ role: 'alert' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Lock size={18} />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      edge="end"
+                      aria-label={
+                        showPassword ? 'Hide password' : 'Show password'
+                      }
+                      sx={{ color: text.secondary }}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={18} />
+                      ) : (
+                        <Eye size={18} />
+                      )}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ ...darkFieldSx }}
+              {...register('password', {
+                required: 'Password is required',
+                minLength: {
+                  value: 6,
+                  message: 'Password must be at least 6 characters',
+                },
+              })}
+            />
 
-              {/* Password */}
-              <div className="input-group">
-                <Lock className="input-icon" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Password (min 6 chars)"
-                  {...register('password', {
-                    required: 'Password is required',
-                    minLength: {
-                      value: 6,
-                      message: 'Password must be at least 6 characters'
-                    }
-                  })}
-                />
-                {showPassword ? (
-                  <EyeOff
-                    className="toggle-icon"
-                    onClick={() => setShowPassword(false)}
-                  />
-                ) : (
-                  <Eye
-                    className="toggle-icon"
-                    onClick={() => setShowPassword(true)}
-                  />
-                )}
-              </div>
-              {errors.password && (
-                <p className="error">{errors.password.message}</p>
-              )}
-
-              {/* ToS Agreement */}
-              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, mb: 0.5 }}>
-                <input
-                  type="checkbox"
-                  id="tos-agree"
+            {/* ToS Agreement */}
+            <FormControlLabel
+              control={
+                <Checkbox
                   checked={tosAgreed}
                   onChange={(e) => setTosAgreed(e.target.checked)}
-                  style={{ marginRight: 8, accentColor: '#c52c89' }}
+                  sx={{
+                    color: text.secondary,
+                    '&.Mui-checked': { color: brand.secondary },
+                  }}
                 />
-                <label htmlFor="tos-agree" style={{ color: '#c9c3e0', fontSize: '0.85rem' }}>
+              }
+              label={
+                <Typography variant="body2" sx={{ color: text.secondary }}>
                   I agree to the{' '}
-                  <a
+                  <Box
+                    component="a"
                     href="/terms-of-service"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: '#e1a0d0', textDecoration: 'underline' }}
+                    sx={{
+                      color: brand.lavender,
+                      textDecoration: 'underline',
+                    }}
                   >
                     Terms of Service
-                  </a>{' '}
+                  </Box>{' '}
                   and{' '}
-                  <a
+                  <Box
+                    component="a"
                     href="/privacy-policy"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: '#e1a0d0', textDecoration: 'underline' }}
+                    sx={{
+                      color: brand.lavender,
+                      textDecoration: 'underline',
+                    }}
                   >
                     Privacy Policy
-                  </a>
-                </label>
-              </Box>
+                  </Box>
+                </Typography>
+              }
+              sx={{ mt: 0.5, mb: 0.5 }}
+            />
 
-              <Button
-                variant="contained"
-                fullWidth
-                type="submit"
-                disabled={isSubmitting || !tosAgreed}
+            <Button
+              variant="contained"
+              fullWidth
+              type="submit"
+              disabled={isSubmitting || !tosAgreed}
+              sx={{
+                py: 1.5,
+                fontWeight: 700,
+                fontSize: '1rem',
+                background: gradient.primary,
+                borderRadius: '12px',
+                textTransform: 'none',
+                '&:hover': {
+                  background: gradient.primary,
+                  filter: 'brightness(1.1)',
+                },
+                '&.Mui-disabled': {
+                  background: surface.glass,
+                  color: text.muted,
+                },
+              }}
+            >
+              {isSubmitting ? 'Signing up\u2026' : 'Sign Up'}
+            </Button>
+
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+              <Typography
+                variant="body2"
+                component={Link}
+                to="/login"
                 sx={{
-                  mt: 1,
-                  py: 1.5,
-                  fontWeight: 'bold',
-                  bgcolor: '#c52c89',
-                  '&:hover': { bgcolor: '#d2419a' }
+                  color: text.secondary,
+                  textDecoration: 'none',
+                  '&:hover': { color: text.primary },
                 }}
               >
-                {isSubmitting ? 'Signing up…' : 'Sign Up'}
-              </Button>
-
-              <Box display="flex" justifyContent="center" mt={2}>
-                <Typography
-                  variant="body2"
-                  component={Link}
-                  to="/login"
-                  sx={{
-                    color: '#fff',
-                    textDecoration: 'underline',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Already have an account? Log in
-                </Typography>
-              </Box>
-            </form>
-          </CardContent>
-        </Card>
+                Already have an account? Log in
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
       </Box>
 
       {/* Success/Error Snackbar */}
@@ -266,7 +397,9 @@ export default function Signup() {
       >
         <Alert
           onClose={() => setSnack({ ...snack, open: false })}
-          severity={snack.message.startsWith('Registered') ? 'success' : 'error'}
+          severity={
+            snack.message.startsWith('Registered') ? 'success' : 'error'
+          }
           sx={{ width: '100%' }}
         >
           {snack.message}

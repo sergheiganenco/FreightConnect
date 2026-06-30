@@ -10,7 +10,12 @@ const PaymentSchema = new mongoose.Schema({
   shipperId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   carrierId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
-  // Amount in dollars (app convention)
+  // Canonical money fields — integer cents (source of truth)
+  amountCents:        { type: Number },
+  platformFeeCents:   { type: Number, default: 0 },
+  carrierPayoutCents: { type: Number },   // amountCents - platformFeeCents
+
+  // Dollar shadow fields (backward-compat, app convention)
   amount:       { type: Number, required: true },
   platformFee:  { type: Number, default: 0 },
   carrierPayout:{ type: Number },   // amount - platformFee
@@ -31,5 +36,11 @@ const PaymentSchema = new mongoose.Schema({
   refundedAt: Date,
   failedAt:   Date,
 }, { timestamps: true });
+
+// Indexes for common query patterns
+PaymentSchema.index({ loadId: 1 });
+PaymentSchema.index({ carrierId: 1, status: 1 });
+PaymentSchema.index({ shipperId: 1, status: 1 });
+PaymentSchema.index({ status: 1 });
 
 module.exports = mongoose.model('Payment', PaymentSchema);

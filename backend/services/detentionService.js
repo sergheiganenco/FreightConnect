@@ -193,6 +193,20 @@ async function recalculateDwellEvent(eventId) {
   }
 
   await event.save();
+
+  // Detention auto-collect: once the driver has departed, sync the
+  // server-computed fee into Load.accessorialCharges (idempotent, frozen,
+  // shipper-approved). Lazy-require breaks the require cycle; never let a
+  // billing failure undo the dwell recalculation above.
+  if (event.departedAt) {
+    try {
+      const detentionBillingService = require('./detentionBillingService');
+      await detentionBillingService.syncDetentionCharge(event);
+    } catch (e) {
+      console.error('[recalculateDwellEvent] detention billing sync failed:', e.message);
+    }
+  }
+
   return event;
 }
 

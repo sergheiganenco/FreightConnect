@@ -1,19 +1,19 @@
 // src/features/shared/KPICard.jsx
 import React from "react";
 import { Card, Typography, Box } from "@mui/material";
-import BRAND from "../../config/branding";
+import { brand, surface, shadow, radius, text } from "../../theme/tokens";
 
-export default function KPICard({ label, value, color = BRAND.primaryColor }) {
+export default function KPICard({ label, value, color = brand.primary }) {
   return (
     <Card
       sx={{
         minWidth: 120,
         minHeight: 70,
         p: 2,
-        bgcolor: BRAND.glass,
+        bgcolor: surface.glass,
         borderLeft: `6px solid ${color}`,
         borderRadius: 3,
-        boxShadow: 3,
+        boxShadow: shadow.card,
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
@@ -21,10 +21,10 @@ export default function KPICard({ label, value, color = BRAND.primaryColor }) {
       }}
       elevation={4}
     >
-      <Typography variant="h5" fontWeight={700} color="#fff">
+      <Typography variant="h5" fontWeight={700} color={text.primary}>
         {value}
       </Typography>
-      <Typography variant="caption" color="#ddd">
+      <Typography variant="caption" color={text.navInactive}>
         {label}
       </Typography>
     </Card>

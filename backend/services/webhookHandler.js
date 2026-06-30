@@ -7,8 +7,64 @@
 
 const Payment = require('../models/Payment');
 const Load = require('../models/Load');
-const { notifyUserSafe } = require('../utils/notifyUser');
+const User = require('../models/User');
+const { notifyUserSafe, notifyAdmins } = require('../utils/notifyUser');
 const { centsToDollars, calculatePlatformFee, calculateCarrierPayout } = require('./paymentValidator');
+const ledgerService = require('./ledgerService');
+
+/**
+ * Path B — an off-session accessorial (detention) collection succeeded. Mark the
+ * charge collected and settle it to the carrier (funded by the collection).
+ */
+async function handleAccessorialCollected(pi) {
+  const { loadId, chargeId } = pi.metadata || {};
+  if (!loadId || !chargeId) return;
+  const load = await Load.findById(loadId);
+  if (!load) return;
+  const charge = load.accessorialCharges.id(chargeId);
+  if (!charge) return;
+  if (charge.shipperPaymentStatus !== 'collected') {
+    charge.shipperPaymentStatus = 'collected';
+    charge.shipperPaymentIntentId = pi.id;
+    await load.save();
+  }
+  // Settle to the carrier. settleAccessorialCharge requires status 'approved'
+  // and is idempotent. Lazy-require breaks the paymentRoutes ↔ webhookHandler cycle.
+  try {
+    const { settleAccessorialCharge } = require('../routes/paymentRoutes');
+    if (typeof settleAccessorialCharge === 'function') {
+      await settleAccessorialCharge(loadId, chargeId);
+    }
+  } catch (e) {
+    console.error('[webhookHandler] accessorial settle after collection failed:', e.message);
+  }
+}
+
+/** Path B — an off-session accessorial collection failed. Flag + notify. */
+async function handleAccessorialFailed(pi) {
+  const { loadId, chargeId } = pi.metadata || {};
+  if (!loadId || !chargeId) return;
+  const load = await Load.findById(loadId);
+  if (!load) return;
+  const charge = load.accessorialCharges.id(chargeId);
+  if (!charge) return;
+  charge.shipperPaymentStatus = 'failed';
+  await load.save();
+  await notifyUserSafe(load.postedBy, {
+    type: 'accessorial_payment_failed',
+    title: 'Accessorial Payment Failed',
+    body: `Your ${charge.type} payment of $${(charge.amountCents / 100).toFixed(2)} on "${load.title}" could not be collected. Please update your payment method.`,
+    link: '/dashboard/shipper/loads',
+    metadata: { loadId: String(load._id), chargeId: String(chargeId) },
+  });
+  await notifyAdmins({
+    type: 'accessorial_payment_failed',
+    title: 'Accessorial collection failed',
+    body: `Load ${load._id}: ${charge.type} $${(charge.amountCents / 100).toFixed(2)} collection failed — carrier not yet paid.`,
+    link: '/dashboard/admin',
+    metadata: { loadId: String(load._id), chargeId: String(chargeId) },
+  });
+}
 
 /**
  * Handler map — each key is a Stripe event type, value is an async handler.
@@ -28,8 +84,38 @@ const HANDLERS = {
     payment.stripeChargeId = pi.latest_charge || null;
     await payment.save();
 
+    // Path B — the card was saved with setup_future_usage; persist it so we can
+    // charge accessorials (detention) off-session later.
+    if (pi.payment_method) {
+      await User.findByIdAndUpdate(payment.shipperId, { 'stripe.defaultPaymentMethodId': pi.payment_method });
+    }
+
+    // Flip the Load escrow flags now that funds are confirmed held at booking
+    await Load.findOneAndUpdate(
+      { escrowPaymentIntentId: pi.id },
+      { escrowFunded: true, escrowFundedAt: new Date() }
+    );
+
     const loadId = pi.metadata?.loadId || payment.loadId;
     const displayAmount = centsToDollars(pi.amount);
+
+    // Ledger: shipper funds move into escrow holding. Never let a ledger failure
+    // break the actual escrow state transition above.
+    try {
+      await ledgerService.record({
+        transactionId: `escrow_hold_${pi.id}`,
+        loadId,
+        paymentId: payment._id,
+        entryType: 'escrow_hold',
+        amountCents: pi.amount,
+        debitAccount: 'shipper_funds',
+        creditAccount: 'escrow_holding',
+        description: `Escrow hold for Load ${loadId}`,
+        stripeRef: pi.id,
+      });
+    } catch (e) {
+      console.error('[webhookHandler] ledger escrow_hold failed:', e.message);
+    }
 
     await notifyUserSafe(payment.shipperId, {
       type: 'payment_hold_confirmed',
@@ -54,6 +140,12 @@ const HANDLERS = {
    */
   'payment_intent.succeeded': async (event) => {
     const pi = event.data.object;
+
+    // Path B — off-session accessorial collection (no Payment record).
+    if (pi.metadata && pi.metadata.type === 'accessorial_collect') {
+      return handleAccessorialCollected(pi);
+    }
+
     const payment = await Payment.findOne({ stripePaymentIntentId: pi.id });
     if (!payment) return;
 
@@ -66,6 +158,45 @@ const HANDLERS = {
 
     const loadId = pi.metadata?.loadId || payment.loadId;
     const displayAmount = centsToDollars(pi.amount);
+
+    // Ledger: captured escrow is split into the platform fee portion and the
+    // carrier payable portion. Both legs debit escrow_holding so the total
+    // captured drains out of holding and lands in revenue + carrier payable.
+    try {
+      const feeCents = payment.platformFeeCents != null
+        ? payment.platformFeeCents
+        : calculatePlatformFee(pi.amount);
+      const payoutCents = payment.carrierPayoutCents != null
+        ? payment.carrierPayoutCents
+        : calculateCarrierPayout(pi.amount);
+
+      if (feeCents > 0) {
+        await ledgerService.record({
+          transactionId: `escrow_capture_${pi.id}`,
+          loadId,
+          paymentId: payment._id,
+          entryType: 'escrow_capture',
+          amountCents: feeCents,
+          debitAccount: 'escrow_holding',
+          creditAccount: 'platform_revenue',
+          description: `Platform fee on capture for Load ${loadId}`,
+          stripeRef: pi.id,
+        });
+      }
+      await ledgerService.record({
+        transactionId: `escrow_capture_${pi.id}`,
+        loadId,
+        paymentId: payment._id,
+        entryType: 'escrow_capture',
+        amountCents: payoutCents,
+        debitAccount: 'escrow_holding',
+        creditAccount: 'carrier_payable',
+        description: `Carrier payable on capture for Load ${loadId}`,
+        stripeRef: pi.id,
+      });
+    } catch (e) {
+      console.error('[webhookHandler] ledger escrow_capture failed:', e.message);
+    }
 
     await notifyUserSafe(payment.carrierId, {
       type: 'payment_captured',
@@ -82,6 +213,12 @@ const HANDLERS = {
    */
   'payment_intent.payment_failed': async (event) => {
     const pi = event.data.object;
+
+    // Path B — off-session accessorial collection failed.
+    if (pi.metadata && pi.metadata.type === 'accessorial_collect') {
+      return handleAccessorialFailed(pi);
+    }
+
     const payment = await Payment.findOne({ stripePaymentIntentId: pi.id });
     if (!payment) return;
 
@@ -231,6 +368,11 @@ const HANDLERS = {
  * @returns {Promise<{ handled: boolean, type: string }>}
  */
 async function handleWebhookEvent(event) {
+  // Idempotency: Stripe retries webhooks. Mark the event once; if it was already
+  // processed, short-circuit so we never double-apply money movements.
+  const dup = await ledgerService.markProcessedOnce(event.id, event.type);
+  if (dup) return { handled: true, duplicate: true, type: event.type };
+
   const handler = HANDLERS[event.type];
   if (handler) {
     try {

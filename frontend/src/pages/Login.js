@@ -5,7 +5,25 @@ import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { motion } from 'framer-motion';
 import { useNavigate, Link } from 'react-router-dom';
+import {
+  Box,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  InputAdornment,
+  IconButton,
+} from '@mui/material';
 import api from '../services/api';
+import {
+  brand,
+  surface,
+  text,
+  gradient,
+  darkFieldSx,
+  shadow,
+  transition,
+} from '../theme/tokens';
 
 export default function Login() {
   const {
@@ -19,7 +37,6 @@ export default function Login() {
   const navigate = useNavigate();
 
   const onSubmit = async ({ email, password }) => {
-    // Defensive trim
     email = email.trim();
     password = password.trim();
 
@@ -50,92 +67,208 @@ export default function Login() {
   };
 
   return (
-    <section className="page-marketing">
-      <div className="glass-box login-wrapper">
-        <motion.h1
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background: gradient.dashboardBg,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        p: 2,
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          background: surface.cardBg,
+          backdropFilter: 'blur(24px)',
+          border: `1px solid ${surface.glassBorder}`,
+          borderRadius: '24px',
+          p: 5,
+          width: '100%',
+          maxWidth: 440,
+          boxShadow: shadow.modal,
+        }}
+      >
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="auth-title"
         >
-          Welcome Back!
-        </motion.h1>
-        <motion.p
+          <Typography
+            variant="h4"
+            component="h1"
+            sx={{
+              color: text.primary,
+              fontWeight: 700,
+              textAlign: 'center',
+              mb: 1,
+            }}
+          >
+            Welcome Back!
+          </Typography>
+        </motion.div>
+
+        <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.6 }}
-          className="auth-subtitle"
         >
-          Streamlining your freight operations with ease.
-        </motion.p>
-
-        <form onSubmit={handleSubmit(onSubmit)} className="auth-form">
-          {errors.api && (
-            <p className="error" style={{ textAlign: 'center' }}>
-              {errors.api.message}
-            </p>
-          )}
-
-          <div className="input-group">
-            <Mail className="input-icon" />
-            <input
-              type="email"
-              placeholder="Email"
-              autoComplete="username"
-              {...register('email', {
-                required: 'Email is required',
-                pattern: {
-                  value: /\S+@\S+\.\S+/,
-                  message: 'Enter a valid email address',
-                },
-                setValueAs: v => v.trim(), // always trim
-              })}
-            />
-          </div>
-          {errors.email && <p className="error">{errors.email.message}</p>}
-
-          <div className="input-group">
-            <Lock className="input-icon" />
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
-              autoComplete="current-password"
-              {...register('password', {
-                required: 'Password is required',
-                minLength: { value: 6, message: 'Min length is 6' },
-                setValueAs: v => v.trim(), // always trim
-              })}
-            />
-            {showPassword ? (
-              <EyeOff
-                className="toggle-icon"
-                onClick={() => setShowPassword(false)}
-              />
-            ) : (
-              <Eye
-                className="toggle-icon"
-                onClick={() => setShowPassword(true)}
-              />
-            )}
-          </div>
-          {errors.password && (
-            <p className="error">{errors.password.message}</p>
-          )}
-
-          <button
-            type="submit"
-            className="btn-pink auth-btn"
-            disabled={isSubmitting}
+          <Typography
+            variant="body1"
+            sx={{
+              color: text.secondary,
+              textAlign: 'center',
+              mb: 3,
+            }}
           >
-            {isSubmitting ? 'Logging in…' : 'Login'}
-          </button>
+            Streamlining your freight operations with ease.
+          </Typography>
+        </motion.div>
 
-          <div className="auth-links">
-            <Link to="/forgot-password">Forgot Password?</Link>
-            <Link to="/signup">Sign Up</Link>
-          </div>
-        </form>
-      </div>
-    </section>
+        <Box
+          component="form"
+          onSubmit={handleSubmit(onSubmit)}
+          sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+        >
+          {errors.api && (
+            <Typography
+              role="alert"
+              sx={{
+                color: '#ef4444',
+                textAlign: 'center',
+                fontSize: '0.875rem',
+              }}
+            >
+              {errors.api.message}
+            </Typography>
+          )}
+
+          <TextField
+            type="email"
+            label="Email"
+            placeholder="Email"
+            autoComplete="username"
+            aria-label="Email address"
+            fullWidth
+            error={!!errors.email}
+            helperText={errors.email?.message}
+            FormHelperTextProps={{ role: 'alert' }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Mail size={18} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ ...darkFieldSx }}
+            {...register('email', {
+              required: 'Email is required',
+              pattern: {
+                value: /\S+@\S+\.\S+/,
+                message: 'Enter a valid email address',
+              },
+              setValueAs: (v) => v.trim(),
+            })}
+          />
+
+          <TextField
+            type={showPassword ? 'text' : 'password'}
+            label="Password"
+            placeholder="Password"
+            autoComplete="current-password"
+            aria-label="Password"
+            fullWidth
+            error={!!errors.password}
+            helperText={errors.password?.message}
+            FormHelperTextProps={{ role: 'alert' }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Lock size={18} />
+                </InputAdornment>
+              ),
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    edge="end"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    sx={{ color: text.secondary }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            sx={{ ...darkFieldSx }}
+            {...register('password', {
+              required: 'Password is required',
+              minLength: { value: 6, message: 'Min length is 6' },
+              setValueAs: (v) => v.trim(),
+            })}
+          />
+
+          <Button
+            type="submit"
+            variant="contained"
+            fullWidth
+            disabled={isSubmitting}
+            sx={{
+              mt: 1,
+              py: 1.5,
+              fontWeight: 700,
+              fontSize: '1rem',
+              background: gradient.primary,
+              borderRadius: '12px',
+              textTransform: 'none',
+              '&:hover': {
+                background: gradient.primary,
+                filter: 'brightness(1.1)',
+              },
+              '&.Mui-disabled': {
+                background: surface.glass,
+                color: text.muted,
+              },
+            }}
+          >
+            {isSubmitting ? 'Logging in\u2026' : 'Login'}
+          </Button>
+
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              mt: 1,
+            }}
+          >
+            <Typography
+              component={Link}
+              to="/forgot-password"
+              variant="body2"
+              sx={{
+                color: text.secondary,
+                textDecoration: 'none',
+                '&:hover': { color: text.primary },
+              }}
+            >
+              Forgot Password?
+            </Typography>
+            <Typography
+              component={Link}
+              to="/signup"
+              variant="body2"
+              sx={{
+                color: text.secondary,
+                textDecoration: 'none',
+                '&:hover': { color: text.primary },
+              }}
+            >
+              Sign Up
+            </Typography>
+          </Box>
+        </Box>
+      </Paper>
+    </Box>
   );
 }

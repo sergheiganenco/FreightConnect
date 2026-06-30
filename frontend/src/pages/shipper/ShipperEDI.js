@@ -27,7 +27,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AddIcon from '@mui/icons-material/Add';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// Normalize to origin so `${API}/api/...` never doubles `/api`
+// (REACT_APP_API_URL is conventionally http://host/api).
+const API = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/api\/?$/, '');
 
 const STATUS_META = {
   received:     { label: 'Received',      color: '#9ca3af', icon: <HourglassEmptyIcon sx={{ fontSize: 14 }} /> },

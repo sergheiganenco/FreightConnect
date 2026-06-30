@@ -12,7 +12,11 @@
  *   0–30   = low risk
  *   31–70  = moderate risk
  *   71–90  = high risk  → admin notification
- *   91–100 = critical   → auto-suspend carrier
+ *   91–100 = critical   → queue for human review (recommend suspension)
+ *
+ * IMPORTANT: this agent NEVER auto-suspends a carrier. A critical score
+ * creates a ReviewQueue entry that an admin must approve before any
+ * suspension takes effect — keeping a human in the loop.
  *
  * Updates User.riskScore and User.riskDetails.
  */
@@ -21,6 +25,7 @@ const { Agent } = require('./AgentFramework');
 const User = require('../models/User');
 const Load = require('../models/Load');
 const Exception = require('../models/Exception');
+const ReviewQueue = require('../models/ReviewQueue');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
 /** Check if ELDLog model exists (optional dependency) */
@@ -38,16 +43,16 @@ class CarrierRiskAgent extends Agent {
 
   /** @returns {Promise<number>} number of carriers scored */
   async execute() {
-    const carriers = await User.find({ role: 'carrier' })
-      .select('_id name companyName verification trustScore fleet riskScore')
-      .lean();
-
-    if (carriers.length === 0) return 0;
-
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     let scored = 0;
 
-    for (const carrier of carriers) {
+    // Stream carriers via cursor to avoid loading the entire collection into memory.
+    const cursor = User.find({ role: 'carrier' })
+      .select('_id name companyName verification trustScore fleet riskScore')
+      .lean()
+      .cursor();
+
+    for (let carrier = await cursor.next(); carrier != null; carrier = await cursor.next()) {
       try {
         const cid = carrier._id;
 
@@ -75,17 +80,21 @@ class CarrierRiskAgent extends Agent {
           : 1;
 
         // ── 2. Exception / dispute rate ────────────────────────────────
+        // Fetch the carrier's load IDs once and reuse for both exception queries
+        // (was N+1: two separate Load.find().select() array fetches per carrier).
+        const carrierLoadIds = await Load.distinct('_id', { acceptedBy: cid });
+
         const exceptions = await Exception.countDocuments({
           $or: [
             { filedBy: cid },
-            { loadId: { $in: await Load.find({ acceptedBy: cid }).select('_id').lean().then(ls => ls.map(l => l._id)) } },
+            { loadId: { $in: carrierLoadIds } },
           ],
           createdAt: { $gte: thirtyDaysAgo },
         });
 
         const disputes = await Exception.countDocuments({
           type: 'dispute',
-          loadId: { $in: await Load.find({ acceptedBy: cid }).select('_id').lean().then(ls => ls.map(l => l._id)) },
+          loadId: { $in: carrierLoadIds },
           createdAt: { $gte: thirtyDaysAgo },
         });
 
@@ -147,35 +156,51 @@ class CarrierRiskAgent extends Agent {
         };
 
         // ── Update carrier ─────────────────────────────────────────────
+        // NOTE: we only ever update the score/details automatically.
+        // Suspension is NEVER applied here — it requires human approval
+        // via the ReviewQueue.
         const updateFields = { riskScore, riskDetails };
 
-        // Auto-suspend if score > 90
+        // Critical risk (>90): queue for human review recommending suspension.
+        // We do NOT touch verification.status — an admin must approve first.
         if (riskScore > 90 && carrier.verification?.status === 'verified') {
-          updateFields['verification.status'] = 'suspended';
+          // Avoid creating a duplicate review every 15-min cycle.
+          const existing = await ReviewQueue.findOne({
+            subjectUser: cid,
+            type: 'carrier_suspension',
+            status: 'pending',
+          }).select('_id').lean();
 
-          await notifyUserSafe(cid, {
-            type: 'ai:riskSuspension',
-            title: 'Account Suspended: High Risk Score',
-            body: `Your risk score is ${riskScore}/100. Your account has been suspended pending review.`,
-            link: '/dashboard/carrier/profile',
-            metadata: { riskScore, riskDetails },
-          });
+          if (!existing) {
+            const reason = `AI risk engine flagged critical risk score ${riskScore}/100 — suspension recommended pending human review.`;
 
-          // Notify admins
-          const admins = await User.find({ role: 'admin' }).select('_id').lean();
-          for (const admin of admins) {
-            await notifyUserSafe(admin._id, {
-              type: 'ai:riskAlert',
-              title: `Carrier auto-suspended: Risk ${riskScore}`,
-              body: `${carrier.companyName || carrier.name} (${cid}) suspended by AI risk engine`,
-              link: '/dashboard/admin/users',
-              metadata: { carrierId: cid, riskScore },
+            await ReviewQueue.create({
+              type: 'carrier_suspension',
+              subjectUser: cid,
+              severity: 'critical',
+              status: 'pending',
+              reason,
+              riskScore,
+              details: riskDetails,
+              recommendedAction: 'suspend',
             });
-          }
 
-          console.log(`[CarrierRiskAgent] Auto-suspended carrier ${cid} (risk: ${riskScore})`);
+            // Notify admins that a carrier needs review (no auto-suspension).
+            const admins = await User.find({ role: 'admin' }).select('_id').lean();
+            for (const admin of admins) {
+              await notifyUserSafe(admin._id, {
+                type: 'ai:riskAlert',
+                title: `Carrier flagged for review: Risk ${riskScore}`,
+                body: `${carrier.companyName || carrier.name} (${cid}) flagged by AI risk engine — suspension recommended, awaiting admin review.`,
+                link: '/dashboard/admin/review-queue',
+                metadata: { carrierId: cid, riskScore, recommendedAction: 'suspend' },
+              });
+            }
+
+            console.log(`[CarrierRiskAgent] Queued carrier ${cid} for human review (risk: ${riskScore})`);
+          }
         }
-        // Flag high risk (71–90) — notify admin but don't suspend
+        // High risk (71–90) — notify admin but don't suspend or queue.
         else if (riskScore > 70) {
           const admins = await User.find({ role: 'admin' }).select('_id').lean();
           for (const admin of admins) {

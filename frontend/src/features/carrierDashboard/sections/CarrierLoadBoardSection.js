@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, IconButton, Tabs, Tab, Chip, CircularProgress,
-  Stack, Tooltip,
+  Stack, Tooltip, Button,
 } from '@mui/material';
 import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { useCarrierLoads } from '../hooks/useCarrierLoads';
 import FilterDrawer from './components/FilterDrawer';
@@ -135,14 +137,53 @@ export default function CarrierLoadBoardSection() {
             </Box>
           )}
           {recError && (
-            <Typography sx={{ color: T.muted, textAlign: 'center', py: 4 }}>
-              {recError}
-            </Typography>
+            <Box
+              sx={{
+                textAlign: 'center',
+                py: 8,
+                px: 2,
+                borderRadius: 3,
+                background: surface.glassSubtle,
+                border: `1px solid ${surface.glassBorder}`,
+              }}
+            >
+              <ErrorOutlineIcon sx={{ fontSize: 56, color: semantic.error, mb: 1.5, opacity: 0.85 }} />
+              <Typography variant="h6" fontWeight={700} sx={{ color: T.primary, mb: 0.5 }}>
+                Couldn't load recommendations
+              </Typography>
+              <Typography variant="body2" sx={{ color: T.secondary, maxWidth: 420, mx: 'auto', mb: 2.5 }}>
+                {recError}
+              </Typography>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={fetchRecommended}
+                sx={{ color: T.primary, borderColor: surface.glassBorder, textTransform: 'none' }}
+              >
+                Retry
+              </Button>
+            </Box>
           )}
           {!recLoading && !recError && recommended.length === 0 && (
-            <Typography sx={{ color: T.hint, textAlign: 'center', py: 4 }}>
-              No recommendations yet. Set your preferences in Profile → Matching Preferences.
-            </Typography>
+            <Box
+              sx={{
+                textAlign: 'center',
+                py: 8,
+                px: 2,
+                borderRadius: 3,
+                background: surface.glassSubtle,
+                border: `1px solid ${surface.glassBorder}`,
+              }}
+            >
+              <AutoAwesomeIcon sx={{ fontSize: 56, color: T.muted, mb: 1.5 }} />
+              <Typography variant="h6" fontWeight={700} sx={{ color: T.primary, mb: 0.5 }}>
+                No recommendations yet
+              </Typography>
+              <Typography variant="body2" sx={{ color: T.secondary, maxWidth: 440, mx: 'auto' }}>
+                Set your preferences in Profile → Matching Preferences to get AI-matched loads
+                tailored to your equipment, lanes, and rate targets.
+              </Typography>
+            </Box>
           )}
           {!recLoading && recommended.length > 0 && (
             <Stack spacing={0}>

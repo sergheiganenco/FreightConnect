@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Box } from '@mui/material';
 import Navbar from './components/Navbar';
 import Footer from './components/FooterFull';
 import OfflineDetector from './components/OfflineDetector';
@@ -20,6 +21,9 @@ import Contact from './pages/Contact';
 /* auth and dashboard pages */
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import VerifyEmail from './pages/VerifyEmail';
 import ShipperDashboard from './pages/shipper/ShipperDashboard';
 import ShipperPostLoad from './pages/shipper/ShipperPostLoad';
 import ShipperDocuments from './pages/shipper/ShipperDocuments';
@@ -33,6 +37,7 @@ import AdminProfile from './pages/admin/AdminProfile';
 import DocumentsSection from './features/carrierDashboard/sections/DocumentsSection';
 import CarrierLoadBoardSection from './features/carrierDashboard/sections/CarrierLoadBoardSection';
 import CarrierFleet from './pages/carrier/CarrierFleet';
+import CarrierDrivers from './pages/carrier/CarrierDrivers';
 import { RoleRoute } from './components/PrivateRoute';
 import CarrierLiveMap from './pages/carrier/CarrierLiveMap';
 import FleetMap from './pages/FleetMap';
@@ -62,6 +67,9 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminCompanies from './pages/admin/AdminCompanies';
 import AdminExceptions from './pages/admin/AdminExceptions';
 import AdminVerifications from './pages/admin/AdminVerifications';
+import AdminLedger from './pages/admin/AdminLedger';
+import AdminReviewQueue from './pages/admin/AdminReviewQueue';
+import AdminFactoring from './pages/admin/AdminFactoring';
 
 // Wrapper so CarrierVerification gets an onComplete handler
 function CarrierVerificationPage() {
@@ -74,77 +82,86 @@ function App() {
     <Router>
       <Navbar />
       <OfflineDetector />
-      <Routes>
-        {/* Public Marketing Pages */}
-        <Route path="/" element={<Home />} />
-        <Route path="/home" element={<Home />} />
-        <Route path="/about" element={<About />} />
-        <Route path="/features" element={<Features />} />
-        <Route path="/contact" element={<Contact />} />
+      <Box component="main" id="main-content">
+        <Routes>
+          {/* Public Marketing Pages */}
+          <Route path="/" element={<Home />} />
+          <Route path="/home" element={<Home />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/features" element={<Features />} />
+          <Route path="/contact" element={<Contact />} />
 
-        {/* Auth Pages */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
+          {/* Auth Pages */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
 
-        {/* Protected Shipper Dashboards */}
-        <Route path="/dashboard/shipper" element={<RoleRoute role="shipper"><ChatProvider><ShipperDashboard /></ChatProvider></RoleRoute>}>
-          <Route path="loads" element={<ShipperLoadBoardSection />} />
-          <Route path="post-load" element={<ShipperPostLoad />} />
-          <Route path="documents" element={<ShipperDocuments />} />
-          <Route path="analytics" element={<ShipperAnalytics />} />
-          <Route path="payments" element={<ShipperPayments />} />
-          <Route path="contracts" element={<ShipperContracts />} />
-          <Route path="appointments" element={<ShipperAppointments />} />
-          <Route path="tax" element={<ShipperTax />} />
-          <Route path="edi" element={<ShipperEDI />} />
-          <Route path="verification" element={<ShipperVerification />} />
-          <Route path="ai-insights" element={<AIInsightsPanel />} />
-          <Route path="chat" element={<ChatPage />} />
-          <Route path="profile" element={<ShipperProfile />} />
-          <Route index element={<ShipperLoadBoardSection />} />
-        </Route>
+          {/* Protected Shipper Dashboards */}
+          <Route path="/dashboard/shipper" element={<RoleRoute role="shipper"><ChatProvider><ShipperDashboard /></ChatProvider></RoleRoute>}>
+            <Route path="loads" element={<ShipperLoadBoardSection />} />
+            <Route path="post-load" element={<ShipperPostLoad />} />
+            <Route path="documents" element={<ShipperDocuments />} />
+            <Route path="analytics" element={<ShipperAnalytics />} />
+            <Route path="payments" element={<ShipperPayments />} />
+            <Route path="contracts" element={<ShipperContracts />} />
+            <Route path="appointments" element={<ShipperAppointments />} />
+            <Route path="tax" element={<ShipperTax />} />
+            <Route path="edi" element={<ShipperEDI />} />
+            <Route path="verification" element={<ShipperVerification />} />
+            <Route path="ai-insights" element={<AIInsightsPanel />} />
+            <Route path="chat" element={<ChatPage />} />
+            <Route path="profile" element={<ShipperProfile />} />
+            <Route index element={<ShipperLoadBoardSection />} />
+          </Route>
 
-        {/* Carrier Dashboard */}
-        <Route path="/dashboard/carrier/*" element={<RoleRoute role="carrier"><ChatProvider><CarrierDashboard /></ChatProvider></RoleRoute>}>
-          <Route index element={<Navigate to="loads" replace />} />
-          <Route path="loads" element={<CarrierLoadBoardSection />} />
-          <Route path="documents" element={<DocumentsSection />} />
-          <Route path="my-loads" element={<CarrierMyLoads embedded />} />
-          <Route path="fleet" element={<CarrierFleet />} />
-          <Route path="live-map" element={<CarrierLiveMap />} />
-          <Route path="fleet-map" element={<FleetMap />} />
-          <Route path="analytics" element={<CarrierAnalytics />} />
-          <Route path="payments" element={<CarrierPayments />} />
-          <Route path="contracts" element={<CarrierContracts />} />
-          <Route path="appointments" element={<CarrierAppointments />} />
-          <Route path="trips" element={<CarrierTripPlanning />} />
-          <Route path="eld" element={<CarrierELD />} />
-          <Route path="expenses" element={<CarrierExpenses />} />
-          <Route path="factoring" element={<CarrierFactoring />} />
-          <Route path="tax" element={<CarrierTax />} />
-          <Route path="network" element={<CarrierNetwork />} />
-          <Route path="ai-insights" element={<AIInsightsPanel />} />
-          <Route path="scorecard" element={<CarrierScorecard />} />
-          <Route path="chat" element={<ChatPage />} />
-          <Route path="profile" element={<Profile />} />
-          <Route path="verification" element={<CarrierVerificationPage />} />
-        </Route>
+          {/* Carrier Dashboard */}
+          <Route path="/dashboard/carrier/*" element={<RoleRoute role="carrier"><ChatProvider><CarrierDashboard /></ChatProvider></RoleRoute>}>
+            <Route index element={<Navigate to="loads" replace />} />
+            <Route path="loads" element={<CarrierLoadBoardSection />} />
+            <Route path="documents" element={<DocumentsSection />} />
+            <Route path="my-loads" element={<CarrierMyLoads embedded />} />
+            <Route path="fleet" element={<CarrierFleet />} />
+            <Route path="drivers" element={<CarrierDrivers />} />
+            <Route path="live-map" element={<CarrierLiveMap />} />
+            <Route path="fleet-map" element={<FleetMap />} />
+            <Route path="analytics" element={<CarrierAnalytics />} />
+            <Route path="payments" element={<CarrierPayments />} />
+            <Route path="contracts" element={<CarrierContracts />} />
+            <Route path="appointments" element={<CarrierAppointments />} />
+            <Route path="trips" element={<CarrierTripPlanning />} />
+            <Route path="eld" element={<CarrierELD />} />
+            <Route path="expenses" element={<CarrierExpenses />} />
+            <Route path="factoring" element={<CarrierFactoring />} />
+            <Route path="tax" element={<CarrierTax />} />
+            <Route path="network" element={<CarrierNetwork />} />
+            <Route path="ai-insights" element={<AIInsightsPanel />} />
+            <Route path="scorecard" element={<CarrierScorecard />} />
+            <Route path="chat" element={<ChatPage />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="verification" element={<CarrierVerificationPage />} />
+          </Route>
 
-        {/* Enhanced Admin Dashboard */}
-        <Route path="/dashboard/admin/*" element={<RoleRoute role="admin"><AdminDashboard /></RoleRoute>}>
-          <Route index element={<Navigate to="overview" replace />} />
-          <Route path="overview" element={<AdminOverview />} />
-          <Route path="loads" element={<AdminLoads />} />
-          <Route path="users" element={<AdminUsers />} />
-          <Route path="companies" element={<AdminCompanies />} />
-          <Route path="verifications" element={<AdminVerifications />} />
-          <Route path="exceptions" element={<AdminExceptions />} />
-          <Route path="profile" element={<AdminProfile />} />
-        </Route>
+          {/* Enhanced Admin Dashboard */}
+          <Route path="/dashboard/admin/*" element={<RoleRoute role="admin"><AdminDashboard /></RoleRoute>}>
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<AdminOverview />} />
+            <Route path="loads" element={<AdminLoads />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="companies" element={<AdminCompanies />} />
+            <Route path="verifications" element={<AdminVerifications />} />
+            <Route path="exceptions" element={<AdminExceptions />} />
+            <Route path="ledger" element={<AdminLedger />} />
+            <Route path="review-queue" element={<AdminReviewQueue />} />
+            <Route path="factoring" element={<AdminFactoring />} />
+            <Route path="profile" element={<AdminProfile />} />
+          </Route>
 
-        {/* 404 — catch-all */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+          {/* 404 -- catch-all */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Box>
       <Footer />
     </Router>
   );
