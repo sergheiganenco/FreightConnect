@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { isTracking, stopBackgroundTracking } from '../services/tracking';
 import { COLORS } from '../constants/config';
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ navigation }) {
   const { user, logout } = useAuth();
   const [trackingActive, setTrackingActive] = useState(false);
 
@@ -75,6 +75,12 @@ export default function ProfileScreen() {
             <Text style={styles.stopBtnText}>Stop Tracking</Text>
           </TouchableOpacity>
         )}
+        <TouchableOpacity
+          style={{ marginTop: 12, backgroundColor: COLORS.bgInput, borderRadius: 9999, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border }}
+          onPress={() => navigation.navigate('Loads', { screen: 'Consent' })}
+        >
+          <Text style={{ color: COLORS.textPrimary, fontWeight: '700', fontSize: 14 }}>Manage GPS Consent</Text>
+        </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>

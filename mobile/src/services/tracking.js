@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import { API_URL, LOCATION_TASK_NAME, TRACKING_DISTANCE_M } from '../constants/config';
+import api from './api';
 
 // ── Define the background task (must be at top level, outside components) ──
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
@@ -43,6 +44,23 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+// Privacy: the carrier must consent before any background location is collected.
+// The backend also enforces this (location ingest returns 403 without consent),
+// but we gate the client too so we never start the GPS service uninvited.
+export async function hasGpsConsent() {
+  try {
+    const { data } = await api.get('/tracking/consent');
+    return Boolean(data?.gpsConsent?.granted);
+  } catch (_) {
+    return false; // fail closed — treat unknown as not consented
+  }
+}
+
+export async function setGpsConsent(granted) {
+  const { data } = await api.post('/tracking/consent', { granted, version: 'v1' });
+  return data?.gpsConsent;
+}
+
 export async function requestLocationPermissions() {
   const { status: fg } = await Location.requestForegroundPermissionsAsync();
   if (fg !== 'granted') return false;
@@ -52,6 +70,14 @@ export async function requestLocationPermissions() {
 }
 
 export async function startBackgroundTracking(loadId) {
+  // Privacy gate: do not start the GPS service unless consent is on file.
+  const consented = await hasGpsConsent();
+  if (!consented) {
+    const e = new Error('GPS tracking consent is required');
+    e.code = 'gps_consent_required';
+    throw e;
+  }
+
   const hasPermission = await requestLocationPermissions();
   if (!hasPermission) {
     throw new Error('Location permissions not granted');

@@ -59,7 +59,19 @@ export default function LoadDetailScreen({ route, navigation }) {
       Alert.alert('Trip Started', 'GPS tracking is now active. You can lock your phone — tracking continues in the background.');
       await refreshLoad();
     } catch (err) {
-      Alert.alert('Error', err.response?.data?.error || err.message || 'Could not start trip');
+      // Privacy gate: route the carrier to grant GPS consent, then retry.
+      if (err.code === 'gps_consent_required' || err.response?.data?.code === 'gps_consent_required') {
+        Alert.alert(
+          'GPS Consent Needed',
+          'Before tracking can start, please review and grant GPS tracking consent.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Review', onPress: () => navigation.navigate('Consent') },
+          ]
+        );
+      } else {
+        Alert.alert('Error', err.response?.data?.error || err.message || 'Could not start trip');
+      }
     }
     setActionLoading(false);
   };

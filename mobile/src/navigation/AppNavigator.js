@@ -10,6 +10,7 @@ import LoadMapScreen from '../screens/LoadMapScreen';
 import PODUploadScreen from '../screens/PODUploadScreen';
 import ChatScreen from '../screens/ChatScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import ConsentScreen from '../screens/ConsentScreen';
 
 const Tab = createBottomTabNavigator();
 const LoadStack = createNativeStackNavigator();
@@ -53,6 +54,11 @@ function LoadStackNavigator() {
         name="PODUpload"
         component={PODUploadScreen}
         options={{ title: 'Upload POD' }}
+      />
+      <LoadStack.Screen
+        name="Consent"
+        component={ConsentScreen}
+        options={{ title: 'GPS Consent' }}
       />
     </LoadStack.Navigator>
   );
