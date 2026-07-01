@@ -49,7 +49,8 @@ const authLimiter = makeLimiter({
 
 const apiLimiter = makeLimiter({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 100,
+  // Per-IP general API cap. Tune via RATE_LIMIT_MAX for pilots / heavy dashboards.
+  max: Number(process.env.RATE_LIMIT_MAX) || 100,
   message: { error: 'Rate limit exceeded' },
   standardHeaders: true,
   legacyHeaders: false,
