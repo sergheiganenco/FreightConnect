@@ -366,6 +366,57 @@ class EscrowService {
   }
 
   /**
+   * Execute the escrow money movement for a resolved dispute.
+   *
+   * carrierPayoutPercent 100 → carrier keeps everything; 0 → shipper fully
+   * refunded; split → carrier keeps that %, shipper refunded the remainder.
+   * DORMANT until Stripe is configured AND the load actually has a funded
+   * escrow (returns a non-ok code the caller ignores). Stripe injectable.
+   *
+   * @returns {Promise<{ ok, code?, carrierShareCents?, refundCents?, error? }>}
+   */
+  async settleDisputeResolution(loadId, carrierPayoutPercent, stripeClient) {
+    let stripe;
+    try { stripe = stripeClient || getStripe(); } catch (_) { return { ok: false, code: 'stripe_unavailable' }; }
+    if (!stripe) return { ok: false, code: 'stripe_unavailable' };
+
+    const load = await Load.findById(loadId).select('escrowPaymentIntentId');
+    if (!load || !load.escrowPaymentIntentId) return { ok: false, code: 'no_escrow' };
+    const Payment = require('../models/Payment');
+    const payment = await Payment.findOne({ loadId });
+    if (!payment) return { ok: false, code: 'no_escrow' };
+
+    const pct = Math.max(0, Math.min(100, Number(carrierPayoutPercent)));
+    const totalCents = payment.amountCents;
+    const carrierShareCents = Math.round((totalCents * pct) / 100);
+    const refundCents = totalCents - carrierShareCents;
+
+    try {
+      // Capture the held funds, then refund the shipper's share. The carrier's
+      // share flows out via the normal payout path.
+      await stripe.paymentIntents.capture(load.escrowPaymentIntentId);
+      if (refundCents > 0) {
+        await stripe.refunds.create({ payment_intent: load.escrowPaymentIntentId, amount: refundCents });
+      }
+      try {
+        await ledgerService.record({
+          transactionId: `dispute_${loadId}`,
+          loadId,
+          entryType: 'dispute_settlement',
+          amountCents: carrierShareCents,
+          debitAccount: 'escrow_holding',
+          creditAccount: 'carrier_payable',
+          description: `Dispute resolved: carrier ${pct}% ($${(carrierShareCents / 100).toFixed(2)}), shipper refunded $${(refundCents / 100).toFixed(2)}`,
+          stripeRef: load.escrowPaymentIntentId,
+        });
+      } catch (e) { console.error('[settleDisputeResolution] ledger failed:', e.message); }
+      return { ok: true, carrierShareCents, refundCents };
+    } catch (err) {
+      return { ok: false, code: 'stripe_error', error: err.message };
+    }
+  }
+
+  /**
    * Verify a Stripe webhook signature.
    *
    * @param {Buffer|string} rawBody  - Raw request body

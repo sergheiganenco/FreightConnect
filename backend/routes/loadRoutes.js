@@ -1600,6 +1600,19 @@ router.post('/voice-command', auth, async (req, res) => {
         adjustScore(load.acceptedBy, 'dispute_dismissed_cleared', 2).catch(() => {});
       }
 
+      // Execute the escrow money movement per the payout split. DORMANT until
+      // Stripe is configured AND the load has a funded escrow — otherwise a
+      // no-op (the decision + payout% are still recorded above).
+      try {
+        const escrowService = require('../services/escrowService');
+        const settle = await escrowService.settleDisputeResolution(load._id, payoutPercent);
+        if (settle && settle.ok === false && !['stripe_unavailable', 'no_escrow'].includes(settle.code)) {
+          console.warn('[resolve] escrow settlement:', settle.code, settle.error);
+        }
+      } catch (e) {
+        console.error('[resolve] escrow settlement failed (non-fatal):', e.message);
+      }
+
       // Notify both parties
       const { notifyUserSafe } = require('../utils/notifyUser');
       const resolutionLabel = {
