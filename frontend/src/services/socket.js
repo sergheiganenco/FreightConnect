@@ -1,6 +1,10 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5000';
+// Explicit env wins; production builds default to SAME-ORIGIN (single-origin
+// deploy: Express serves the app + Socket.IO); dev falls back to localhost.
+const SOCKET_URL =
+  process.env.REACT_APP_API_URL?.replace('/api', '') ||
+  (process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5000');
 
 let socket = null;
 

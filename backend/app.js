@@ -188,8 +188,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Root Route
-app.get('/', (req, res) => res.send('FreightConnect API is running!'));
+// Root Route — API banner in dev only. In production the SPA catch-all at the
+// bottom of this file serves the React app's index.html at "/".
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/', (req, res) => res.send('FreightConnect API is running!'));
+}
 
 // ToS Routes
 const tosRoutes = require('./routes/tosRoutes');
@@ -469,7 +472,24 @@ if (process.env.NODE_ENV === 'production') {
   const indexPath = path.join(staticPath, 'index.html');
 
   if (fs.existsSync(indexPath)) {
-    app.get('*', (req, res) => {
+    // Serve the built assets (/static/js, /static/css, favicon, manifest…)
+    // BEFORE the catch-all — otherwise every asset request would get
+    // index.html back and the app would never load its own bundle.
+    app.use(express.static(staticPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        // Hashed CRA assets are immutable; index.html must always revalidate.
+        if (/\/static\//.test(filePath.replace(/\\/g, '/'))) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    }));
+    app.get('*', (req, res, next) => {
+      // Never swallow API or file routes — unknown /api/* must fall through to
+      // the JSON 404 handler below, and /documents/* to its static mounts.
+      if (req.path.startsWith('/api/') || req.path.startsWith('/documents/')) return next();
       res.sendFile(indexPath);
     });
   }

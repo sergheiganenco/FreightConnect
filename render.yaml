@@ -11,7 +11,7 @@ services:
     name: freightconnect
     runtime: node
     region: oregon
-    plan: standard
+    plan: starter   # $7/mo — fine for the pilot; bump to standard when traffic grows
     buildCommand: |
       cd frontend && npm ci && npm run build && cd ../backend && npm ci --omit=dev
     startCommand: |
@@ -26,8 +26,12 @@ services:
         sync: false    # set manually in Render dashboard
       - key: JWT_SECRET
         generateValue: true
+      - key: TRACKING_TOKEN_SECRET
+        generateValue: true   # HMAC key for OwnTracks/Traccar per-load GPS tokens
       - key: JWT_EXPIRES_IN
         value: "1d"
+      - key: RATE_LIMIT_MAX
+        value: "300"          # req/min per IP — dashboards poll; 100 is tight for pilots
       - key: ALLOWED_ORIGINS
         sync: false    # set to your Render URL, e.g. https://freightconnect.onrender.com
       - key: ORS_API_KEY
@@ -44,7 +48,9 @@ services:
         sync: false
     # Render auto-detects the root; buildCommand handles both dirs.
     # The frontend build is at ../frontend/build, served by Express in production.
+    # Mount the PARENT documents dir so uploads, receipts, AND dispute evidence
+    # all persist across deploys (a narrower mount silently loses the others).
     disk:
-      name: uploads
-      mountPath: /app/backend/public/documents/uploads
+      name: documents
+      mountPath: /app/backend/public/documents
       sizeGB: 1

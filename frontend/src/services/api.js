@@ -1,9 +1,11 @@
 import axios from "axios";
 
-// This will use environment variable in production, fallback to localhost for development
+// Explicit env wins; otherwise production builds default to SAME-ORIGIN "/api"
+// (Express serves the frontend build + API from one origin in production),
+// and dev falls back to the local backend.
 const baseURL =
   process.env.REACT_APP_API_URL ||
-  "http://localhost:5000/api"; // Don't end with slash
+  (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:5000/api"); // Don't end with slash
 
 const api = axios.create({
   baseURL, // e.g., "http://localhost:5000/api"
