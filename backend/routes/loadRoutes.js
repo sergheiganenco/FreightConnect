@@ -1911,8 +1911,14 @@ router.post('/voice-command', auth, async (req, res) => {
       // Path B — for system detention, COLLECT from the shipper off-session
       // before settling to the carrier. Falls back to accrual (Path A) when
       // Stripe / saved card / mandate aren't available.
+      //
+      // GATED behind ENABLE_ACCESSORIAL_COLLECTION so that configuring Stripe
+      // (e.g. to field-test escrow) does NOT auto-enable off-session shipper
+      // collection. Keep it false until the flow has been field-tested; until
+      // then approval settles via Path A (accrual) exactly as today.
+      const collectionEnabled = process.env.ENABLE_ACCESSORIAL_COLLECTION === 'true';
       let collect = null;
-      if (charge.source === 'system_detention') {
+      if (collectionEnabled && charge.source === 'system_detention') {
         try {
           const escrow = require('../services/escrowService');
           collect = await escrow.collectAccessorialFromShipper(load._id, charge._id);
