@@ -58,6 +58,10 @@ router.post('/', auth, SHIPPER_ONLY, async (req, res) => {
     res.status(201).json(contract);
   } catch (err) {
     console.error('Contract create error:', err);
+    // A bad/incomplete request body is the client's fault (400), not a 500.
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: 'Failed to create contract' });
   }
 });
