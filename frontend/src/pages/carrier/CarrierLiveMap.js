@@ -10,6 +10,14 @@ import { semantic } from '../../theme/tokens';
 // How many seconds before a location is considered stale
 const STALE_THRESHOLD_S = 120;
 
+// TomTom traffic-flow overlay key (build-time). When present, the "Traffic"
+// toggle renders live color-coded flow tiles on top of the base map.
+// Get a free key at developer.tomtom.com and set REACT_APP_TOMTOM_TRAFFIC_KEY.
+const TOMTOM_TRAFFIC_KEY = process.env.REACT_APP_TOMTOM_TRAFFIC_KEY;
+const TOMTOM_TRAFFIC_URL =
+  'https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' +
+  (TOMTOM_TRAFFIC_KEY || '');
+
 const truckIcon = new L.Icon({
   iconUrl: 'https://cdn-icons-png.flaticon.com/512/1086/1086933.png',
   iconSize: [36, 36],
@@ -51,6 +59,7 @@ export default function CarrierLiveMap() {
   const [activeLoads, setActiveLoads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [, setTick] = useState(0); // force re-render for age labels
+  const [showTraffic, setShowTraffic] = useState(false);
 
   // Fetch fleet + active loads on mount
   useEffect(() => {
@@ -134,10 +143,32 @@ export default function CarrierLiveMap() {
         <Typography variant="h5" fontWeight={700} sx={{ color: '#fff' }}>
           Fleet Live Map
         </Typography>
-        {trackingLoadId && (
-          <Chip label="GPS Active" size="small" sx={{ bgcolor: semantic.success, color: '#000', fontWeight: 600 }} />
-        )}
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <Chip
+            label={showTraffic ? 'Traffic: On' : 'Traffic'}
+            size="small"
+            clickable
+            onClick={() => setShowTraffic((v) => !v)}
+            variant={showTraffic ? 'filled' : 'outlined'}
+            sx={{
+              fontWeight: 600,
+              color: '#fff',
+              bgcolor: showTraffic ? semantic.error : 'transparent',
+              borderColor: 'rgba(255,255,255,0.4)',
+            }}
+          />
+          {trackingLoadId && (
+            <Chip label="GPS Active" size="small" sx={{ bgcolor: semantic.success, color: '#000', fontWeight: 600 }} />
+          )}
+        </Stack>
       </Stack>
+
+      {showTraffic && !TOMTOM_TRAFFIC_KEY && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Live traffic needs a TomTom key. Set <b>REACT_APP_TOMTOM_TRAFFIC_KEY</b> in the frontend
+          environment (free at developer.tomtom.com) and restart to display real-time flow.
+        </Alert>
+      )}
 
       {!loading && allMarkers.length === 0 && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -154,6 +185,17 @@ export default function CarrierLiveMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap contributors"
             />
+            {/* Live traffic-flow overlay (color-coded congestion). Renders only
+                when enabled AND a TomTom key is configured. */}
+            {showTraffic && TOMTOM_TRAFFIC_KEY && (
+              <TileLayer
+                key="tomtom-traffic"
+                url={TOMTOM_TRAFFIC_URL}
+                opacity={0.75}
+                zIndex={450}
+                attribution='Traffic &copy; <a href="https://www.tomtom.com">TomTom</a>'
+              />
+            )}
             <MapAutoFit positions={positions} />
             {allMarkers.map((m) => (
               <Marker key={m.key} position={m.pos} icon={truckIcon}>
