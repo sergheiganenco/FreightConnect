@@ -180,6 +180,14 @@ async function recordLocation({
       }
     }
 
+    // ── 6b. Predictive delivery-delay alert (non-fatal) ───────────────────────
+    try {
+      const { checkPredictedDelay } = require('./delayService');
+      await checkPredictedDelay({ loadId: load._id, latitude: lat, longitude: lng, speed: safeSpeed });
+    } catch (delayErr) {
+      console.error('[trackingService] delay check failed (non-fatal):', delayErr.message);
+    }
+
     // ── 7. Emit real-time update to shipper + carrier rooms ───────────────────
     try {
       const io = getIO();

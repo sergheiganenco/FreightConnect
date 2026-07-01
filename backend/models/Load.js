@@ -72,6 +72,9 @@ const LoadSchema = new mongoose.Schema({
   acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   assignedTruckId: { type: String, default: null },
   deliveredAt: { type: Date, default: null },
+  // Predictive-delay alert idempotency: set once the shipper is warned that the
+  // projected ETA has slipped past the delivery window.
+  delayAlertSentAt: { type: Date, default: null },
   completedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
 
   // ── Cancellation fields ───────────────────────────────────────────────────
