@@ -1433,7 +1433,7 @@ router.post('/voice-command', auth, async (req, res) => {
 
       const userId = req.user.userId;
       const role   = req.user.role;
-      const { reason, type, claimAmountCents, evidence } = req.body;
+      const { reason, type, claimAmountCents, evidence, evidenceUrls } = req.body;
 
       // Only shipper or carrier on this load can dispute
       const isShipper = String(load.postedBy) === userId;
@@ -1491,6 +1491,7 @@ router.post('/voice-command', auth, async (req, res) => {
           title: `Dispute: ${type || 'general'}`,
           description: reason,
           claimAmount: claimAmountCents ? claimAmountCents / 100 : undefined,
+          evidenceUrls: Array.isArray(evidenceUrls) ? evidenceUrls : [],
           status: 'open',
           notes: evidence ? [{ content: evidence, author: userId, authorRole: exRole, createdAt: new Date() }] : [],
         });

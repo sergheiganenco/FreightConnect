@@ -39,6 +39,9 @@ const ExceptionSchema = new mongoose.Schema({
   description: { type: String, required: true },
   claimAmount: { type: Number, default: null }, // optional $ claim (disputes, damages)
 
+  // ── Evidence (POD, damage photos, docs) supporting a dispute ──────────────
+  evidenceUrls: [String],
+
   // ── Status lifecycle ──────────────────────────────────────────────────────
   status: {
     type: String,

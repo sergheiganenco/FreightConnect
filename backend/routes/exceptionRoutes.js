@@ -11,6 +11,9 @@
 
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const auth = require('../middlewares/authMiddleware');
 const Exception = require('../models/Exception');
 const Load = require('../models/Load');
@@ -20,6 +23,22 @@ const { notifyUserSafe } = require('../utils/notifyUser');
 function notify(userId, event, payload) {
   try { getIO().to(`user_${userId}`).emit(event, payload); } catch (_) {}
 }
+
+// ── Dispute-evidence uploads (POD / damage photos / PDFs) ────────────────────
+const EVIDENCE_DIR = path.join(__dirname, '..', 'public', 'documents', 'evidence');
+try { fs.mkdirSync(EVIDENCE_DIR, { recursive: true }); } catch (_) {}
+const evidenceUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, EVIDENCE_DIR),
+    filename: (req, file, cb) =>
+      cb(null, `ev-${Date.now()}-${Math.round(Math.random() * 1e6)}${path.extname(file.originalname || '')}`),
+  }),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+  fileFilter: (req, file, cb) => {
+    const ok = /^(image\/|application\/pdf)/.test(file.mimetype || '');
+    cb(ok ? null : new Error('Only images or PDF evidence allowed'), ok);
+  },
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // POST /api/exceptions — file a new exception
@@ -301,6 +320,31 @@ router.post('/:id/notes', auth, async (req, res) => {
     res.status(201).json(exception.notes[exception.notes.length - 1]);
   } catch (err) {
     res.status(500).json({ error: 'Failed to add note' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /api/exceptions/:id/evidence — attach evidence files (party or admin)
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/:id/evidence', auth, evidenceUpload.array('files', 5), async (req, res) => {
+  try {
+    const ex = await Exception.findById(req.params.id).populate('loadId', 'postedBy acceptedBy');
+    if (!ex) return res.status(404).json({ error: 'Exception not found' });
+
+    const uid = req.user.userId;
+    const load = ex.loadId;
+    const isParty = load && (String(load.postedBy) === uid || String(load.acceptedBy) === uid);
+    if (!isParty && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Not authorized to attach evidence to this exception' });
+    }
+
+    const urls = (req.files || []).map((f) => `/documents/evidence/${f.filename}`);
+    ex.evidenceUrls = [...(ex.evidenceUrls || []), ...urls];
+    await ex.save();
+    res.json({ evidenceUrls: ex.evidenceUrls, added: urls });
+  } catch (err) {
+    console.error('[exceptions evidence] failed:', err.message);
+    res.status(500).json({ error: 'Failed to attach evidence' });
   }
 });
 
