@@ -160,9 +160,19 @@ app.post('/api/documents/upload', auth, upload.single('file'), (req, res) => {
   res.json({ message: 'File uploaded successfully', filePath: req.file.path });
 });
 
-// Static uploads serving
-app.use('/documents/uploads', express.static(path.join(__dirname, 'public/documents/uploads')));
-app.use('/documents/receipts', express.static(path.join(__dirname, 'public/documents/receipts')));
+// Static uploads serving. nosniff everywhere; dispute evidence is served as an
+// attachment (never rendered/executed inline) with a locked-down CSP — defense
+// in depth against stored XSS from uploaded files.
+const nosniff = (res) => res.setHeader('X-Content-Type-Options', 'nosniff');
+app.use('/documents/uploads', express.static(path.join(__dirname, 'public/documents/uploads'), { setHeaders: nosniff }));
+app.use('/documents/receipts', express.static(path.join(__dirname, 'public/documents/receipts'), { setHeaders: nosniff }));
+app.use('/documents/evidence', express.static(path.join(__dirname, 'public/documents/evidence'), {
+  setHeaders: (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'attachment');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  },
+}));
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

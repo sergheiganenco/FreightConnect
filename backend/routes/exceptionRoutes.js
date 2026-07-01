@@ -13,6 +13,7 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const auth = require('../middlewares/authMiddleware');
 const Exception = require('../models/Exception');
@@ -27,16 +28,40 @@ function notify(userId, event, payload) {
 // ── Dispute-evidence uploads (POD / damage photos / PDFs) ────────────────────
 const EVIDENCE_DIR = path.join(__dirname, '..', 'public', 'documents', 'evidence');
 try { fs.mkdirSync(EVIDENCE_DIR, { recursive: true }); } catch (_) {}
+// Strict allowlist. NOTE: image/svg+xml is deliberately excluded — SVG can
+// carry executable JavaScript (stored XSS when served inline). The stored
+// extension is derived from THIS map, never from the client filename, so a
+// spoofed name like "evil.html" can never land as an HTML file.
+const ALLOWED_EVIDENCE = {
+  'image/jpeg': '.jpg',
+  'image/png':  '.png',
+  'image/gif':  '.gif',
+  'image/webp': '.webp',
+  'application/pdf': '.pdf',
+};
+const ALLOWED_EVIDENCE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf']);
+
+// Accept only when BOTH the mimetype AND the client extension are allowlisted.
+function evidenceAllowed(file) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const mimeOk = Object.prototype.hasOwnProperty.call(ALLOWED_EVIDENCE, file.mimetype || '');
+  return mimeOk && ALLOWED_EVIDENCE_EXT.has(ext);
+}
+
 const evidenceUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, EVIDENCE_DIR),
-    filename: (req, file, cb) =>
-      cb(null, `ev-${Date.now()}-${Math.round(Math.random() * 1e6)}${path.extname(file.originalname || '')}`),
+    filename: (req, file, cb) => {
+      // Stored extension comes from the mimetype allowlist, never the client
+      // filename; random (crypto) name so paths aren't guessable.
+      const ext = ALLOWED_EVIDENCE[file.mimetype] || '.bin';
+      cb(null, `ev-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
+    },
   }),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
   fileFilter: (req, file, cb) => {
-    const ok = /^(image\/|application\/pdf)/.test(file.mimetype || '');
-    cb(ok ? null : new Error('Only images or PDF evidence allowed'), ok);
+    const ok = evidenceAllowed(file);
+    cb(ok ? null : new Error('Only JPG, PNG, GIF, WEBP, or PDF evidence is allowed'), ok);
   },
 });
 
@@ -326,7 +351,15 @@ router.post('/:id/notes', auth, async (req, res) => {
 // ────────────────────────────────────────────────────────────────────────────
 // POST /api/exceptions/:id/evidence — attach evidence files (party or admin)
 // ────────────────────────────────────────────────────────────────────────────
-router.post('/:id/evidence', auth, evidenceUpload.array('files', 5), async (req, res) => {
+// Wrap multer so a rejected file (bad type / too large) returns a clean 400.
+function uploadEvidence(req, res, next) {
+  evidenceUpload.array('files', 5)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Upload rejected' });
+    next();
+  });
+}
+
+router.post('/:id/evidence', auth, uploadEvidence, async (req, res) => {
   try {
     const ex = await Exception.findById(req.params.id).populate('loadId', 'postedBy acceptedBy');
     if (!ex) return res.status(404).json({ error: 'Exception not found' });

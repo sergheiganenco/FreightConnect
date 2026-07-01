@@ -64,4 +64,39 @@ describe('Dispute evidence', () => {
       .attach('files', Buffer.from('x'), { filename: 'x.jpg', contentType: 'image/jpeg' });
     expect(res.status).toBe(403);
   });
+
+  // ── Security regressions ────────────────────────────────────────────────────
+  test('rejects an SVG upload (can carry JS → stored XSS)', async () => {
+    const { shipper, load } = await inTransitLoad();
+    const ex = await Exception.create({ loadId: load._id, filedBy: shipper._id, filedByRole: 'shipper', type: 'dispute', title: 'x', description: 'y', status: 'open' });
+    const res = await request(app)
+      .post(`/api/exceptions/${ex._id}/evidence`)
+      .set('Authorization', `Bearer ${generateToken(shipper)}`)
+      .attach('files', Buffer.from('<svg onload=alert(1)>'), { filename: 'evil.svg', contentType: 'image/svg+xml' });
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects an HTML file with a spoofed image mimetype (extension check)', async () => {
+    const { shipper, load } = await inTransitLoad();
+    const ex = await Exception.create({ loadId: load._id, filedBy: shipper._id, filedByRole: 'shipper', type: 'dispute', title: 'x', description: 'y', status: 'open' });
+    const res = await request(app)
+      .post(`/api/exceptions/${ex._id}/evidence`)
+      .set('Authorization', `Bearer ${generateToken(shipper)}`)
+      .attach('files', Buffer.from('<script>alert(1)</script>'), { filename: 'evil.html', contentType: 'image/png' });
+    expect(res.status).toBe(400);
+  });
+
+  test('dispute evidenceUrls: javascript:/data:/external URLs are dropped', async () => {
+    const { shipper, load } = await inTransitLoad();
+    const res = await request(app)
+      .put(`/api/loads/${load._id}/dispute`)
+      .set('Authorization', `Bearer ${generateToken(shipper)}`)
+      .send({
+        reason: 'x', type: 'cargo_damage',
+        evidenceUrls: ['javascript:alert(1)', 'https://evil.com/x.js', '//evil.com/y', '/documents/evidence/ok.jpg'],
+      });
+    expect(res.status).toBe(200);
+    const ex = await Exception.findOne({ loadId: load._id });
+    expect(ex.evidenceUrls).toEqual(['/documents/evidence/ok.jpg']);
+  });
 });

@@ -1491,7 +1491,11 @@ router.post('/voice-command', auth, async (req, res) => {
           title: `Dispute: ${type || 'general'}`,
           description: reason,
           claimAmount: claimAmountCents ? claimAmountCents / 100 : undefined,
-          evidenceUrls: Array.isArray(evidenceUrls) ? evidenceUrls : [],
+          // Only accept internal evidence paths (from our upload endpoint).
+          // Reject javascript:/data:/external URLs — stored-XSS / phishing vector.
+          evidenceUrls: Array.isArray(evidenceUrls)
+            ? evidenceUrls.filter((u) => typeof u === 'string' && /^\/documents\/[A-Za-z0-9._/-]+$/.test(u)).slice(0, 20)
+            : [],
           status: 'open',
           notes: evidence ? [{ content: evidence, author: userId, authorRole: exRole, createdAt: new Date() }] : [],
         });
