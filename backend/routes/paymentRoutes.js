@@ -310,7 +310,9 @@ router.get('/invoice/:loadId', auth, async (req, res) => {
     const invoice = await Invoice.findOne({ loadId: req.params.loadId })
       .populate('shipperId', 'name companyName email')
       .populate('carrierId', 'name companyName email');
-    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+    // No invoice yet is a normal state (pre-payment) — return 200 null so the
+    // UI's routine probe doesn't spam the browser console with 404 errors.
+    if (!invoice) return res.json(null);
 
     // Only shipper, carrier, or admin can view
     const userId = req.user.userId;

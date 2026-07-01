@@ -1478,11 +1478,12 @@ router.post('/voice-command', auth, async (req, res) => {
       // match the Exception model exactly (loadId, filedByRole, title, note
       // shape {content,author}, and a valid `type`) — otherwise this silently
       // failed and disputes never showed up in the admin Exceptions queue.
+      let exceptionId = null;
       try {
         const Exception = require('../models/Exception');
         const EX_TYPE = { cargo_damage: 'cargo_damage', overcharge: 'overcharge' };
         const exRole = role === 'admin' ? 'system' : role; // enum: carrier|shipper|system
-        await Exception.create({
+        const createdException = await Exception.create({
           loadId: load._id,
           filedBy: userId,
           filedByRole: exRole,
@@ -1499,6 +1500,7 @@ router.post('/voice-command', auth, async (req, res) => {
           status: 'open',
           notes: evidence ? [{ content: evidence, author: userId, authorRole: exRole, createdAt: new Date() }] : [],
         });
+        exceptionId = createdException._id;
       } catch (exErr) {
         console.error('Failed to create exception for dispute (non-fatal):', exErr);
       }
@@ -1544,6 +1546,8 @@ router.post('/voice-command', auth, async (req, res) => {
         loadStatus: 'disputed',
         disputeType: type || 'general',
         claimAmountCents: claimAmountCents || 0,
+        // Lets the client attach evidence files (POST /exceptions/:id/evidence)
+        exceptionId,
       });
     } catch (err) {
       console.error('Error filing dispute:', err);

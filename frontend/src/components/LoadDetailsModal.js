@@ -45,6 +45,17 @@ const EXCEPTION_SEVERITIES = [
 ];
 const CONFIDENCE_COLOR = { high: semantic.success, medium: semantic.warning, low: semantic.muted, none: '#475569' };
 
+// Dispute types must match the Load.disputeType enum on the backend.
+const DISPUTE_TYPES = [
+  { value: 'cargo_damage',           label: 'Cargo Damage' },
+  { value: 'short_delivery',         label: 'Short Delivery' },
+  { value: 'overcharge',             label: 'Overcharge' },
+  { value: 'freight_misdescription', label: 'Freight Misdescription' },
+  { value: 'payment',                label: 'Payment Issue' },
+  { value: 'service',                label: 'Service Issue' },
+  { value: 'general',                label: 'Other / General' },
+];
+
 // Detention is NOT carrier-requestable — it is auto-documented from facility
 // dwell (see backend detentionBillingService). Carriers request the rest.
 const ACCESSORIAL_TYPES = [
@@ -164,6 +175,15 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [excSaving, setExcSaving] = useState(false);
   const [excError, setExcError] = useState('');
 
+  // ── Dispute state ───────────────────────────────────────────────
+  const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [dispType, setDispType] = useState('cargo_damage');
+  const [dispReason, setDispReason] = useState('');
+  const [dispClaim, setDispClaim] = useState('');
+  const [dispFiles, setDispFiles] = useState([]);
+  const [dispSaving, setDispSaving] = useState(false);
+  const [dispError, setDispError] = useState('');
+
   // ── Driver assignment state ─────────────────────────────────────
   const [drivers, setDrivers] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState('');
@@ -274,6 +294,40 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   }, [loadState._id]);
 
   const canFileException = ['accepted', 'in-transit', 'delivered'].includes(loadState.status);
+
+  // Disputes: either party, on in-transit/delivered loads only (matches backend).
+  const canDispute = ['in-transit', 'delivered'].includes(loadState.status);
+
+  const handleFileDispute = async () => {
+    if (!dispReason.trim()) { setDispError('Please describe the issue.'); return; }
+    setDispSaving(true);
+    setDispError('');
+    try {
+      const claimCents = dispClaim ? Math.round(Number(dispClaim) * 100) : 0;
+      const { data } = await api.put(`/loads/${loadState._id}/dispute`, {
+        reason: dispReason.trim(),
+        type: dispType,
+        claimAmountCents: claimCents > 0 ? claimCents : undefined,
+      });
+      // Attach evidence files to the created Exception (non-fatal if it fails).
+      if (data?.exceptionId && dispFiles.length > 0) {
+        try {
+          const fd = new FormData();
+          dispFiles.forEach(f => fd.append('files', f));
+          await api.post(`/exceptions/${data.exceptionId}/evidence`, fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } catch (_) { /* dispute already filed — evidence can be re-attached later */ }
+      }
+      setLoadState(p => ({ ...p, status: 'disputed', disputeReason: dispReason.trim(), disputeType: dispType }));
+      setShowDisputeForm(false);
+      setDispFiles([]);
+      setOk('Dispute filed. Escrow is frozen until an admin resolves it.');
+    } catch (err) {
+      setDispError(err.response?.data?.error || 'Failed to file dispute.');
+    }
+    setDispSaving(false);
+  };
 
   useEffect(() => {
     if (canFileException) fetchExceptions();
@@ -594,7 +648,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   return (
     <Modal open={!!load} onClose={onClose}
            sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: { xs: 1, md: 2 } }}>
-      <Paper sx={{
+      <Paper role="dialog" aria-modal="true" aria-label={loadState.title || 'Load details'} sx={{
         p: { xs: 3, md: 4 },
         maxWidth: 960,
         width: '100%',
@@ -618,6 +672,20 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center">
+            {loadState.delayAlertSentAt && loadState.status === 'in-transit' && (
+              <Chip
+                label="Running Late"
+                size="small"
+                sx={{ bgcolor: tint(semantic.error, 0.18), color: semantic.error, fontWeight: 700 }}
+              />
+            )}
+            {loadState.status === 'disputed' && (
+              <Chip
+                label="Disputed — Escrow Frozen"
+                size="small"
+                sx={{ bgcolor: tint(semantic.error, 0.18), color: semantic.error, fontWeight: 700 }}
+              />
+            )}
             {loadState.escrowFunded ? (
               <Chip
                 icon={<LockIcon sx={{ fontSize: 14 }} />}
@@ -1492,6 +1560,95 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
                     {excSaving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Submit Exception'}
                   </Button>
                   <Button variant="text" onClick={() => setShowExcForm(false)} sx={{ color: T.secondary }}>
+                    Cancel
+                  </Button>
+                </Stack>
+              </Stack>
+            </Collapse>
+          </Box>
+        )}
+
+        {/* ── Dispute section ── */}
+        {loadState.status === 'disputed' && (
+          <Box mb={2}>
+            <Divider sx={{ mb: 2, borderColor: surface.glassBorder }} />
+            <Alert severity="error" sx={{ bgcolor: tint(semantic.error, 0.08), color: T.primary }}>
+              <Typography variant="body2" fontWeight={700}>
+                Dispute filed{loadState.disputeType ? ` — ${String(loadState.disputeType).replace(/_/g, ' ')}` : ''}. Escrow is frozen pending admin resolution.
+              </Typography>
+              {loadState.disputeReason && (
+                <Typography variant="caption" sx={{ color: T.secondary }}>{loadState.disputeReason}</Typography>
+              )}
+            </Alert>
+          </Box>
+        )}
+        {canDispute && (
+          <Box mb={2}>
+            <Divider sx={{ mb: 2, borderColor: surface.glassBorder }} />
+            <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <WarningAmberIcon sx={{ color: semantic.error, fontSize: 20 }} />
+                <Typography variant="subtitle1" fontWeight={700}>Dispute</Typography>
+              </Stack>
+              <Button
+                size="small"
+                variant={showDisputeForm ? 'outlined' : 'contained'}
+                color="error"
+                onClick={() => setShowDisputeForm(v => !v)}
+                sx={{ borderRadius: 9999, fontSize: '0.78rem', fontWeight: 700 }}
+              >
+                File Dispute
+              </Button>
+            </Stack>
+            <Collapse in={showDisputeForm}>
+              <Stack spacing={1.5} sx={{ p: 2, borderRadius: 2, bgcolor: tint(semantic.error, 0.06), border: `1px solid ${tint(semantic.error, 0.2)}` }}>
+                <Typography variant="caption" sx={{ color: T.secondary }}>
+                  Filing a dispute freezes escrow until an admin reviews the evidence and resolves it.
+                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <FormControl size="small" fullWidth sx={darkFieldSx}>
+                    <InputLabel>Dispute Type</InputLabel>
+                    <Select value={dispType} label="Dispute Type" onChange={e => setDispType(e.target.value)}>
+                      {DISPUTE_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="Claim Amount (optional)" size="small" type="number" fullWidth
+                    value={dispClaim} onChange={e => setDispClaim(e.target.value)}
+                    sx={darkFieldSx}
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                  />
+                </Stack>
+                <TextField
+                  label="What happened?" size="small" fullWidth multiline minRows={3}
+                  value={dispReason} onChange={e => setDispReason(e.target.value)}
+                  placeholder="Describe the issue in detail…"
+                  sx={darkFieldSx}
+                />
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <Button component="label" size="small" variant="outlined" sx={{ borderRadius: 9999, fontSize: '0.75rem' }}>
+                    Attach Evidence
+                    <input
+                      type="file" hidden multiple
+                      accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
+                      onChange={e => setDispFiles([...e.target.files].slice(0, 5))}
+                    />
+                  </Button>
+                  <Typography variant="caption" sx={{ color: T.secondary }}>
+                    {dispFiles.length > 0 ? `${dispFiles.length} file(s) selected` : 'Photos or PDFs (POD, damage photos) — up to 5'}
+                  </Typography>
+                </Stack>
+                {dispError && <Alert severity="error" sx={{ py: 0 }}>{dispError}</Alert>}
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    variant="contained" color="error"
+                    onClick={handleFileDispute}
+                    disabled={dispSaving || !dispReason.trim()}
+                    sx={{ borderRadius: 9999, fontWeight: 700 }}
+                  >
+                    {dispSaving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Submit Dispute'}
+                  </Button>
+                  <Button variant="text" onClick={() => setShowDisputeForm(false)} sx={{ color: T.secondary }}>
                     Cancel
                   </Button>
                 </Stack>

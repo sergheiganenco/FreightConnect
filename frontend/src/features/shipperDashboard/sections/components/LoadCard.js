@@ -74,6 +74,15 @@ export default function LoadCard({ load, onClick }) {
           </Typography>
         )}
 
+        {/* Predictive delay badge — set when the projected ETA slipped past the delivery window */}
+        {load.delayAlertSentAt && load.status === 'in-transit' && (
+          <Chip
+            label="Running Late"
+            size="small"
+            sx={{ mb: 0.5, mr: 0.5, bgcolor: 'rgba(239,68,68,0.15)', color: '#ef4444', fontWeight: 700, fontSize: '0.75rem', border: '1px solid rgba(239,68,68,0.4)' }}
+          />
+        )}
+
         {/* Overweight badge */}
         {load.overweightAcknowledged && (
           <Chip

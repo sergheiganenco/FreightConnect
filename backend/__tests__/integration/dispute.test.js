@@ -76,12 +76,13 @@ describe('Dispute lifecycle', () => {
       .send({ reason: 'Short delivery — 2 pallets missing', type: 'short_delivery', claimAmountCents: 40000 });
     expectStatus(res, 200);
     expect(res.body.loadStatus).toBe('disputed');
+    expect(res.body.exceptionId).toBeTruthy(); // client uses this to attach evidence files
 
     const load = await Load.findById(loadId);
     expect(load.status).toBe('disputed');
     expect(load.disputeType).toBe('short_delivery');
 
-    const ex = await Exception.findOne({ load: loadId });
+    const ex = await Exception.findOne({ loadId });
     expect(ex).toBeTruthy();
     expect(ex.status).toBe('open');
   });
