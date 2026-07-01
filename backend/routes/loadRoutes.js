@@ -1474,18 +1474,25 @@ router.post('/voice-command', auth, async (req, res) => {
         return res.status(409).json({ error: result.error });
       }
 
-      // Create an Exception record for admin tracking
+      // Create an Exception record for admin tracking. Field names + enums must
+      // match the Exception model exactly (loadId, filedByRole, title, note
+      // shape {content,author}, and a valid `type`) — otherwise this silently
+      // failed and disputes never showed up in the admin Exceptions queue.
       try {
         const Exception = require('../models/Exception');
+        const EX_TYPE = { cargo_damage: 'cargo_damage', overcharge: 'overcharge' };
+        const exRole = role === 'admin' ? 'system' : role; // enum: carrier|shipper|system
         await Exception.create({
-          load: load._id,
+          loadId: load._id,
           filedBy: userId,
-          type: type || 'dispute',
+          filedByRole: exRole,
+          type: EX_TYPE[type] || 'dispute',
           severity: claimAmountCents > 100000 ? 'critical' : claimAmountCents > 25000 ? 'high' : 'medium',
+          title: `Dispute: ${type || 'general'}`,
           description: reason,
           claimAmount: claimAmountCents ? claimAmountCents / 100 : undefined,
           status: 'open',
-          notes: evidence ? [{ text: evidence, addedBy: userId, addedAt: new Date() }] : [],
+          notes: evidence ? [{ content: evidence, author: userId, authorRole: exRole, createdAt: new Date() }] : [],
         });
       } catch (exErr) {
         console.error('Failed to create exception for dispute (non-fatal):', exErr);
