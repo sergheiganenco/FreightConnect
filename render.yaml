@@ -18,6 +18,8 @@ services:
       cd backend && node app.js
     healthCheckPath: /api/health
     envVars:
+      - key: NODE_VERSION
+        value: "22.13.0"   # match the Node/npm that generated package-lock.json; npm 11 (Node 24) resolves extra transitive deps and breaks `npm ci`. Also avoids CRA-on-Node24 build breakage.
       - key: NODE_ENV
         value: production
       - key: PORT
