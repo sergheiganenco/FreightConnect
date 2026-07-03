@@ -54,3 +54,10 @@ docker-compose.override.yml
 
 # Runtime user uploads (dispute evidence)
 backend/public/documents/evidence/
+
+# Local secret notes — NEVER commit (contain DB/prod credentials)
+Mongo DB psw.txt
+*psw*.txt
+*password*.txt
+*credentials*.txt
+*.secret
