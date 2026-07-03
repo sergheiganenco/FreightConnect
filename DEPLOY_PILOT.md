@@ -12,12 +12,18 @@ Payments stay OFF (no Stripe keys) — this is the no-money pilot boundary.
 
 ## Step 1 — MongoDB Atlas (~10 min, your account)
 
-1. https://cloud.mongodb.com → create a free **M0** cluster (region: **Oregon/us-west-2** to match Render's `oregon`).
-2. **Database Access** → Add user → username `fcpilot`, autogenerate a strong password → role **Read and write to any database**.
+> **Already done for this project** (via the Atlas console): a `readWrite`-scoped
+> `fcpilot` user on database `freightconnect-pilot`, and a `0.0.0.0/0` network
+> entry. The cluster is `Cluster0` in **Azure / Virginia (eastus2)** — which is
+> why `render.yaml` uses `region: virginia` (co-located = low DB latency).
+> If you're reproducing from scratch, the steps are:
+
+1. https://cloud.mongodb.com → create a free **M0** cluster. Note its region and set `render.yaml`'s `region:` to the nearest Render region (Azure Virginia/eastus2 → `virginia`; us-west → `oregon`).
+2. **Database Access** → Add user → username `fcpilot`, autogenerate a strong password → **Specific Privileges → `readWrite` @ `freightconnect-pilot`** (scoped, not admin).
 3. **Network Access** → Add IP → **0.0.0.0/0** ("allow from anywhere" — Render's IPs rotate; auth + TLS still protect you).
-4. **Connect → Drivers** → copy the connection string and set the db name:
+4. **Connect → Drivers** → copy the connection string and set the db name to `freightconnect-pilot`:
    ```
-   mongodb+srv://fcpilot:<password>@<cluster>.mongodb.net/freightconnect?retryWrites=true&w=majority
+   mongodb+srv://fcpilot:<password>@cluster0.<hash>.mongodb.net/freightconnect-pilot?retryWrites=true&w=majority
    ```
    This is your **MONGO_URI**. Keep it out of git.
 

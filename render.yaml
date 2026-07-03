@@ -10,7 +10,7 @@ services:
   - type: web
     name: freightconnect
     runtime: node
-    region: oregon
+    region: virginia   # co-located with the Atlas cluster (Azure eastus2 / Virginia) to minimize DB latency
     plan: starter   # $7/mo — fine for the pilot; bump to standard when traffic grows
     buildCommand: |
       cd frontend && npm ci && npm run build && cd ../backend && npm ci --omit=dev
