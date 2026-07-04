@@ -5,6 +5,7 @@ import L from 'leaflet';
 import api from '../../services/api';
 import { getSocket } from '../../services/socket';
 import CarrierLocationTracker from '../../components/CarrierLocationTracker';
+import DriverToolsBar from '../../components/DriverToolsBar';
 import { semantic } from '../../theme/tokens';
 
 // How many seconds before a location is considered stale
@@ -162,6 +163,12 @@ export default function CarrierLiveMap() {
           )}
         </Stack>
       </Stack>
+
+      {/* One-tap links to best-in-class road tools (parking, fuel, nav, weather).
+          We link out rather than rebuild commodity data we can't keep fresh. */}
+      <Box sx={{ mb: 2 }}>
+        <DriverToolsBar />
+      </Box>
 
       {showTraffic && !TOMTOM_TRAFFIC_KEY && (
         <Alert severity="warning" sx={{ mb: 2 }}>

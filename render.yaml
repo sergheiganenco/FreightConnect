@@ -36,6 +36,9 @@ services:
         value: "300"          # req/min per IP — dashboards poll; 100 is tight for pilots
       - key: ALLOWED_ORIGINS
         sync: false    # set to your Render URL, e.g. https://freightconnect.onrender.com
+      - key: REACT_APP_TOMTOM_TRAFFIC_KEY
+        sync: false    # OPTIONAL: paste a free key from developer.tomtom.com to light up the
+                       # carrier Live Map "Traffic" overlay. Build-time (CRA) — redeploy after setting.
       - key: ORS_API_KEY
         sync: false
       - key: STRIPE_SECRET_KEY
