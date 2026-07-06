@@ -253,14 +253,23 @@ router.post('/:id/fuel', auth, CARRIER_ONLY, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const { location, gallons, pricePerGallon } = req.body;
-    if (!gallons || !pricePerGallon) {
-      return res.status(400).json({ error: 'gallons and pricePerGallon are required' });
+    const { location } = req.body;
+    const gallons = parseFloat(req.body.gallons);
+    const pricePerGallon = parseFloat(req.body.pricePerGallon);
+    if (!Number.isFinite(gallons) || gallons <= 0 || !Number.isFinite(pricePerGallon) || pricePerGallon <= 0) {
+      return res.status(400).json({ error: 'gallons and pricePerGallon must be positive numbers' });
     }
 
-    const totalCost = Math.round(parseFloat(gallons) * parseFloat(pricePerGallon) * 100); // cents
-    trip.fuelStops.push({ location, gallons, pricePerGallon, totalCost: totalCost / 100 });
-    trip.totalFuelCostCents += totalCost;
+    // Canonical integer cents + dollar shadow (Payment model convention)
+    const totalCostCents = Math.round(parseFloat(gallons) * parseFloat(pricePerGallon) * 100);
+    trip.fuelStops.push({
+      location,
+      gallons,
+      pricePerGallon,
+      totalCostCents,
+      totalCost: totalCostCents / 100,
+    });
+    trip.totalFuelCostCents += totalCostCents;
     await trip.save();
     res.json(trip);
   } catch (err) {

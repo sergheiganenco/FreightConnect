@@ -156,6 +156,10 @@ const UserSchema = new mongoose.Schema({
       enum: ['unverified', 'pending', 'verified', 'suspended', 'rejected'],
       default: 'unverified',
     },
+    // Why the account is suspended (set by whichever monitor/actor suspends).
+    // Auto-restore paths only reverse their OWN suspensions — e.g. an insurance
+    // renewal must never lift a fraud/FMCSA/admin suspension.
+    suspensionReason: { type: String, default: null }, // 'insurance' | 'fmcsa_authority' | others
     mcNumber: String,
     dotNumber: String,
     fmcsaData: {

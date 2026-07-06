@@ -5,7 +5,7 @@
  * Never use floating-point arithmetic for money.
  */
 
-const PLATFORM_FEE_RATE = 0.02; // 2%
+const { PLATFORM_FEE_PCT: PLATFORM_FEE_RATE } = require('../config/fees'); // single source of truth
 const SUPPORTED_CURRENCIES = ['usd'];
 
 /**

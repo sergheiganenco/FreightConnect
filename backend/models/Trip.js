@@ -27,7 +27,9 @@ const FuelStopSchema = new mongoose.Schema({
   location:    String,
   gallons:     Number,
   pricePerGallon: Number,
-  totalCost:   Number,
+  // Money convention (matches Payment): canonical integer cents + dollar shadow.
+  totalCostCents: Number,   // source of truth
+  totalCost:   Number,      // dollars, for display (= totalCostCents / 100)
   recordedAt:  { type: Date, default: Date.now },
 }, { _id: false });
 

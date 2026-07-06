@@ -34,7 +34,7 @@ if (process.env.STRIPE_SECRET_KEY) {
   console.warn('[payments] STRIPE_SECRET_KEY not set — Stripe features disabled');
 }
 
-const PLATFORM_FEE_PCT = 0.02; // 2% platform fee
+const { PLATFORM_FEE_PCT } = require('../config/fees'); // single source of truth (shared with tax layer)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 function stripeRequired(req, res, next) {

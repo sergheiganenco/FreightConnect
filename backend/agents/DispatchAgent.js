@@ -65,24 +65,31 @@ class DispatchAgent extends Agent {
 
         if (scored.length === 0) continue;
 
-        const best = scored[0];
-
-        // 5. Atomic accept — only update if load is still open
-        const updated = await Load.findOneAndUpdate(
-          { _id: load._id, status: 'open' },
-          {
-            $set: {
-              status: 'accepted',
-              acceptedBy: best.carrier._id,
+        // 5. Booking gate + atomic accept — auto-dispatch BOOKS the load, so
+        // it must pass the same eligibility (hazmat/endorsements, credential
+        // expiry) + anti-fraud (insurance expiry) enforcement as manual paths.
+        // Walk candidates best-first until one passes the gate.
+        const { evaluateBookingGate, atomicBookLoad } = require('../services/bookingGuard');
+        let updated = null;
+        let best = null;
+        for (const candidate of scored) {
+          const gate = await evaluateBookingGate({ load, carrierId: candidate.carrier._id });
+          if (!gate.allowed) continue;
+          updated = await atomicBookLoad({
+            loadId: load._id,
+            carrierId: candidate.carrier._id,
+            gate,
+            extra: {
               autoDispatched: true,
               autoDispatchedAt: new Date(),
-              autoDispatchScore: best.score,
+              autoDispatchScore: candidate.score,
             },
-          },
-          { new: true },
-        );
+          });
+          best = candidate;
+          break; // booked, or load taken by another path (checked below)
+        }
 
-        if (!updated) continue; // another agent or user accepted first
+        if (!updated || !best) continue; // no eligible carrier, or already booked
 
         dispatched++;
 

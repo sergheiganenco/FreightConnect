@@ -650,18 +650,38 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
       return res.status(400).json({ error: "Load is not open for assignment." });
     }
 
-    // 5. Assign load to truck and update status, available, and lastStatusUpdate
+    // 4b. Booking gate — assign-load BOOKS the load, so it must pass the same
+    // eligibility + anti-fraud enforcement as every other booking path.
+    const { evaluateBookingGate, atomicBookLoad } = require("../services/bookingGuard");
+    const gate = await evaluateBookingGate({ load, carrierId: user._id, req, carrier: user });
+    if (!gate.allowed) {
+      return res.status(403).json({
+        error: "Cannot book this load: " + gate.reasons.join("; "),
+        reasons: gate.reasons,
+        verificationStatus: gate.verificationStatus,
+      });
+    }
+
+    // 5. Book atomically (prevents double-booking), then assign the truck.
+    const booked = await atomicBookLoad({
+      loadId,
+      carrierId: user._id,
+      gate,
+      extra: { assignedTruckId: truckId },
+    });
+    if (!booked) {
+      return res.status(409).json({ error: "Load is no longer available for booking." });
+    }
+
     truck.assignedLoadId = loadId;
     truck.status = "In Transit";               // Automated status (could be "Assigned" if you prefer)
     truck.available = false;                   // Truck is now busy!
     truck.lastStatusUpdate = new Date();       // Track when the status changed
 
-    load.status = "accepted";
-    load.acceptedBy = user._id;
-    load.assignedTruckId = truckId;
-
     await user.save();
-    await load.save();
+    load.status = booked.status;
+    load.acceptedBy = booked.acceptedBy;
+    load.assignedTruckId = booked.assignedTruckId;
 
     // Notify shipper that carrier is in transit
     notifyUserSafe(load.postedBy?.toString(), {

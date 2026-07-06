@@ -63,6 +63,7 @@ const ExpenseSchema = new Schema({
 ExpenseSchema.index({ carrier: 1, date: -1 });
 ExpenseSchema.index({ carrier: 1, category: 1 });
 ExpenseSchema.index({ carrier: 1, date: 1, category: 1 }); // for date-range + category filters
+ExpenseSchema.index({ carrier: 1, isDeductible: 1, date: 1 }); // tax-summary deductible aggregation
 
 // Statics: category labels for frontend display
 ExpenseSchema.statics.CATEGORIES = EXPENSE_CATEGORIES;

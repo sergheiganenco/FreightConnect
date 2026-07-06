@@ -8,6 +8,9 @@ const { suggestRate } = require('../services/rateSuggestionService');
 const { getIO } = require('../utils/socket');
 const { generateRateConfirmation } = require('../utils/pdfGenerator');
 const { notifyUserSafe } = require('../utils/notifyUser');
+// Accepting a bid (or a counter) ASSIGNS the load, so it must pass the exact
+// same eligibility + anti-fraud enforcement as the direct accept path.
+const { evaluateBookingGate, atomicBookLoad } = require('../services/bookingGuard');
 
 // ── Helper: notify via socket ────────────────────────────────────────────────
 function notify(userId, event, payload) {
@@ -197,16 +200,45 @@ router.put('/:id/accept', auth, async (req, res) => {
 
     const finalAmount = bid.status === 'countered' ? (bid.counterAmount || bid.amount) : bid.amount;
 
+    // ── Booking gate: same enforcement as the direct accept path ──────────
+    // Blocks unverified identity, lapsed/expired insurance, and missing
+    // endorsements BEFORE any state changes (bid stays pending/countered).
+    const gate = await evaluateBookingGate({ load: bid.loadId, carrierId: bid.carrierId, req });
+    if (!gate.allowed) {
+      return res.status(403).json({
+        error: 'Cannot book this carrier: ' + gate.reasons.join('; '),
+        reasons: gate.reasons,
+        verificationStatus: gate.verificationStatus,
+      });
+    }
+
+    // Atomic: assign only while the load is still open (prevents clobbering a
+    // load already booked via direct accept or another bid).
+    const bookedLoad = await atomicBookLoad({
+      loadId: bid.loadId._id,
+      carrierId: bid.carrierId,
+      gate,
+      extra: { rate: finalAmount },
+    });
+    if (!bookedLoad) {
+      return res.status(409).json({ error: 'Load is no longer available for booking' });
+    }
+    if (gate.riskFlags.length > 0) {
+      console.warn(`[antiFraudGuard] Load ${bid.loadId._id} booked via bid ${bid._id} with risk flags: ${gate.riskFlags.join(', ')}`);
+    }
+
     bid.status = 'accepted';
     bid.history.push({ actor: 'shipper', action: 'accepted', amount: finalAmount });
-    await bid.save();
-
-    // Update load: set rate to negotiated amount and accept
-    await Load.findByIdAndUpdate(bid.loadId._id, {
-      rate: finalAmount,
-      acceptedBy: bid.carrierId,
-      status: 'accepted',
-    });
+    try {
+      await bid.save();
+    } catch (bidErr) {
+      // Keep bid + load consistent: if the bid record can't be updated, undo the booking.
+      await Load.findByIdAndUpdate(bid.loadId._id, {
+        $set: { status: 'open', acceptedBy: null },
+        $unset: { acceptanceFingerprint: 1 },
+      });
+      throw bidErr;
+    }
 
     // Reject all other bids on this load
     await Bid.updateMany(
@@ -355,15 +387,41 @@ router.put('/:id/accept-counter', auth, async (req, res) => {
     }
     if (bid.status !== 'countered') return res.status(409).json({ error: 'Bid has not been countered' });
 
+    // ── Booking gate: same enforcement as the direct accept path ──────────
+    const gate = await evaluateBookingGate({ load: bid.loadId, carrierId: bid.carrierId, req });
+    if (!gate.allowed) {
+      return res.status(403).json({
+        error: 'Cannot accept counter: ' + gate.reasons.join('; '),
+        reasons: gate.reasons,
+        verificationStatus: gate.verificationStatus,
+      });
+    }
+
+    // Atomic: assign only while the load is still open.
+    const bookedLoad = await atomicBookLoad({
+      loadId: bid.loadId._id,
+      carrierId: bid.carrierId,
+      gate,
+      extra: { rate: bid.counterAmount },
+    });
+    if (!bookedLoad) {
+      return res.status(409).json({ error: 'Load is no longer available for booking' });
+    }
+    if (gate.riskFlags.length > 0) {
+      console.warn(`[antiFraudGuard] Load ${bid.loadId._id} booked via counter-accept ${bid._id} with risk flags: ${gate.riskFlags.join(', ')}`);
+    }
+
     bid.status = 'accepted';
     bid.history.push({ actor: 'carrier', action: 'accepted', amount: bid.counterAmount });
-    await bid.save();
-
-    await Load.findByIdAndUpdate(bid.loadId._id, {
-      rate: bid.counterAmount,
-      acceptedBy: bid.carrierId,
-      status: 'accepted',
-    });
+    try {
+      await bid.save();
+    } catch (bidErr) {
+      await Load.findByIdAndUpdate(bid.loadId._id, {
+        $set: { status: 'open', acceptedBy: null },
+        $unset: { acceptanceFingerprint: 1 },
+      });
+      throw bidErr;
+    }
 
     notify(bid.loadId.postedBy.toString(), 'bid:accepted', {
       bidId: bid._id,

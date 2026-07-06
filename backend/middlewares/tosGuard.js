@@ -1,3 +1,4 @@
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 const CURRENT_TOS_VERSION = '1.0';
@@ -13,19 +14,38 @@ const SKIP_PATHS = [
 
 /**
  * Middleware that ensures the authenticated user has accepted the current ToS version.
- * Must be mounted AFTER authMiddleware sets req.user.
- * Skips unauthenticated requests (those are handled by authMiddleware itself).
+ *
+ * Mounted globally BEFORE route-level JWT auth (app.js), so req.user is only
+ * pre-set for API-key clients (apiKeyAuth). For JWT/browser/mobile traffic we
+ * peek at the bearer token ourselves — otherwise this guard never sees a user
+ * and is dead code for the entire web/mobile app. Invalid or missing tokens
+ * fall through untouched; authMiddleware still owns the 401 semantics.
  */
 const tosGuard = async (req, res, next) => {
   // Skip paths that don't require ToS acceptance
   const shouldSkip = SKIP_PATHS.some(p => req.originalUrl.startsWith(p));
   if (shouldSkip) return next();
 
-  // If no user attached (unauthenticated route), skip — auth middleware will handle 401
-  if (!req.user || !req.user.userId) return next();
+  // Resolve the acting user: apiKeyAuth may have set req.user; otherwise
+  // decode the JWT (verify-only peek — no req.user side effects).
+  let userId = req.user && req.user.userId;
+  if (!userId) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (token) {
+      try {
+        userId = jwt.verify(token, process.env.JWT_SECRET).userId;
+      } catch (_) {
+        // invalid/expired token — authMiddleware will reply 401 downstream
+      }
+    }
+  }
+
+  // No identifiable user (unauthenticated route) — auth middleware handles 401
+  if (!userId) return next();
 
   try {
-    const user = await User.findById(req.user.userId).select('tosAccepted tosVersion').lean();
+    const user = await User.findById(userId).select('tosAccepted tosVersion').lean();
     if (!user) return next(); // user not found — let downstream handle
 
     if (!user.tosAccepted || user.tosVersion !== CURRENT_TOS_VERSION) {

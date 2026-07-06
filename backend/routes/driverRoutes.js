@@ -44,8 +44,11 @@ router.post(
 
       const {
         name, phone, licenseNumber, licenseState, licenseExpiry,
-        endorsements, hazmatExpiry, medicalCardExpiry,
+        endorsements, hazmatExpiry,
       } = req.body;
+      // Canonical field is medicalCardExpiry; accept the web form's legacy
+      // `medicalExpiry` alias too (a silent mismatch here lost the date entirely).
+      const medicalCardExpiry = req.body.medicalCardExpiry ?? req.body.medicalExpiry;
 
       const driver = {
         driverId: generateDriverId(user.drivers),
@@ -153,6 +156,11 @@ router.put('/:driverId', auth, async (req, res) => {
 
     const driver = user.drivers.find((d) => d.driverId === req.params.driverId);
     if (!driver) return res.status(404).json({ error: 'Driver not found' });
+
+    // Normalize the web form's legacy alias to the canonical field
+    if (req.body.medicalExpiry !== undefined && req.body.medicalCardExpiry === undefined) {
+      req.body.medicalCardExpiry = req.body.medicalExpiry;
+    }
 
     const allowed = [
       'name', 'phone', 'licenseNumber', 'licenseState', 'licenseExpiry',

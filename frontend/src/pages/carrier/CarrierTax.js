@@ -275,7 +275,7 @@ export default function CarrierTax() {
               <KPICard label="Gross Earnings" value={fmt$(summary.totalEarningsCents)} color="#34d399" />
             </Grid>
             <Grid item xs={6} sm={3}>
-              <KPICard label="Platform Fees (5%)" value={fmt$(summary.platformFeeCents)} color="#f97316" />
+              <KPICard label="Platform Fees" value={fmt$(summary.platformFeeCents)} color="#f97316" />
             </Grid>
             <Grid item xs={6} sm={3}>
               <KPICard label="Net Earnings" value={fmt$(summary.netEarningsCents)} color="#6366f1" />

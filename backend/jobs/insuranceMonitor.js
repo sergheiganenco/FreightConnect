@@ -1,15 +1,45 @@
 const cron = require('node-cron');
 const User = require('../models/User');
 const emailService = require('../services/emailService');
+const fmcsaService = require('../services/fmcsaService');
 
 const EXPIRY_WARNING_DAYS = 30;
+
+/**
+ * A suspension can come from insurance, the FMCSA authority monitor, fraud
+ * detection, the review queue, or an admin. Insurance renewal must only
+ * reverse an INSURANCE suspension (verification.suspensionReason), and even
+ * then only when the recorded FMCSA data is still clean — otherwise renewing
+ * a COI would resurrect a revoked/unsatisfactory or fraud-suspended carrier.
+ */
+function fmcsaStillClean(carrier) {
+  const fmcsa = carrier.verification?.fmcsaData;
+  if (!fmcsa || !fmcsa.operatingStatus) return true; // nothing recorded to hold against them
+  try {
+    if (!fmcsaService.verifyAuthority(fmcsa)) return false;
+    if (String(fmcsa.safetyRating || '').toLowerCase() === 'unsatisfactory') return false;
+    return true;
+  } catch (_) {
+    return true; // never let a helper error strand a carrier in suspension
+  }
+}
+
+function mayRestoreFromInsurance(carrier) {
+  return (
+    carrier.verification.status === 'suspended' &&
+    carrier.verification.suspensionReason === 'insurance' &&
+    fmcsaStillClean(carrier)
+  );
+}
 
 async function runInsuranceCheck() {
   console.log('[InsuranceMonitor] Running nightly insurance check...');
   try {
+    // Include suspended carriers: a carrier this job suspended must be seen
+    // again on later runs or the restore branch below is unreachable.
     const carriers = await User.find({
       role: 'carrier',
-      'verification.status': 'verified',
+      'verification.status': { $in: ['verified', 'suspended'] },
     });
 
     const now = new Date();
@@ -19,12 +49,14 @@ async function runInsuranceCheck() {
       const ins = carrier.verification?.insurance;
       if (!ins) continue;
 
-      const expiryDate =
-        ins.cargoLiability?.expiry || ins.autoLiability?.expiry || null;
-
-      if (!expiryDate) continue;
-
-      const expiry = new Date(expiryDate);
+      // Earliest expiry across policies — a valid cargo policy must not mask
+      // an expired auto-liability policy (mirrors antiFraudGuard).
+      const expiries = [ins.cargoLiability?.expiry, ins.autoLiability?.expiry]
+        .filter(Boolean)
+        .map((d) => new Date(d))
+        .filter((d) => !isNaN(d.getTime()));
+      if (expiries.length === 0) continue;
+      const expiry = new Date(Math.min(...expiries.map((d) => d.getTime())));
       let changed = false;
 
       if (expiry < now) {
@@ -32,6 +64,7 @@ async function runInsuranceCheck() {
         if (ins.status !== 'lapsed') {
           carrier.verification.insurance.status = 'lapsed';
           carrier.verification.status = 'suspended';
+          carrier.verification.suspensionReason = 'insurance';
           changed = true;
 
           try {
@@ -49,7 +82,14 @@ async function runInsuranceCheck() {
           }
         }
       } else if (expiry < warnCutoff) {
-        // Insurance expiring soon
+        // Insurance expiring soon — but currently VALID, so a carrier we
+        // suspended for lapsed insurance who renewed into this window gets
+        // their account back (suspension would otherwise never lift).
+        if (mayRestoreFromInsurance(carrier)) {
+          carrier.verification.status = 'verified';
+          carrier.verification.suspensionReason = null;
+          changed = true;
+        }
         if (ins.status !== 'expiring') {
           carrier.verification.insurance.status = 'expiring';
           changed = true;
@@ -73,8 +113,9 @@ async function runInsuranceCheck() {
         // Insurance is valid — restore if previously lapsed/expiring
         if (ins.status === 'lapsed' || ins.status === 'expiring') {
           carrier.verification.insurance.status = 'valid';
-          if (carrier.verification.status === 'suspended') {
+          if (mayRestoreFromInsurance(carrier)) {
             carrier.verification.status = 'verified';
+            carrier.verification.suspensionReason = null;
           }
           changed = true;
         }

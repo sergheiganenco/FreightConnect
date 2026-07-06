@@ -113,7 +113,7 @@ export default function CarrierDrivers() {
       licenseNumber: d.licenseNumber || '',
       licenseState: d.licenseState || '',
       licenseExpiry: toDateInput(d.licenseExpiry),
-      medicalExpiry: toDateInput(d.medicalExpiry),
+      medicalExpiry: toDateInput(d.medicalCardExpiry), // canonical API field
       hazmatExpiry: toDateInput(d.hazmatExpiry),
       endorsements: Array.isArray(d.endorsements) ? d.endorsements : [],
       status: d.status || 'active',
@@ -140,7 +140,7 @@ export default function CarrierDrivers() {
       licenseNumber: form.licenseNumber.trim(),
       licenseState: form.licenseState.trim(),
       licenseExpiry: form.licenseExpiry || undefined,
-      medicalExpiry: form.medicalExpiry || undefined,
+      medicalCardExpiry: form.medicalExpiry || undefined, // canonical API field
       hazmatExpiry: form.hazmatExpiry || undefined,
       endorsements: form.endorsements,
       status: form.status,
@@ -313,11 +313,11 @@ export default function CarrierDrivers() {
                     )}
                   </Box>
 
-                  {(d.medicalExpiry || d.hazmatExpiry) && (
+                  {(d.medicalCardExpiry || d.hazmatExpiry) && (
                     <Box sx={{ mb: 1 }}>
-                      {d.medicalExpiry && (
+                      {d.medicalCardExpiry && (
                         <Typography variant="caption" sx={{ color: T.secondary, display: 'block' }}>
-                          Medical exp: {new Date(d.medicalExpiry).toLocaleDateString()}
+                          Medical exp: {new Date(d.medicalCardExpiry).toLocaleDateString()}
                         </Typography>
                       )}
                       {d.hazmatExpiry && (

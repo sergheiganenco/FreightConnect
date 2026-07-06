@@ -34,6 +34,8 @@ const TaxRecordSchema = new Schema({
   loadCount:           { type: Number, default: 0 },
   estimatedMilesDriven: { type: Number, default: 0 },   // from accepted loads (rough)
   requires1099:        { type: Boolean, default: false }, // true if earnings >= $600
+  totalExpensesCents:  { type: Number, default: 0 },    // deductible Expense records for the year
+  netProfitCents:      { type: Number, default: 0 },    // netEarnings - deductible expenses
 
   // Shipper fields
   totalSpendCents:     { type: Number, default: 0 },

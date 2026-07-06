@@ -14,15 +14,25 @@
 
 const express = require('express');
 const router  = express.Router();
+const mongoose = require('mongoose');
 const auth    = require('../middlewares/authMiddleware');
 const TaxRecord = require('../models/TaxRecord');
 const Load    = require('../models/Load');
 const User    = require('../models/User');
 const Expense = require('../models/Expense');
+const Payment = require('../models/Payment');
+const { PLATFORM_FEE_PCT } = require('../config/fees');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Calculate a carrier's tax summary for a given year (not persisted here). */
+/**
+ * Calculate a carrier's tax summary for a given year (not persisted here).
+ *
+ * Money source of truth: when a released Payment exists for a load, its
+ * cents-accurate settled amounts win. Loads settled off-platform (pilot mode,
+ * Stripe dormant) fall back to Load.rate with the shared platform fee — the
+ * same 2% the payment pipeline actually charges, not a stale hardcoded rate.
+ */
 async function calcCarrierSummary(userId, year) {
   const startOfYear = new Date(`${year}-01-01T00:00:00.000Z`);
   const endOfYear   = new Date(`${year}-12-31T23:59:59.999Z`);
@@ -33,10 +43,43 @@ async function calcCarrierSummary(userId, year) {
     deliveredAt: { $gte: startOfYear, $lte: endOfYear },
   });
 
-  const totalEarningsCents = loads.reduce((sum, l) => sum + Math.round((l.rate || 0) * 100), 0);
-  // FreightConnect takes 5% platform fee (adjust as needed)
-  const platformFeeCents = Math.round(totalEarningsCents * 0.05);
+  // Payments and expenses are independent — fetch them in parallel
+  const [payments, expenseAgg] = await Promise.all([
+    Payment.find({
+      carrierId: userId,
+      loadId: { $in: loads.map((l) => l._id) },
+      status: 'released',
+    }).select('loadId amountCents platformFeeCents'),
+    Expense.aggregate([
+      {
+        $match: {
+          carrier: new mongoose.Types.ObjectId(String(userId)),
+          isDeductible: true,
+          date: { $gte: startOfYear, $lte: endOfYear },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$amountCents' } } },
+    ]),
+  ]);
+  const paymentByLoad = new Map(payments.map((p) => [String(p.loadId), p]));
+
+  let totalEarningsCents = 0;
+  let platformFeeCents = 0;
+  for (const l of loads) {
+    const p = paymentByLoad.get(String(l._id));
+    if (p && Number.isFinite(p.amountCents)) {
+      totalEarningsCents += p.amountCents;
+      platformFeeCents   += p.platformFeeCents || 0;
+    } else {
+      const grossCents = Math.round((l.rate || 0) * 100);
+      totalEarningsCents += grossCents;
+      platformFeeCents   += Math.round(grossCents * PLATFORM_FEE_PCT);
+    }
+  }
   const netEarningsCents = totalEarningsCents - platformFeeCents;
+
+  // Deductible expenses logged for the year (non-deductible excluded)
+  const totalExpensesCents = expenseAgg.length ? expenseAgg[0].total : 0;
 
   // Rough mileage estimate: no stored mileage per load — use a constant 350mi avg
   const estimatedMilesDriven = loads.length * 350;
@@ -47,6 +90,8 @@ async function calcCarrierSummary(userId, year) {
     totalEarningsCents,
     platformFeeCents,
     netEarningsCents,
+    totalExpensesCents,
+    netProfitCents: netEarningsCents - totalExpensesCents,
     estimatedMilesDriven,
     requires1099: totalEarningsCents >= 60000, // $600.00
   };
@@ -93,6 +138,14 @@ router.get('/summary/:year', auth, async (req, res) => {
     }
 
     const role = req.user.role;
+
+    // Freeze filed years: once a 1099 has been generated/sent from a record,
+    // recalculation must not silently rewrite the figures it was based on.
+    const existing = await TaxRecord.findOne({ user: req.user.userId, taxYear: year });
+    if (existing && ['generated', 'sent'].includes(existing.form1099Status)) {
+      return res.json(existing);
+    }
+
     let fields = {};
 
     if (role === 'carrier') {
@@ -227,8 +280,11 @@ router.get('/export/:year', auth, async (req, res) => {
       const date = l.deliveredAt ? new Date(l.deliveredAt).toLocaleDateString('en-US') : '';
       const rate = (l.rate || 0).toFixed(2);
       if (role === 'carrier') {
-        const fee = ((l.rate || 0) * 0.05).toFixed(2);
-        const net = ((l.rate || 0) * 0.95).toFixed(2);
+        // Integer-cents math (house money rule) — matches the /summary fallback exactly
+        const grossCents = Math.round((l.rate || 0) * 100);
+        const feeCents = Math.round(grossCents * PLATFORM_FEE_PCT);
+        const fee = (feeCents / 100).toFixed(2);
+        const net = ((grossCents - feeCents) / 100).toFixed(2);
         return [date, `"${l.title}"`, `"${l.origin}"`, `"${l.destination}"`, rate, fee, net];
       } else {
         const carrier = l.acceptedBy?.companyName || l.acceptedBy?.name || 'N/A';
@@ -259,9 +315,9 @@ router.get('/export/:year', auth, async (req, res) => {
           return [date, `"${cat}"`, `"${e.vendor}"`, `"${e.description}"`, amount, e.isDeductible ? 'Yes' : 'No', miles];
         });
 
-        const totalExpenses = expenses.reduce((s, e) => s + e.amountCents, 0);
-        const totalIncome   = loads.reduce((s, l) => s + Math.round((l.rate || 0) * 100), 0);
-        const netProfit     = totalIncome - Math.round(totalIncome * 0.05) - totalExpenses;
+        // SUMMARY must agree with /summary (the 1099 basis): same Payment-preferred
+        // gross/fee and same deductible-only expense subtraction.
+        const summary = await calcCarrierSummary(req.user.userId, year);
 
         csvParts.push('');
         csvParts.push('--- EXPENSES ---');
@@ -269,10 +325,10 @@ router.get('/export/:year', auth, async (req, res) => {
         csvParts.push(...expRows.map(r => r.join(',')));
         csvParts.push('');
         csvParts.push('--- SUMMARY ---');
-        csvParts.push(`Gross Income,$${(totalIncome / 100).toFixed(2)}`);
-        csvParts.push(`Platform Fees (5%),$${(Math.round(totalIncome * 0.05) / 100).toFixed(2)}`);
-        csvParts.push(`Total Expenses,$${(totalExpenses / 100).toFixed(2)}`);
-        csvParts.push(`Net Profit,$${(netProfit / 100).toFixed(2)}`);
+        csvParts.push(`Gross Income,$${(summary.totalEarningsCents / 100).toFixed(2)}`);
+        csvParts.push(`Platform Fees (${(PLATFORM_FEE_PCT * 100).toFixed(0)}%),$${(summary.platformFeeCents / 100).toFixed(2)}`);
+        csvParts.push(`Deductible Expenses,$${(summary.totalExpensesCents / 100).toFixed(2)}`);
+        csvParts.push(`Net Profit,$${(summary.netProfitCents / 100).toFixed(2)}`);
       }
     }
 
