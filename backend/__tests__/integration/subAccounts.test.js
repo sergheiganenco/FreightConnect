@@ -81,6 +81,28 @@ describe('company sub-accounts', () => {
     expect(login.status).toBe(403);
   });
 
+  test('deactivating a member revokes their existing token immediately', async () => {
+    const email = `revoke-${Date.now()}@acme.com`;
+    const created = await addDispatcher({ email, password: 'DispatchPass1' });
+    const login = await request(app).post('/api/users/login').send({ email, password: 'DispatchPass1' });
+    const memberToken = login.body.token;
+
+    // The token works before deactivation.
+    const before = await request(app).get('/api/users/whoami').set('Authorization', `Bearer ${memberToken}`);
+    expect(before.status).toBe(200);
+
+    // Owner deactivates the member.
+    await request(app)
+      .patch(`/api/users/team/${created.body.member._id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ active: false });
+
+    // The SAME token is now rejected right away — no waiting for the 1-day expiry.
+    const after = await request(app).get('/api/users/whoami').set('Authorization', `Bearer ${memberToken}`);
+    expect(after.status).toBe(401);
+    expect(after.body.code).toBe('account_deactivated');
+  });
+
   test('a non-owner cannot manage the team', async () => {
     const email = `d3-${Date.now()}@acme.com`;
     await addDispatcher({ email, password: 'DispatchPass1' });

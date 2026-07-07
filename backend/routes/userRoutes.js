@@ -566,6 +566,10 @@ router.patch('/team/:id', auth, async (req, res) => {
     if (['dispatcher', 'driver'].includes(req.body.companyRole)) member.companyRole = req.body.companyRole;
     await member.save();
 
+    // Make an active-status change take effect immediately (bypass the TTL cache),
+    // so a deactivated member's existing token stops working right away.
+    auth.invalidateActive(member._id);
+
     res.json({
       member: {
         _id: member._id, name: member.name, email: member.email,
