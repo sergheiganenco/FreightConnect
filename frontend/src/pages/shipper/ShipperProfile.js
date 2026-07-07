@@ -9,6 +9,7 @@ import VerifiedIcon from "@mui/icons-material/Verified";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import api from "../../services/api";
+import MfaSetup from "../../components/MfaSetup";
 
 const VERIFICATION_STATUS_CONFIG = {
   unverified: {
@@ -305,6 +306,8 @@ export default function ShipperProfile() {
             );
           })}
         </Stack>
+        <Divider sx={{ my: 4, borderColor: "#bcbcff55" }} />
+        <MfaSetup />
       </Paper>
       <Snackbar
         open={snackbar.open}
