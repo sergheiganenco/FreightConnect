@@ -14,6 +14,10 @@ const auth = (req, res, next) => {
     req.user = {
       userId: decoded.userId,
       role: decoded.role,
+      companyRole: decoded.companyRole || 'owner',
+      // The company an account acts for (owner id). Sub-account tokens carry it;
+      // older tokens (owners only) fall back to their own id — same thing.
+      companyOwnerId: decoded.companyOwnerId || decoded.userId,
     };
     next();
   } catch (err) {

@@ -268,6 +268,11 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
+    // Deactivated sub-accounts cannot log in.
+    if (user.active === false) {
+      return res.status(403).json({ error: 'This account has been deactivated. Contact your company administrator.' });
+    }
+
     // ── MFA enforcement ──────────────────────────────────────────
     if (user.mfa && user.mfa.enabled) {
       // No code provided yet — tell the client to prompt for it (do NOT issue JWT)
@@ -288,7 +293,13 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
     }
 
     const token = jwt.sign(
-      { userId: user._id, role: user.role },
+      {
+        userId: user._id,
+        role: user.role,
+        companyRole: user.companyRole || 'owner',
+        // The company this session acts for (owner id).
+        companyOwnerId: String(user.parentAccountId || user._id),
+      },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
@@ -300,6 +311,7 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
         name: user.name,
         email: user.email,
         role: user.role,
+        companyRole: user.companyRole || 'owner',
         emailVerified: user.emailVerified !== false,
       },
     });
@@ -433,6 +445,112 @@ router.post('/refresh-token', auth, async (req, res) => {
 router.get("/whoami", auth, (req, res) => {
   // Returns the user object from the auth middleware
   res.json({ user: req.user });
+});
+
+// ----------------------
+// 3b) Company team (sub-accounts): dispatchers & drivers under one company
+// ----------------------
+
+// Load the acting user and confirm they are a company OWNER (only owners manage the team).
+async function requireOwner(req, res) {
+  const owner = await User.findById(req.user.userId).select('companyRole companyId companyName role active');
+  if (!owner) { res.status(404).json({ error: 'User not found' }); return null; }
+  if (owner.companyRole !== 'owner') {
+    res.status(403).json({ error: 'Only the company owner can manage team members' });
+    return null;
+  }
+  return owner;
+}
+
+// GET /api/users/team — list the owner's sub-accounts
+router.get('/team', auth, async (req, res) => {
+  try {
+    const owner = await requireOwner(req, res);
+    if (!owner) return;
+    const members = await User.find({ parentAccountId: owner._id })
+      .select('name email companyRole active createdAt')
+      .sort({ createdAt: -1 });
+    res.json({ members });
+  } catch (err) {
+    console.error('[team] list failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/users/team — owner creates a dispatcher or driver sub-account
+router.post('/team',
+  auth,
+  [
+    body('name').trim().notEmpty().withMessage('Name is required'),
+    body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+    body('companyRole').isIn(['dispatcher', 'driver']).withMessage('companyRole must be dispatcher or driver'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const owner = await requireOwner(req, res);
+      if (!owner) return;
+
+      const { name, email, password, companyRole } = req.body;
+      const existing = await User.findOne({ email });
+      if (existing) return res.status(400).json({ error: 'A user already exists with this email' });
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const member = await User.create({
+        name,
+        email,
+        password: hashedPassword,
+        // Sub-accounts inherit the company's marketplace role + company identity.
+        role: owner.role,
+        companyRole,
+        parentAccountId: owner._id,
+        companyId: owner.companyId || undefined,
+        companyName: owner.companyName || undefined,
+        emailVerified: true, // provisioned by a trusted owner, not self-signup
+        active: true,
+      });
+
+      res.status(201).json({
+        member: {
+          _id: member._id, name: member.name, email: member.email,
+          companyRole: member.companyRole, active: member.active,
+        },
+      });
+    } catch (err) {
+      if (err.code === 11000) return res.status(400).json({ error: 'A user already exists with this email' });
+      console.error('[team] create failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// PATCH /api/users/team/:id — owner updates a sub-account (name / active toggle)
+router.patch('/team/:id', auth, async (req, res) => {
+  try {
+    const owner = await requireOwner(req, res);
+    if (!owner) return;
+
+    const member = await User.findById(req.params.id);
+    if (!member || String(member.parentAccountId) !== String(owner._id)) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+
+    if (typeof req.body.name === 'string' && req.body.name.trim()) member.name = req.body.name.trim();
+    if (typeof req.body.active === 'boolean') member.active = req.body.active;
+    if (['dispatcher', 'driver'].includes(req.body.companyRole)) member.companyRole = req.body.companyRole;
+    await member.save();
+
+    res.json({
+      member: {
+        _id: member._id, name: member.name, email: member.email,
+        companyRole: member.companyRole, active: member.active,
+      },
+    });
+  } catch (err) {
+    console.error('[team] update failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // ----------------------

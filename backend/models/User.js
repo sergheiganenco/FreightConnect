@@ -56,6 +56,16 @@ const UserSchema = new mongoose.Schema({
 
   companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
 
+  // ── Company sub-accounts ──────────────────────────────────────────────────
+  // Every account belongs to a company. The account that signed up is the
+  // 'owner'; owners can create 'dispatcher' and 'driver' sub-accounts that log
+  // in with their own credentials but act on behalf of the same company. A
+  // sub-account's parentAccountId points at its owner; owners have it null.
+  companyRole: { type: String, enum: ['owner', 'dispatcher', 'driver'], default: 'owner' },
+  parentAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+  // Deactivated accounts cannot log in (used to disable a dispatcher/driver).
+  active: { type: Boolean, default: true },
+
   // -- For Carrier Accounts Only --
   fleet: [TruckSchema],
 
@@ -292,6 +302,21 @@ const UserSchema = new mongoose.Schema({
 // Indexes for common query patterns (email already unique-indexed via field option)
 UserSchema.index({ role: 1 });
 UserSchema.index({ 'verification.status': 1 });
+
+// The company an account belongs to, identified by its OWNER's user id.
+// Owners resolve to themselves; sub-accounts resolve to their parent.
+UserSchema.methods.companyOwnerId = function () {
+  return this.parentAccountId || this._id;
+};
+
+// Resolve a company owner id from a bare user id without loading the full doc.
+// Returns the same id for owners, the parent id for sub-accounts.
+UserSchema.statics.companyOwnerIdFor = async function (userId) {
+  if (!userId) return null;
+  const u = await this.findById(userId).select('parentAccountId').lean();
+  if (!u) return String(userId);
+  return String(u.parentAccountId || userId);
+};
 
 // Export the model
 module.exports = mongoose.model('User', UserSchema);

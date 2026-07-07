@@ -132,7 +132,11 @@ module.exports = (io) => {
   router.get("/", auth, async (req, res) => {
     try {
       const { status, equipmentType, minRate, maxRate, pickupStart, pickupEnd, sortBy, sortOrder } = req.query;
-  
+
+      // Scope by the COMPANY (owner id), so a dispatcher/driver sub-account sees the
+      // company's loads. For an owner this equals their own id (behavior unchanged).
+      const companyId = req.user.companyOwnerId || req.user.userId;
+
       let filter = {};
       // The set of open-load conditions that respect preferred-visibility gating.
       // Reused below so a `?status=` filter can't accidentally leak preferred loads.
@@ -141,9 +145,9 @@ module.exports = (io) => {
       // ---- Carrier: open loads and loads accepted by this carrier
       // Preferred-visibility loads are hidden from non-preferred carriers during firstLook window
       if (req.user.role === "carrier") {
-        // Find shippers who have this carrier as preferred
+        // Find shippers who have this company's carrier as preferred
         const preferredEntries = await PreferredCarrier.find({
-          carrier: req.user.userId,
+          carrier: companyId,
           isActive: true,
         }).select('shipper').lean();
         const preferredShipperIds = preferredEntries.map(e => e.shipper);
@@ -161,15 +165,15 @@ module.exports = (io) => {
         filter = {
           $or: [
             ...carrierOpenVisible,
-            // Loads accepted by this carrier
-            { acceptedBy: req.user.userId },
+            // Loads accepted by this company
+            { acceptedBy: companyId },
           ],
         };
       }
 
-      // ---- Shipper: loads posted by this shipper
+      // ---- Shipper: loads posted by this company
       else if (req.user.role === "shipper") {
-        filter = { postedBy: req.user.userId };
+        filter = { postedBy: companyId };
       }
 
       // ---- Admin: see ALL loads (no filter = all docs)
@@ -182,8 +186,8 @@ module.exports = (io) => {
             // Only open loads — but keep the preferred-visibility gating intact.
             filter = { $or: carrierOpenVisible };
           } else {
-            // The carrier's own loads in this status (do not surface others' loads).
-            filter = { status, acceptedBy: req.user.userId };
+            // The company's own loads in this status (do not surface others' loads).
+            filter = { status, acceptedBy: companyId };
           }
         } else {
           filter.status = status;
@@ -340,7 +344,8 @@ router.get("/open", auth, async (req, res) => {
 
       const { status, sortBy, sortOrder } = req.query;
 
-      let filters = { postedBy: req.user.userId };
+      // Company-scoped: shipper sub-accounts see the company's posted loads.
+      let filters = { postedBy: req.user.companyOwnerId || req.user.userId };
       if (status) filters.status = status;
 
       const sortOptions = {};
@@ -850,7 +855,9 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
           .json({ error: "Only carriers can view this data" });
       }
 
-      const loads = await Load.find({ acceptedBy: req.user.userId });
+      // Company-scoped: a dispatcher/driver sub-account sees the company's loads.
+      const companyId = req.user.companyOwnerId || req.user.userId;
+      const loads = await Load.find({ acceptedBy: companyId });
       res.json(loads);
     } catch (err) {
       console.error("Error fetching carrier loads:", err);
