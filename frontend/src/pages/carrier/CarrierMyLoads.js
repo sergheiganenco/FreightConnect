@@ -5,7 +5,6 @@ import {
   Box,
   Paper,
   Grid,
-  CircularProgress,
   Snackbar,
   Alert,
   MenuItem,
@@ -14,15 +13,12 @@ import {
   Select,
   Skeleton,
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
 import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
 import { glassCard } from '../../theme/tokens';
 
 export default function CarrierMyLoads({ embedded = false }) {
-  const theme = useTheme();
-
   /* ── state ────────────────────────────────────────────────── */
   const [loads, setLoads] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');

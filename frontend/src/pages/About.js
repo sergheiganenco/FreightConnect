@@ -4,8 +4,7 @@ import CountUp from 'react-countup';
 import Slider from 'react-slick';
 import 'slick-carousel/slick/slick.css';
 import 'slick-carousel/slick/slick-theme.css';
-import { UserCircle } from 'lucide-react';
-import { gradient, text, glassCard, surface } from '../theme/tokens';
+import { gradient, text, glassCard } from '../theme/tokens';
 
 // Team data: founder first
 const team = [

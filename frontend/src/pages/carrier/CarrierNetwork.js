@@ -12,7 +12,7 @@ import {
   Box, Typography, Stack, Tabs, Tab, Paper, Chip, Button,
   CircularProgress, TextField, FormControl, InputLabel, Select,
   MenuItem, Dialog, DialogTitle, DialogContent, DialogActions,
-  Pagination, Alert, IconButton, Tooltip, Badge, Divider,
+  Pagination, Alert, IconButton, Tooltip, Badge,
   InputAdornment,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -378,7 +378,7 @@ export default function CarrierNetwork() {
 
   // Partners / directory state
   const [directory, setDirectory] = useState([]);
-  const [dirTotal, setDirTotal] = useState(0);
+  const [, setDirTotal] = useState(0);
   const [dirPages, setDirPages] = useState(1);
   const [dirPage, setDirPage] = useState(1);
   const [dirLoading, setDirLoading] = useState(false);

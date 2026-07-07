@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Typography, Grid, Link, Stack, IconButton, Divider } from '@mui/material';
 import { LinkedIn, Twitter } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { surface, text, brand, gradient } from '../theme/tokens';
+import { surface, text, gradient } from '../theme/tokens';
 
 const footerLinks = {
   product: [

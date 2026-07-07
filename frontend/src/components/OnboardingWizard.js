@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box, Stepper, Step, StepLabel, Button, Typography, TextField, Paper,
   Checkbox, FormControlLabel, FormGroup, Grid, Select, MenuItem,
   InputLabel, FormControl, IconButton, Alert, CircularProgress,
-  StepConnector, Chip, Stack
+  StepConnector, Chip
 } from '@mui/material';
 import { Add, Delete, CloudUpload, CheckCircle } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';

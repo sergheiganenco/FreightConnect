@@ -9,7 +9,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
 import api from "../../services/api";
-import { brand, semantic, surface, text as T, status as ST } from '../../theme/tokens';
+import { brand, semantic, surface, text as T } from '../../theme/tokens';
 
 const columns = [
   { id: "name", label: "Company", minWidth: 120 },

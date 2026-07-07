@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
-  Box, Grid, Card, CardContent, Typography, MenuItem, Select, Button, Stack, IconButton,
-  Dialog, DialogContent, useMediaQuery, Alert
+  Box, Grid, Card, CardContent, Typography, MenuItem, Select, Button, Stack,
+  useMediaQuery, Alert
 } from "@mui/material";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import DownloadIcon from "@mui/icons-material/Download";
 import { LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis, Legend } from "recharts";
 import Papa from "papaparse";
@@ -13,7 +12,6 @@ import { gradient, surface, text as T, chart, brand, tint } from '../../theme/to
 
 const API_BASE = process.env.REACT_APP_API_URL || "/api";
 
-const PIE_COLORS = chart.pie;
 const CHART_COLORS = chart.line;
 const PURPLE_BG = gradient.analyticsBg;
 const CARD_BG = surface.cardBg;
@@ -39,7 +37,7 @@ export default function ShipperAnalytics() {
   const [routes, setRoutes] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [periods] = useState(["Last 4 Weeks", "Last 3 Months", "YTD"]);
-  const [statusList, setStatusList] = useState(["All"]);
+  const [, setStatusList] = useState(["All"]);
   const [activity, setActivity] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
   const [smartTips, setSmartTips] = useState([]);

@@ -96,6 +96,9 @@ function ExceptionDrawer({ exception, onClose, onUpdated }) {
       setError('');
       setSuccess('');
     }
+    // Intentionally keyed on _id only: re-running on every new `exception`
+    // object reference (e.g. after a refetch) would wipe in-progress form input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exception?._id]);
 
   const handleStatusUpdate = async () => {

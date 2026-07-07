@@ -40,4 +40,6 @@ export function disconnectSocket() {
   }
 }
 
-export default { getSocket, disconnectSocket };
+const socketApi = { getSocket, disconnectSocket };
+
+export default socketApi;

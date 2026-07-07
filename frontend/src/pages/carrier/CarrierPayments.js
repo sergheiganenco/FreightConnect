@@ -2,14 +2,14 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Stack, Alert,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Button, Skeleton, Pagination, Divider, Tooltip,
+  Paper, Button, Skeleton, Pagination, Tooltip,
 } from '@mui/material';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-import { surface, chart, gradient, semantic } from '../../theme/tokens';
+import { surface, chart, gradient } from '../../theme/tokens';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const token = () => localStorage.getItem('token');

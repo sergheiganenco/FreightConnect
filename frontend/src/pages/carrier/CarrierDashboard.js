@@ -24,8 +24,6 @@ import SideNav from '../../features/carrierDashboard/sections/components/SideNav
 import LogisticsAssistant from '../../components/LogisticsAssistant';
 import { DashboardProvider } from '../../features/carrierDashboard/sections/context/DashboardContext';
 import NotificationBell from '../../features/shared/NotificationBell';
-import AIInsightsPanel from '../../components/AIInsightsPanel';
-import CarrierScorecard from '../../components/CarrierScorecard';
 import { disconnectSocket } from '../../services/socket';
 import { surface } from '../../theme/tokens';
 import VerificationBanner from '../../components/VerificationBanner';

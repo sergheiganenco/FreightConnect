@@ -244,7 +244,6 @@ export default function CarrierELD() {
   const [statusOdometer, setStatusOdometer] = useState('');
 
   // Certify dialog
-  const [certifyDate, setCertifyDate] = useState('');
   const [certifyLoading, setCertifyLoading] = useState(false);
 
   const refreshInterval = useRef(null);

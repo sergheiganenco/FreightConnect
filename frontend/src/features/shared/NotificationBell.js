@@ -23,7 +23,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { getSocket } from '../../services/socket';
-import { brand, semantic, status as ST, surface, text as T, tint } from '../../theme/tokens';
+import { brand, semantic, status as ST, surface, text as T } from '../../theme/tokens';
 
 // ── Icon + colour per notification type ────────────────────────────────────
 const TYPE_META = {

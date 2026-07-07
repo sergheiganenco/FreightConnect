@@ -97,7 +97,6 @@ export default function Profile() {
 
   // ── Stripe Connect state ─────────────────────────────────────────
   const [stripeStatus, setStripeStatus] = useState(null); // null | {connected, payoutsEnabled}
-  const [stripeLoading, setStripeLoading] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
 
   useEffect(() => {
@@ -163,17 +162,6 @@ export default function Profile() {
       setSnackbar({ open: true, message: "Failed to save preferences.", severity: "error" });
     }
     setPrefSaving(false);
-  };
-
-  const fetchStripeStatus = async () => {
-    setStripeLoading(true);
-    try {
-      const { data } = await api.get("/payments/connect/status");
-      setStripeStatus(data);
-    } catch {
-      setStripeStatus({ connected: false, payoutsEnabled: false });
-    }
-    setStripeLoading(false);
   };
 
   const handleStripeOnboard = async () => {
@@ -605,8 +593,7 @@ export default function Profile() {
               <PaymentIcon sx={{ color: "#bcbcff" }} />
               <Typography variant="h6" fontWeight={700} color="#fff">Payout Setup</Typography>
             </Stack>
-            {stripeLoading && <CircularProgress size={20} />}
-            {!stripeLoading && stripeStatus && (
+            {stripeStatus && (
               <Box
                 sx={{
                   p: 2.5, borderRadius: 3, mb: 2,

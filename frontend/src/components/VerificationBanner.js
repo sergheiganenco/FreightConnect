@@ -15,8 +15,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import {
-  Box, Typography, Stack, Button, Alert, AlertTitle,
-  LinearProgress, Chip, Collapse,
+  Typography, Stack, Button, Alert, AlertTitle,
+  LinearProgress, Chip,
 } from '@mui/material';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -150,7 +150,6 @@ export default function VerificationBanner({ role }) {
   // ── Shipper checks ──────────────────────────────────────────────
   if (role === 'shipper') {
     const level = status.level || 0;
-    const permissions = status.permissions || {};
     const sv = status.shipperVerification || {};
 
     if (sv.status === 'verified') return null; // Fully verified

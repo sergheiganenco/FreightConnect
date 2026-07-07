@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Container, Paper, Typography, Button, Grid, TextField } from '@mui/material';
 import { MapPin, Phone, Mail } from 'lucide-react';
-import { gradient, text, glassCard, buttonVariants, darkFieldSx, surface } from '../theme/tokens';
+import { gradient, text, glassCard, buttonVariants, darkFieldSx } from '../theme/tokens';
 
 export default function Contact() {
   return (

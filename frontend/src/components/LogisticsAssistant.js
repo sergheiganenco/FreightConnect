@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import {
-  Box, IconButton, Typography, Paper, Button, TextField, CircularProgress
+  Box, IconButton, Typography, Paper, Button, CircularProgress
 } from '@mui/material';
 import MicIcon from '@mui/icons-material/Mic';
 import ChatIcon from '@mui/icons-material/Chat';
@@ -14,9 +14,8 @@ const LogisticsAssistant = ({ onLoadAccepted }) => {
   const [recommendedLoads, setRecommendedLoads] = useState([]);
   const [selectedLoad, setSelectedLoad] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [manualInput, setManualInput] = useState('');
   const [useText, setUseText] = useState(false);
-  const [transcripts, setTranscripts] = useState([]);
+  const [, setTranscripts] = useState([]);
 
   const { transcript, listening, resetTranscript } = useSpeechRecognition();
 

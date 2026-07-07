@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Box, Typography, Grid, Paper, Button, Chip, Stack, Divider,
+  Box, Typography, Grid, Paper, Button, Chip, Stack,
   CircularProgress, Alert, TextField, Select, MenuItem, FormControl,
-  InputLabel, Stepper, Step, StepLabel, StepContent, Collapse,
+  InputLabel, Stepper, Step, StepLabel, StepContent,
 } from '@mui/material';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import EmailIcon from '@mui/icons-material/Email';

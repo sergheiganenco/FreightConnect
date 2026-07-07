@@ -25,7 +25,6 @@ import {
   Alert,
   CircularProgress,
   Grid,
-  Divider,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -46,7 +45,6 @@ import {
   Tooltip as ReTooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Legend,
 } from 'recharts';
 import { surface, semantic, brand } from '../../theme/tokens';
 
@@ -156,10 +154,6 @@ export default function ReeferMonitorPanel({ loadId, role, reefer: reeferProp })
     : null;
 
   const latestC  = status?.latest?.tempC;
-  const inRange  = latestC != null && reefer?.enabled
-    ? (reefer.targetMinC == null || latestC >= reefer.targetMinC) &&
-      (reefer.targetMaxC == null || latestC <= reefer.targetMaxC)
-    : true;
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={32} /></Box>;
 

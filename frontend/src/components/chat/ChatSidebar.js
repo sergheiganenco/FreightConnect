@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Box, Typography, TextField, InputAdornment, Chip, Badge, CircularProgress,
+  Box, Typography, TextField, InputAdornment, Chip, CircularProgress,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';

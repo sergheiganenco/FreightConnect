@@ -232,7 +232,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
       if (s) s.off('loadStatusUpdated', handler);
       if (s) s.off('bid:accepted', bidHandler);
     };
-  }, [loadState._id]);
+  }, [loadState._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fetch route ─────────────────────────────────────────────────
   useEffect(() => {

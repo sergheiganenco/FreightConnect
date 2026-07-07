@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Paper, Typography, CircularProgress, Alert, Grid, Chip,
-  LinearProgress, Stack, Tooltip, Divider, Avatar
+  LinearProgress, Stack, Divider, Avatar
 } from '@mui/material';
 import {
   Star, Verified, Shield, WorkspacePremium, EmojiEvents,
-  PersonOutline, TrendingUp, TrendingDown, TrendingFlat
+  PersonOutline
 } from '@mui/icons-material';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   Tooltip as RTooltip, CartesianGrid
 } from 'recharts';
 import api from '../services/api';
-import { surface, text, brand, semantic, chart, shadow, tint, gradient } from '../theme/tokens';
+import { surface, text, brand, chart, shadow, tint } from '../theme/tokens';
 
 const glassCard = {
   background: surface.cardBg,

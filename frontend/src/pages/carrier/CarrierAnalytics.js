@@ -15,7 +15,7 @@ import { saveAs } from "file-saver";
 import axios from "axios";
 import { PDFDownloadLink, Document, Page, Text, StyleSheet } from "@react-pdf/renderer";
 
-import { gradient, surface, text as T, chart, semantic, brand, tint } from '../../theme/tokens';
+import { gradient, surface, text as T, chart, brand, tint } from '../../theme/tokens';
 
 const PURPLE_BG = gradient.analyticsBg;
 const CARD_BG = surface.cardBg;

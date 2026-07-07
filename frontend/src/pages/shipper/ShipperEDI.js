@@ -546,7 +546,6 @@ export default function ShipperEDI() {
                                   <Tooltip title="Download">
                                     <IconButton size="small" sx={{ color: '#6366f1' }}
                                       onClick={() => {
-                                        const token = localStorage.getItem('token');
                                         const url = doc.rawContent
                                           ? URL.createObjectURL(new Blob([doc.rawContent], { type: 'text/plain' }))
                                           : null;

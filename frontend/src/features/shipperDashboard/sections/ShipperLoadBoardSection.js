@@ -4,7 +4,7 @@ import { Box, Typography, Select, MenuItem, FormControl, InputLabel, Pagination,
 import LoadGrid from "./components/LoadGrid";
 import { useShipperLoads } from "../hooks/useShipperLoads";
 import LoadDetailsModal from "../../../components/LoadDetailsModal";
-import { status as ST, surface, text as T, brand, statusColor } from "../../../theme/tokens";
+import { surface, text as T, brand, statusColor } from "../../../theme/tokens";
 
 // --- Helpers ---
 const normalizeStatus = s =>

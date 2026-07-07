@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Box, Paper, Typography, Chip, Grid, CircularProgress, Tooltip, Alert, Stack,
+  Box, Paper, Typography, Chip, Grid, CircularProgress, Alert, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 } from '@mui/material';
 import {
@@ -12,7 +12,7 @@ import {
   Tooltip as RTooltip, CartesianGrid
 } from 'recharts';
 import api from '../services/api';
-import { surface, text, brand, semantic, chart, shadow, gradient, tint } from '../theme/tokens';
+import { surface, text, brand, semantic, chart, shadow, tint } from '../theme/tokens';
 
 const REFRESH_INTERVAL = 300000; // 5 minutes
 

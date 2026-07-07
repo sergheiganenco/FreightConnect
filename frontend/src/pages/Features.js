@@ -3,7 +3,7 @@ import React from 'react';
 import { Box, Container, Paper, Typography, Grid } from '@mui/material';
 import { Sparkles, FileText, Eye, Ban } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { gradient, text, glassCard, surface, brand } from '../theme/tokens';
+import { gradient, text, glassCard, brand } from '../theme/tokens';
 
 const features = [
   {
