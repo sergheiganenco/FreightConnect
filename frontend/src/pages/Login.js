@@ -16,13 +16,11 @@ import {
 } from '@mui/material';
 import api from '../services/api';
 import {
-  brand,
   surface,
   text,
   gradient,
   darkFieldSx,
   shadow,
-  transition,
 } from '../theme/tokens';
 
 export default function Login() {
@@ -46,6 +44,9 @@ export default function Login() {
 
       localStorage.setItem('token', token);
       localStorage.setItem('role', user.role);
+      // Company sub-account role drives nav gating (owner-only tabs are hidden
+      // from dispatcher/driver logins). Defaults to owner for solo accounts.
+      localStorage.setItem('companyRole', user.companyRole || 'owner');
 
       if (user.role === 'admin') {
         navigate('/dashboard/admin');

@@ -890,7 +890,10 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
     }
 
     // If your Load model stores a reference to shipper by userId:
-    const loads = await Load.find({ shipperId: req.user.userId });
+    // Load has no `shipperId` field — the owner is `postedBy`. Company-scoped so a
+    // shipper sub-account sees the company's loads. (This endpoint backs the
+    // shipper Documents page, which was permanently empty due to the bad field.)
+    const loads = await Load.find({ postedBy: req.user.companyOwnerId || req.user.userId });
     res.json(loads);
   } catch (err) {
     console.error("Error fetching shipper loads:", err);

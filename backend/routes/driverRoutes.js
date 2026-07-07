@@ -5,8 +5,20 @@ const auth = require('../middlewares/authMiddleware');
 const validate = require('../middlewares/validate');
 const { managerOnly } = require('../middlewares/companyRoles');
 const User = require('../models/User');
+const { encrypt, maskField } = require('../utils/fieldCrypto');
 
 const ALLOWED_ENDORSEMENTS = ['hazmat', 'tanker', 'doubles_triples', 'passenger', 'school_bus'];
+
+/**
+ * Return a driver subdoc as a plain object with the CDL number masked. Never
+ * return the live Mongoose subdoc from a read path — masking it in place and
+ * then saving would overwrite the ciphertext with the mask.
+ */
+function sanitizeDriver(driver) {
+  const d = typeof driver.toObject === 'function' ? driver.toObject() : { ...driver };
+  if (d.licenseNumber) d.licenseNumber = maskField(d.licenseNumber);
+  return d;
+}
 
 // ── Helper: generate a roster-unique driverId ───────────────────────────────
 function generateDriverId(existingDrivers = []) {
@@ -24,7 +36,7 @@ router.get('/', auth, async (req, res) => {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
     const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user.drivers || []);
+    res.json((user.drivers || []).map(sanitizeDriver));
   } catch (err) {
     console.error('[drivers GET] failed:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -56,7 +68,8 @@ router.post(
         driverId: generateDriverId(user.drivers),
         name: String(name).trim(),
         phone: phone || undefined,
-        licenseNumber: licenseNumber || undefined,
+        // CDL number is PII — encrypt at rest (AES-256-GCM); masked on read.
+        licenseNumber: licenseNumber ? encrypt(String(licenseNumber).trim()) : undefined,
         licenseState: licenseState || undefined,
         licenseExpiry: licenseExpiry || undefined,
         endorsements: Array.isArray(endorsements) ? endorsements : [],
@@ -70,7 +83,7 @@ router.post(
       await user.save();
 
       const created = user.drivers[user.drivers.length - 1];
-      res.status(201).json(created);
+      res.status(201).json(sanitizeDriver(created));
     } catch (err) {
       console.error('[drivers POST] failed:', err.message);
       res.status(500).json({ error: 'Server error' });
@@ -170,11 +183,21 @@ router.put('/:driverId', auth, managerOnly, async (req, res) => {
       'endorsements', 'hazmatExpiry', 'medicalCardExpiry', 'status',
     ];
     for (const key of allowed) {
-      if (req.body[key] !== undefined) driver[key] = req.body[key];
+      if (req.body[key] === undefined) continue;
+      if (key === 'licenseNumber') {
+        // CDL number is PII — encrypt at rest. A client that renders the masked
+        // value ("****6789") and submits the form unchanged would otherwise
+        // overwrite the real CDL with the mask, so ignore masked echoes.
+        const raw = String(req.body[key]).trim();
+        if (/^\*{4}/.test(raw)) continue;
+        driver.licenseNumber = encrypt(raw);
+        continue;
+      }
+      driver[key] = req.body[key];
     }
 
     await user.save();
-    res.json(driver);
+    res.json(sanitizeDriver(driver));
   } catch (err) {
     console.error('[drivers PUT] failed:', err.message);
     res.status(500).json({ error: 'Server error' });

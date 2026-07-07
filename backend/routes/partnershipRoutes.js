@@ -16,6 +16,9 @@ const Partnership = require('../models/Partnership');
 const User = require('../models/User');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
+// Escape user input before using it in a RegExp — prevents regex injection / ReDoS.
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const CARRIER_ONLY = (req, res, next) => {
   if (req.user.role !== 'carrier') {
     return res.status(403).json({ error: 'Carriers only' });
@@ -106,16 +109,18 @@ router.get('/directory', auth, async (req, res) => {
       filter['preferences.equipmentTypes'] = equipmentType;
     }
     if (state) {
+      const s = escapeRegex(state);
       filter.$or = [
-        { 'preferences.preferredRegions': new RegExp(state, 'i') },
-        { 'preferences.homeBase': new RegExp(state, 'i') },
+        { 'preferences.preferredRegions': new RegExp(s, 'i') },
+        { 'preferences.homeBase': new RegExp(s, 'i') },
       ];
     }
     if (search) {
+      const s = escapeRegex(search);
       filter.$or = [
-        { name: new RegExp(search, 'i') },
-        { companyName: new RegExp(search, 'i') },
-        { 'verification.fmcsaData.dotNumber': new RegExp(search, 'i') },
+        { name: new RegExp(s, 'i') },
+        { companyName: new RegExp(s, 'i') },
+        { 'verification.fmcsaData.dotNumber': new RegExp(s, 'i') },
       ];
     }
 

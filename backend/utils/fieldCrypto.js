@@ -56,4 +56,17 @@ function maskTin(value) {
   return `**-***${digits.slice(-4)}`;
 }
 
-module.exports = { encrypt, decrypt, maskTin };
+/**
+ * Mask any sensitive string to its last `keep` characters ("****6789"),
+ * decrypting first if needed. Use for CDL numbers and similar IDs where the
+ * full value must never be returned to the client.
+ */
+function maskField(value, keep = 4) {
+  const plain = decrypt(value);
+  if (plain == null || plain === '') return plain;
+  const s = String(plain);
+  if (s.length <= keep) return '****';
+  return `****${s.slice(-keep)}`;
+}
+
+module.exports = { encrypt, decrypt, maskTin, maskField };

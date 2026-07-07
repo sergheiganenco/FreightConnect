@@ -47,6 +47,7 @@ export default function Navbar() {
     disconnectSocket();
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    localStorage.removeItem('companyRole');
     navigate('/home');
   };
 

@@ -18,7 +18,6 @@ const User = require('../models/User');
 const Load = require('../models/Load');
 const Payment = require('../models/Payment');
 const Invoice = require('../models/Invoice');
-const { getIO } = require('../utils/socket');
 const escrowService = require('../services/escrowService');
 const { handleWebhookEvent } = require('../services/webhookHandler');
 const { validateAmountCents, calculatePlatformFee, calculateCarrierPayout, centsToDollars } = require('../services/paymentValidator');
@@ -40,10 +39,6 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 function stripeRequired(req, res, next) {
   if (!stripe) return res.status(503).json({ error: 'Payment system not configured. Set STRIPE_SECRET_KEY.' });
   next();
-}
-
-function notify(userId, event, payload) {
-  try { getIO().to(`user_${userId}`).emit(event, payload); } catch (_) {}
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -144,7 +139,9 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
       capture_method: 'manual',  // TRUE ESCROW — hold funds, capture on delivery
       metadata: {
         loadId:    load._id.toString(),
-        shipperId: req.user.userId,
+        // Stamp the COMPANY (owner) so payment scoping matches createEscrowHoldForLoad
+        // and load.postedBy/acceptedBy (also company ids).
+        shipperId: load.postedBy.toString(),
         carrierId: carrier._id.toString(),
         type:      'freight_escrow',
       },
@@ -153,7 +150,7 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
     // Create Payment record
     const payment = await Payment.create({
       loadId: load._id,
-      shipperId: req.user.userId,
+      shipperId: load.postedBy,
       carrierId: carrier._id,
       amountCents,
       platformFeeCents: feeCents,
@@ -278,10 +275,15 @@ router.post('/release/:loadId', auth, async (req, res) => {
 
     // Only tell the carrier they were paid if funds actually transferred to them.
     if (payment.status === 'released') {
-      notify(payment.carrierId.toString(), 'payment:released', {
-        loadId: load._id,
-        amount: payment.carrierPayout,
-        invoiceId: invoice._id,
+      // Persisted notification (DB + socket + push) so the payout shows in the
+      // bell and reaches the mobile app, not just a live socket that's lost if
+      // the carrier is offline.
+      notifyUserSafe(payment.carrierId.toString(), {
+        type: 'payment:released',
+        title: 'Payout released',
+        body: `$${centsToDollars(payment.carrierPayout)} released for load ${load.title || load._id}`,
+        link: '/dashboard/carrier/documents',
+        metadata: { loadId: load._id, amount: payment.carrierPayout, invoiceId: invoice._id },
       });
     }
 
@@ -298,10 +300,13 @@ router.post('/release/:loadId', auth, async (req, res) => {
 router.get('/my', auth, async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
+    // Company-scoped: payments are stamped with the owner id, so a dispatcher/driver
+    // sub-account sees the company's payments.
+    const scopeId = req.user.companyOwnerId || req.user.userId;
     const filter = req.user.role === 'shipper'
-      ? { shipperId: req.user.userId }
+      ? { shipperId: scopeId }
       : req.user.role === 'carrier'
-      ? { carrierId: req.user.userId }
+      ? { carrierId: scopeId }
       : {};
 
     const [payments, total] = await Promise.all([
@@ -331,11 +336,11 @@ router.get('/invoice/:loadId', auth, async (req, res) => {
     // UI's routine probe doesn't spam the browser console with 404 errors.
     if (!invoice) return res.json(null);
 
-    // Only shipper, carrier, or admin can view
-    const userId = req.user.userId;
+    // Only the shipper company, carrier company, or admin can view (company-scoped).
+    const scopeId = req.user.companyOwnerId || req.user.userId;
     if (
-      invoice.shipperId._id.toString() !== userId &&
-      invoice.carrierId._id.toString() !== userId &&
+      invoice.shipperId._id.toString() !== scopeId &&
+      invoice.carrierId._id.toString() !== scopeId &&
       req.user.role !== 'admin'
     ) {
       return res.status(403).json({ error: 'Forbidden' });

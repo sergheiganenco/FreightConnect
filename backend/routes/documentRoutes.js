@@ -272,13 +272,7 @@ router.post('/generate/:loadId/:type', auth, async (req, res) => {
     const load = await Load.findById(loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    const uid = req.user.userId;
-    const role = req.user.role;
-    if (
-      role !== 'admin' &&
-      load.postedBy?.toString() !== uid &&
-      load.acceptedBy?.toString() !== uid
-    ) {
+    if (!isLoadParticipant(load, req)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 

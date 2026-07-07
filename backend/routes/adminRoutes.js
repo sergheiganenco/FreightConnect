@@ -221,8 +221,15 @@ router.patch('/users/:id/toggle-status', auth, ADMIN_ONLY, async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    user.status = user.status === 'suspended' ? 'active' : 'suspended';
+    const suspending = user.status !== 'suspended';
+    user.status = suspending ? 'suspended' : 'active';
+    // Keep `active` in lock-step: login (userRoutes) and authMiddleware gate on
+    // `active`, not `status`. Without this, a "suspended" user could still log in
+    // and keep using a live token.
+    user.active = !suspending;
     await user.save();
+    // Bust the 60s active-cache so revocation takes effect immediately.
+    auth.invalidateActive(user._id.toString());
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: 'Failed to toggle user status' });

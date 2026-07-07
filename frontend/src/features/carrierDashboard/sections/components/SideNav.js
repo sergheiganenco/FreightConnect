@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Badge, Collapse } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import DescriptionIcon   from "@mui/icons-material/Description";
@@ -49,12 +49,15 @@ const coreItems = [
   { key: "profile",   label: "Profile",    icon: <AccountCircleIcon /> },
 ];
 
-// MORE — secondary tools, collapsed by default
+// MORE — secondary tools, collapsed by default.
+// access: 'owner'   → owner login only (managing the company/team)
+//         'manager' → owner or dispatcher (fleet/driver/HOS management; hidden from drivers)
+//         (unset)   → visible to every company role
 const moreItems = [
-  { key: "team",         label: "Team",          icon: <GroupsIcon /> },
-  { key: "fleet",        label: "Fleet",         icon: <DirectionsCarIcon /> },
-  { key: "drivers",      label: "Drivers",       icon: <BadgeIcon /> },
-  { key: "fleetHos",     label: "Fleet HOS",     icon: <MonitorHeartIcon /> },
+  { key: "team",         label: "Team",          icon: <GroupsIcon />,          access: 'owner' },
+  { key: "fleet",        label: "Fleet",         icon: <DirectionsCarIcon />,   access: 'manager' },
+  { key: "drivers",      label: "Drivers",       icon: <BadgeIcon />,           access: 'manager' },
+  { key: "fleetHos",     label: "Fleet HOS",     icon: <MonitorHeartIcon />,    access: 'manager' },
   { key: "fleetMap",     label: "Fleet Map",     icon: <MapIcon /> },
   { key: "trips",        label: "Trip Planning", icon: <RouteIcon /> },
   { key: "eld",          label: "HOS Advisor",   icon: <TimerIcon /> },
@@ -69,15 +72,29 @@ const moreItems = [
   { key: "scorecard",    label: "Scorecard",     icon: <AssessmentIcon /> },
 ];
 
-const moreKeys = moreItems.map((it) => it.key);
+// Hide nav items a sub-account can't use (the backend 403s them anyway). Old
+// sessions with no stored companyRole default to owner, so nothing regresses.
+function visibleTo(companyRole) {
+  const isOwner = companyRole === 'owner';
+  const isManager = companyRole !== 'driver'; // owner or dispatcher
+  return (it) => {
+    if (it.access === 'owner') return isOwner;
+    if (it.access === 'manager') return isManager;
+    return true;
+  };
+}
 
 export default function SideNav({ current, onSelect, collapsed }) {
+  const companyRole = localStorage.getItem('companyRole') || 'owner';
+  // Memoized so identity is stable across renders (keeps the effect deps honest).
+  const moreItemsForRole = useMemo(() => moreItems.filter(visibleTo(companyRole)), [companyRole]);
+  const moreKeys = useMemo(() => moreItemsForRole.map((it) => it.key), [moreItemsForRole]);
   // Auto-expand the More group when the active section lives inside it
   const [moreOpen, setMoreOpen] = useState(() => moreKeys.includes(current));
 
   useEffect(() => {
     if (moreKeys.includes(current)) setMoreOpen(true);
-  }, [current]);
+  }, [current, moreKeys]);
 
   const renderItem = (it) => {
     const Btn = (
@@ -113,7 +130,7 @@ export default function SideNav({ current, onSelect, collapsed }) {
     return (
       <List sx={{ pt: 2 }}>
         {coreItems.map(renderItem)}
-        {moreItems.map(renderItem)}
+        {moreItemsForRole.map(renderItem)}
       </List>
     );
   }
@@ -137,7 +154,7 @@ export default function SideNav({ current, onSelect, collapsed }) {
       </ListItemButton>
 
       <Collapse in={moreOpen} timeout="auto" unmountOnExit>
-        {moreItems.map(renderItem)}
+        {moreItemsForRole.map(renderItem)}
       </Collapse>
     </List>
   );

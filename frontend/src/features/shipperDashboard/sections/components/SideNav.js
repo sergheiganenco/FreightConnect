@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Tooltip, Badge, Collapse } from "@mui/material";
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import AddBoxIcon from '@mui/icons-material/AddBox';
@@ -42,9 +42,11 @@ const coreItems = [
   { key: "profile",   label: "Profile",   icon: <AccountCircleIcon fontSize="medium" /> },
 ];
 
-// MORE — secondary tools, collapsed by default
+// MORE — secondary tools, collapsed by default.
+// access: 'owner' → owner login only (managing the company team); others are
+// visible to every company role. The backend 403s owner-only routes anyway.
 const moreItems = [
-  { key: "team",         label: "Team",         icon: <GroupsIcon fontSize="medium" /> },
+  { key: "team",         label: "Team",         icon: <GroupsIcon fontSize="medium" />, access: 'owner' },
   { key: "contracts",    label: "Contracts",    icon: <AssignmentIcon fontSize="medium" /> },
   { key: "appointments", label: "Appointments", icon: <CalendarMonthIcon fontSize="medium" /> },
   { key: "analytics",    label: "Analytics",    icon: <BarChartIcon /> },
@@ -54,15 +56,23 @@ const moreItems = [
   { key: "verification", label: "Verification", icon: <VerifiedUserIcon fontSize="medium" /> },
 ];
 
-const moreKeys = moreItems.map((it) => it.key);
+function visibleTo(companyRole) {
+  const isOwner = companyRole === 'owner';
+  return (it) => (it.access === 'owner' ? isOwner : true);
+}
 
 export default function SideNav({ current, collapsed, onSelect }) {
+  // Old sessions with no stored companyRole default to owner, so nothing regresses.
+  const companyRole = localStorage.getItem('companyRole') || 'owner';
+  // Memoized so identity is stable across renders (keeps the effect deps honest).
+  const moreItemsForRole = useMemo(() => moreItems.filter(visibleTo(companyRole)), [companyRole]);
+  const moreKeys = useMemo(() => moreItemsForRole.map((it) => it.key), [moreItemsForRole]);
   // Auto-expand the More group when the active section lives inside it
   const [moreOpen, setMoreOpen] = useState(() => moreKeys.includes(current));
 
   useEffect(() => {
     if (moreKeys.includes(current)) setMoreOpen(true);
-  }, [current]);
+  }, [current, moreKeys]);
 
   const renderItem = (item) => {
     const isActive = current === item.key;
@@ -152,7 +162,7 @@ export default function SideNav({ current, collapsed, onSelect }) {
         {collapsed ? (
           // Mini mode: no room for a text toggle — render More items flat as
           // icons so nothing becomes unreachable.
-          moreItems.map(renderItem)
+          moreItemsForRole.map(renderItem)
         ) : (
           <>
             <li key="__more_toggle">
@@ -223,7 +233,7 @@ export default function SideNav({ current, collapsed, onSelect }) {
                   gap: 4,
                 }}
               >
-                {moreItems.map(renderItem)}
+                {moreItemsForRole.map(renderItem)}
               </ul>
             </Collapse>
           </>

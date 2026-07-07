@@ -16,11 +16,17 @@
 const AuditLog = require('../models/AuditLog');
 const logger = require('../utils/logger');
 
-/** Fields that must never appear in audit log body summaries */
+/**
+ * Fields that must never appear in audit log body summaries. Keys are matched
+ * case-insensitively (lowercased), so every entry here MUST be lowercase — the
+ * previous camelCase entries (cardNumber, apiKey, …) could never match.
+ */
 const SENSITIVE_FIELDS = new Set([
-  'password', 'token', 'secret', 'ssn', 'cardNumber', 'cvv',
-  'accountNumber', 'routingNumber', 'apiKey', 'refreshToken',
-  'accessToken', 'stripeToken', 'bankAccount',
+  'password', 'token', 'secret', 'ssn', 'ssnlast4', 'cvv',
+  'cardnumber', 'accountnumber', 'routingnumber', 'apikey', 'refreshtoken',
+  'accesstoken', 'stripetoken', 'bankaccount',
+  // Domain PII (tax IDs, CDL) — also encrypted at rest, so must not leak here.
+  'ein', 'tin', 'taxid', 'licensenumber', 'mfatoken', 'otp', 'code',
 ]);
 
 /**
@@ -98,13 +104,18 @@ const ENTITY_MAP = {
   quickpay: 'quickpay', 'preferred-carriers': 'preferred_carrier', 'return-loads': 'return_load',
 };
 
-// Never write these to the audit trail (webhooks / health are noise or unauthenticated machine calls).
-const SKIP_PREFIXES = ['/api/payments/webhook', '/api/eld-integration/webhook', '/api/health', '/api/tracking/ingest'];
-// Record the action but NOT the body for these (auth/credential payloads).
+// Never write these to the audit trail: webhooks/health are machine calls, and
+// GPS location writes are high-frequency (every ~15s per truck) — auditing each
+// would flood the collection.
+const SKIP_PREFIXES = [
+  '/api/payments/webhook', '/api/eld-integration/webhook', '/api/health',
+  '/api/tracking/ingest', '/api/tracking/location',
+];
+// Record the action but NOT the body for these (auth/credential/PII payloads).
 const NO_BODY_PREFIXES = [
   '/api/users/login', '/api/users/signup', '/api/users/reset-password',
   '/api/users/forgot-password', '/api/users/refresh-token', '/api/users/mfa',
-  '/api/users/push-token',
+  '/api/users/push-token', '/api/tax/w9', '/api/verification',
 ];
 
 function inferEntity(path) {
