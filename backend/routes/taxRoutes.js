@@ -22,6 +22,7 @@ const User    = require('../models/User');
 const Expense = require('../models/Expense');
 const Payment = require('../models/Payment');
 const { PLATFORM_FEE_PCT } = require('../config/fees');
+const { encrypt, maskTin } = require('../utils/fieldCrypto');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -204,7 +205,8 @@ router.post('/w9', auth, async (req, res) => {
       legalName,
       businessName: businessName || undefined,
       taxClassification,
-      ein: ein || undefined,
+      // EIN is a full TIN — encrypt it at rest. SSN is stored last-4 only.
+      ein: ein ? encrypt(ein) : undefined,
       ssn: ssnLast4 ? `***-**-${ssnLast4}` : undefined,
       address: address || undefined,
       city: city || undefined,
@@ -245,7 +247,9 @@ router.get('/w9', auth, async (req, res) => {
     const currentYear = new Date().getFullYear();
     const record = await TaxRecord.findOne({ user: req.user.userId, taxYear: currentYear });
     if (!record) return res.json({ w9Status: 'not_submitted', w9: null });
-    res.json({ w9Status: record.w9Status, w9: record.w9 });
+    // Never return the full EIN — decrypt + mask to the last 4 for display.
+    const w9 = record.w9 ? { ...record.w9.toObject(), ein: record.w9.ein ? maskTin(record.w9.ein) : undefined } : null;
+    res.json({ w9Status: record.w9Status, w9 });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
