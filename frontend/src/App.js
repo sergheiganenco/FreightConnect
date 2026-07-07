@@ -61,6 +61,7 @@ import CarrierExpenses from './pages/carrier/CarrierExpenses';
 import ShipperEDI from './pages/shipper/ShipperEDI';
 import ShipperTax from './pages/shipper/ShipperTax';
 import ShipperVerification from './pages/shipper/ShipperVerification';
+import ShipperTeam from './pages/shipper/ShipperTeam';
 
 // --- Real Admin Pages ---
 import AdminOverview from './pages/admin/AdminOverview';
@@ -111,6 +112,7 @@ function App() {
             <Route path="appointments" element={<ShipperAppointments />} />
             <Route path="tax" element={<ShipperTax />} />
             <Route path="edi" element={<ShipperEDI />} />
+            <Route path="team" element={<ShipperTeam />} />
             <Route path="verification" element={<ShipperVerification />} />
             <Route path="ai-insights" element={<AIInsightsPanel />} />
             <Route path="chat" element={<ChatPage />} />

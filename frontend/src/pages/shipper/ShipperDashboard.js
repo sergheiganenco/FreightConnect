@@ -39,6 +39,7 @@ const sectionFromPath = (pathname) => {
   if (pathname.includes('/ai-insights')) return 'ai-insights';
   if (pathname.includes('/tax')) return 'tax';
   if (pathname.includes('/edi')) return 'edi';
+  if (pathname.includes('/team')) return 'team';
   if (pathname.includes('/verification')) return 'verification';
   if (pathname.includes('/chat')) return 'chat';
   if (pathname.includes('/profile')) return 'profile';
@@ -198,6 +199,7 @@ export default function ShipperDashboard() {
             else if (key === 'ai-insights') navigate('/dashboard/shipper/ai-insights');
             else if (key === 'tax') navigate('/dashboard/shipper/tax');
             else if (key === 'edi') navigate('/dashboard/shipper/edi');
+            else if (key === 'team') navigate('/dashboard/shipper/team');
             else if (key === 'verification') navigate('/dashboard/shipper/verification');
             else if (key === 'chat') navigate('/dashboard/shipper/chat');
             else if (key === 'profile') navigate('/dashboard/shipper/profile');

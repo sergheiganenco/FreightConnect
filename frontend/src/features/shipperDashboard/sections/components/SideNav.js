@@ -13,6 +13,7 @@ import CodeIcon from '@mui/icons-material/Code';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
+import GroupsIcon from '@mui/icons-material/Groups';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
@@ -43,6 +44,7 @@ const coreItems = [
 
 // MORE — secondary tools, collapsed by default
 const moreItems = [
+  { key: "team",         label: "Team",         icon: <GroupsIcon fontSize="medium" /> },
   { key: "contracts",    label: "Contracts",    icon: <AssignmentIcon fontSize="medium" /> },
   { key: "appointments", label: "Appointments", icon: <CalendarMonthIcon fontSize="medium" /> },
   { key: "analytics",    label: "Analytics",    icon: <BarChartIcon /> },
