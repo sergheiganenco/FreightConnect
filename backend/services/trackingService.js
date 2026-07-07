@@ -81,9 +81,13 @@ async function recordLocation({
   heading = null,
   accuracy = null,
   source = 'api',
-  // When set (e.g. from the browser socket), the caller must be the load's
-  // assigned carrier. Trusted server-side ingest (HMAC token, ELD poller) omits it.
+  // When set (e.g. from the browser socket), this COMPANY id must own the load
+  // (load.acceptedBy). Trusted server-side ingest (HMAC token, ELD poller) omits it.
   authCarrierId = null,
+  // The account whose GPS consent gates this push — the actual person being tracked
+  // (a driver sub-account). Falls back to the load's carrier (company) for token/ELD
+  // ingest where no person is attached.
+  consentUserId = null,
 } = {}) {
   try {
     // ── 1. Validate coordinates ───────────────────────────────────────────────
@@ -138,14 +142,16 @@ async function recordLocation({
     // ── 2b. Privacy gate (applies to EVERY ingest path) ───────────────────────
     // This is the single chokepoint, so enforcing consent here covers the REST
     // route, the browser socket, OwnTracks/OsmAnd ingest, and the ELD poller —
-    // not just POST /tracking/location. The tracked carrier (load.acceptedBy)
-    // must have granted GPS consent before any of their location is recorded.
-    if (load.acceptedBy) {
-      let carrierUser = null;
+    // not just POST /tracking/location. The PERSON being tracked (the acting
+    // driver, when known) must have granted GPS consent — per-driver privacy —
+    // falling back to the load's carrier company for token/ELD ingest.
+    const consentTarget = consentUserId || load.acceptedBy;
+    if (consentTarget) {
+      let consentUser = null;
       try {
-        carrierUser = await User.findById(load.acceptedBy).select('tracking.gpsConsent');
+        consentUser = await User.findById(consentTarget).select('tracking.gpsConsent');
       } catch (_) { /* fall through to the denial below */ }
-      if (!carrierUser?.tracking?.gpsConsent?.granted) {
+      if (!consentUser?.tracking?.gpsConsent?.granted) {
         return { ok: false, code: 403, error: 'GPS tracking consent is required before location can be recorded', consent: 'gps_consent_required' };
       }
     }

@@ -34,7 +34,12 @@ const ViolationSchema = new mongoose.Schema({
 }, { _id: false });
 
 const ELDLogSchema = new mongoose.Schema({
-  carrier:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  // `carrier` is the individual DRIVER account that logged this duty day (each
+  // logged-in person — owner-operator or a driver sub-account — gets their own
+  // log). `companyId` links it to the owning company so a fleet owner/dispatcher
+  // can see every driver's HOS in one place.
+  carrier:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
   date:     { type: String, required: true, index: true }, // YYYY-MM-DD
 
   // Current status (only meaningful on today's log)
@@ -70,5 +75,6 @@ const ELDLogSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 ELDLogSchema.index({ carrier: 1, date: -1 }, { unique: true });
+ELDLogSchema.index({ companyId: 1, date: -1 });
 
 module.exports = mongoose.model('ELDLog', ELDLogSchema);

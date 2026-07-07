@@ -45,10 +45,10 @@ router.post('/location', auth, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to update this load\'s location' });
     }
 
-    // Privacy gate: the tracked carrier must have granted GPS consent before any
-    // of their background location is ingested or geofenced.
-    const carrierUser = await User.findById(load.acceptedBy).select('tracking');
-    if (!carrierUser || !carrierUser.tracking || !carrierUser.tracking.gpsConsent || !carrierUser.tracking.gpsConsent.granted) {
+    // Privacy gate: the PERSON pushing location (the acting driver) must have
+    // granted GPS consent — per-driver, not company-wide.
+    const consentUser = await User.findById(req.user.userId).select('tracking');
+    if (!consentUser || !consentUser.tracking || !consentUser.tracking.gpsConsent || !consentUser.tracking.gpsConsent.granted) {
       return res.status(403).json({ error: 'GPS tracking consent is required before location can be recorded', code: 'gps_consent_required' });
     }
 
@@ -61,6 +61,8 @@ router.post('/location', auth, async (req, res) => {
       accuracy,
       // Honor a valid client-declared source; otherwise mark as mobile_app.
       source: VALID_SOURCES.includes(source) ? source : 'mobile_app',
+      // Gate on the acting driver's own consent.
+      consentUserId: req.user.userId,
     });
     if (!r.ok) return res.status(r.code || 500).json({ error: r.error || 'Failed' });
 

@@ -80,16 +80,23 @@ router.post('/status', auth, CARRIER_ONLY, async (req, res) => {
     const today = todayStr();
     const now   = new Date();
 
+    // Logs are per-DRIVER (the logged-in person), linked to their company so the
+    // fleet owner can see everyone's HOS.
+    const companyId = req.user.companyOwnerId || req.user.userId;
+
     // Get or create today's log
     let log = await ELDLog.findOne({ carrier: req.user.userId, date: today });
     if (!log) {
       log = await ELDLog.create({
         carrier:       req.user.userId,
+        companyId,
         date:          today,
         currentStatus: 'OFF_DUTY',
         events:        [],
       });
     }
+    // Backfill the company link on logs created before per-driver HOS.
+    if (!log.companyId) log.companyId = companyId;
 
     // Close the current open event
     const openEvent = log.events.find(e => !e.endTime);
@@ -268,6 +275,48 @@ router.get('/summary', auth, CARRIER_ONLY, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch summary' });
+  }
+});
+
+// ── GET /fleet — company-wide HOS snapshot (owner/dispatcher only) ────────────
+// One row per driver who has a log today, with live shift-accurate remaining hours.
+router.get('/fleet', auth, CARRIER_ONLY, async (req, res) => {
+  try {
+    // Management view — drivers use /today for their own log.
+    if (req.user.companyRole === 'driver') {
+      return res.status(403).json({ error: 'Fleet HOS is available to owners and dispatchers' });
+    }
+    const companyId = req.user.companyOwnerId || req.user.userId;
+    const today = todayStr();
+    const now = new Date();
+
+    const logs = await ELDLog.find({ companyId, date: today })
+      .populate('carrier', 'name email companyRole')
+      .lean();
+
+    const drivers = await Promise.all(logs.map(async (log) => {
+      const carrierId = log.carrier?._id || log.carrier;
+      const shiftEvents = await gatherRecentEvents(carrierId, today, log.events);
+      const shift = computeShiftStatus(shiftEvents, now);
+      return {
+        driverId: String(carrierId),
+        name: log.carrier?.name || 'Driver',
+        companyRole: log.carrier?.companyRole || 'owner',
+        currentStatus: log.currentStatus,
+        driveRemainingMinutes: shift.driveRemaining,
+        windowRemainingMinutes: shift.windowRemaining,
+        drivingMinutesToday: log.totals?.drivingMinutes || 0,
+        violations: (log.violations || []).filter(v => v.severity === 'violation').length,
+        certified: !!log.certified,
+      };
+    }));
+
+    // Sort by least drive time remaining first (who's closest to a limit).
+    drivers.sort((a, b) => a.driveRemainingMinutes - b.driveRemainingMinutes);
+    res.json({ date: today, drivers });
+  } catch (err) {
+    console.error('ELD fleet error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch fleet HOS' });
   }
 });
 

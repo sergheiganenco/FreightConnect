@@ -230,6 +230,8 @@ io.use((socket, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.userId = decoded.userId;
     socket.userRole = decoded.role;
+    // The company this connection acts for (owner id); sub-account tokens carry it.
+    socket.companyOwnerId = decoded.companyOwnerId || decoded.userId;
     next();
   } catch {
     next(new Error('Authentication error'));
@@ -256,9 +258,10 @@ io.on('connection', (socket) => {
         heading,
         accuracy,
         source: source || 'browser',
-        // The socket must belong to the load's assigned carrier; the service
-        // also enforces the GPS-consent gate before recording anything.
-        authCarrierId: socket.userId,
+        // Authorize at the company level (a dispatcher/driver acts for the company),
+        // but gate consent on the actual person whose device is sending.
+        authCarrierId: socket.companyOwnerId,
+        consentUserId: socket.userId,
       });
     } catch (error) {
       console.error('Error updating carrier location:', error);

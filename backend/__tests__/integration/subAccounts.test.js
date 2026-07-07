@@ -23,6 +23,7 @@ function buildApp() {
   app.use('/api/users', require('../../routes/userRoutes'));
   app.use('/api/loads', require('../../routes/loadRoutes')(mockIo));
   app.use('/api/drivers', require('../../routes/driverRoutes'));
+  app.use('/api/eld', require('../../routes/eldRoutes'));
   return app;
 }
 
@@ -154,6 +155,47 @@ describe('company sub-accounts', () => {
     // The driver is on the company roster, visible to the owner.
     const ownerDrivers = await request(app).get('/api/drivers').set('Authorization', `Bearer ${ownerToken}`);
     expect(ownerDrivers.body.some(d => d.name === 'Rosa Driver')).toBe(true);
+  });
+
+  test('per-driver HOS: each driver logs their own hours; the owner sees the fleet', async () => {
+    // Two driver sub-accounts.
+    const mk = async (n) => {
+      const email = `hos-driver-${n}-${Date.now()}@acme.com`;
+      await addDispatcher({ email, password: 'DriverPass12', companyRole: 'driver' });
+      const login = await request(app).post('/api/users/login').send({ email, password: 'DriverPass12' });
+      return login.body.token;
+    };
+    const d1 = await mk(1);
+    const d2 = await mk(2);
+
+    // Each driver logs a duty status — separate logs (keyed per person).
+    expect((await request(app).post('/api/eld/status').set('Authorization', `Bearer ${d1}`).send({ status: 'DRIVING' })).status).toBe(200);
+    expect((await request(app).post('/api/eld/status').set('Authorization', `Bearer ${d2}`).send({ status: 'ON_DUTY_NOT_DRIVING' })).status).toBe(200);
+
+    // The owner's fleet HOS view shows BOTH drivers.
+    const fleet = await request(app).get('/api/eld/fleet').set('Authorization', `Bearer ${ownerToken}`);
+    expect(fleet.status).toBe(200);
+    expect(fleet.body.drivers.length).toBeGreaterThanOrEqual(2);
+    const statuses = fleet.body.drivers.map((d) => d.currentStatus);
+    expect(statuses).toContain('DRIVING');
+    expect(statuses).toContain('ON_DUTY_NOT_DRIVING');
+
+    // A driver cannot open the fleet HOS management view.
+    const denied = await request(app).get('/api/eld/fleet').set('Authorization', `Bearer ${d1}`);
+    expect(denied.status).toBe(403);
+  });
+
+  test('a driver sub-account cannot edit the fleet or driver roster', async () => {
+    const email = `ro-driver-${Date.now()}@acme.com`;
+    await addDispatcher({ email, password: 'DriverPass12', companyRole: 'driver' });
+    const login = await request(app).post('/api/users/login').send({ email, password: 'DriverPass12' });
+    const driverToken = login.body.token;
+
+    const addTruck = await request(app).post('/api/users/fleet').set('Authorization', `Bearer ${driverToken}`).send({ truckId: 'NO-1' });
+    expect(addTruck.status).toBe(403);
+
+    const addDriver = await request(app).post('/api/drivers').set('Authorization', `Bearer ${driverToken}`).send({ name: 'Nope' });
+    expect(addDriver.status).toBe(403);
   });
 
   test('a dispatcher sees the company loads (board scoped to the owner)', async () => {

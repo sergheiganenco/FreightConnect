@@ -8,6 +8,7 @@ const Load = require("../models/Load");
 const auth = require("../middlewares/authMiddleware");
 const validate = require("../middlewares/validate");
 const { authLimiter } = require("../middlewares/rateLimiter");
+const { managerOnly } = require("../middlewares/companyRoles");
 
 const router = express.Router();
 const { getIO } = require('../utils/socket');
@@ -655,8 +656,8 @@ router.get('/fleet', auth, async (req, res) => {
   }
 });
 
-// Add a Truck to Fleet
-router.post('/fleet', auth, async (req, res) => {
+// Add a Truck to Fleet (owner/dispatcher only)
+router.post('/fleet', auth, managerOnly, async (req, res) => {
   try {
     if (req.user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers can add trucks" });
@@ -691,8 +692,8 @@ router.post('/fleet', auth, async (req, res) => {
 });
 
 
-//Update a Truck (by truckId)
-router.put('/fleet/:truckId', auth, async (req, res) => {
+//Update a Truck (by truckId) — owner/dispatcher only
+router.put('/fleet/:truckId', auth, managerOnly, async (req, res) => {
   try {
     if (req.user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers can update trucks" });
@@ -719,8 +720,8 @@ router.put('/fleet/:truckId', auth, async (req, res) => {
   }
 });
 
-//Remove a Truck from Fleet
-router.delete('/fleet/:truckId', auth, async (req, res) => {
+//Remove a Truck from Fleet — owner/dispatcher only
+router.delete('/fleet/:truckId', auth, managerOnly, async (req, res) => {
   try {
     if (req.user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers can remove trucks" });

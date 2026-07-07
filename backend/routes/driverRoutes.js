@@ -3,6 +3,7 @@ const router = express.Router();
 const { body } = require('express-validator');
 const auth = require('../middlewares/authMiddleware');
 const validate = require('../middlewares/validate');
+const { managerOnly } = require('../middlewares/companyRoles');
 const User = require('../models/User');
 
 const ALLOWED_ENDORSEMENTS = ['hazmat', 'tanker', 'doubles_triples', 'passenger', 'school_bus'];
@@ -30,10 +31,11 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// ── POST /  — add a driver ──────────────────────────────────────────────────
+// ── POST /  — add a driver (owner/dispatcher only) ──────────────────────────
 router.post(
   '/',
   auth,
+  managerOnly,
   [body('name').trim().notEmpty().withMessage('Driver name is required')],
   validate,
   async (req, res) => {
@@ -81,6 +83,7 @@ router.post(
 router.put(
   '/endorsements',
   auth,
+  managerOnly,
   [body('endorsements').isArray().withMessage('endorsements must be an array')],
   validate,
   async (req, res) => {
@@ -147,8 +150,8 @@ router.get('/compliance-alerts', auth, async (req, res) => {
   }
 });
 
-// ── PUT /:driverId  — update a driver ───────────────────────────────────────
-router.put('/:driverId', auth, async (req, res) => {
+// ── PUT /:driverId  — update a driver (owner/dispatcher only) ────────────────
+router.put('/:driverId', auth, managerOnly, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
     const user = await User.findById(req.user.companyOwnerId || req.user.userId);
@@ -178,8 +181,8 @@ router.put('/:driverId', auth, async (req, res) => {
   }
 });
 
-// ── DELETE /:driverId  — remove a driver ────────────────────────────────────
-router.delete('/:driverId', auth, async (req, res) => {
+// ── DELETE /:driverId  — remove a driver (owner/dispatcher only) ─────────────
+router.delete('/:driverId', auth, managerOnly, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
     const user = await User.findById(req.user.companyOwnerId || req.user.userId);
