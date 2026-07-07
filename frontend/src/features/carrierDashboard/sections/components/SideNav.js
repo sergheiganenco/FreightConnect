@@ -53,7 +53,7 @@ const moreItems = [
   { key: "drivers",      label: "Drivers",       icon: <BadgeIcon /> },
   { key: "fleetMap",     label: "Fleet Map",     icon: <MapIcon /> },
   { key: "trips",        label: "Trip Planning", icon: <RouteIcon /> },
-  { key: "eld",          label: "ELD / HOS",     icon: <TimerIcon /> },
+  { key: "eld",          label: "HOS Advisor",   icon: <TimerIcon /> },
   { key: "appointments", label: "Appointments",  icon: <CalendarMonthIcon /> },
   { key: "contracts",    label: "Contracts",     icon: <AssignmentIcon /> },
   { key: "network",      label: "Network",       icon: <PeopleIcon /> },

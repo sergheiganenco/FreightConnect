@@ -118,6 +118,7 @@ const LoadSchema = new mongoose.Schema({
     rateConfirmation: { type: String, default: null }, // generated on load accept
     bol:              { type: String, default: null }, // generated on delivery
     pod:              { type: String, default: null }, // uploaded by carrier
+    podSignerName:    { type: String, default: null }, // consignee signer captured at delivery
   },
 
   // ── Contract reference ────────────────────────────────────────────────────

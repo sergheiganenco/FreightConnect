@@ -11,7 +11,7 @@ import { saveAs } from "file-saver";
 import axios from "axios";
 import { gradient, surface, text as T, chart, brand, tint } from '../../theme/tokens';
 
-const API_BASE = process.env.REACT_APP_API_URL || "";
+const API_BASE = process.env.REACT_APP_API_URL || "/api";
 
 const PIE_COLORS = chart.pie;
 const CHART_COLORS = chart.line;

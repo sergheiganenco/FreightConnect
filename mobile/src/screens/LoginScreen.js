@@ -7,21 +7,42 @@ import { useAuth } from '../context/AuthContext';
 import { COLORS } from '../constants/config';
 
 export default function LoginScreen() {
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert('Error', 'Please enter email and password');
       return;
     }
+    if (mfaRequired && !mfaCode.trim()) {
+      Alert.alert('Error', 'Please enter your 6-digit authentication code');
+      return;
+    }
     setLoading(true);
     try {
-      const data = await login(email.trim().toLowerCase(), password);
+      const data = await login(
+        email.trim().toLowerCase(),
+        password,
+        mfaRequired ? mfaCode.trim() : undefined
+      );
+
+      // Account has MFA enabled — prompt for the code and retry.
+      if (data.mfaRequired && !data.token) {
+        setMfaRequired(true);
+        setLoading(false);
+        return;
+      }
+
       const role = data.user?.role || data.role;
       if (role !== 'carrier') {
+        // login() already persisted the session; clear it so a non-carrier isn't
+        // left signed into the driver app.
+        await logout();
         Alert.alert('Access Denied', 'This app is for carrier drivers only. Please use the web portal.');
         return;
       }
@@ -60,7 +81,21 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          editable={!mfaRequired}
         />
+
+        {mfaRequired && (
+          <TextInput
+            style={styles.input}
+            placeholder="6-digit authentication code"
+            placeholderTextColor={COLORS.textMuted}
+            value={mfaCode}
+            onChangeText={setMfaCode}
+            keyboardType="number-pad"
+            maxLength={6}
+            autoFocus
+          />
+        )}
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -70,7 +105,7 @@ export default function LoginScreen() {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
+            <Text style={styles.buttonText}>{mfaRequired ? 'Verify Code' : 'Sign In'}</Text>
           )}
         </TouchableOpacity>
 

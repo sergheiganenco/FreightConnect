@@ -256,6 +256,9 @@ io.on('connection', (socket) => {
         heading,
         accuracy,
         source: source || 'browser',
+        // The socket must belong to the load's assigned carrier; the service
+        // also enforces the GPS-consent gate before recording anything.
+        authCarrierId: socket.userId,
       });
     } catch (error) {
       console.error('Error updating carrier location:', error);

@@ -40,6 +40,16 @@ async function markProcessedOnce(eventId, type) {
   }
 }
 
+/**
+ * Release an idempotency claim so a failed webhook can be reprocessed on Stripe's
+ * retry. Called only after a handler throws — without this, markProcessedOnce would
+ * permanently swallow an event whose money-state effects never applied.
+ */
+async function unmarkProcessed(eventId) {
+  const ProcessedEvent = require('../models/ProcessedEvent');
+  await ProcessedEvent.deleteOne({ eventId });
+}
+
 /** Reconciliation: sum debits and credits per account; they should net per accounting rules. */
 async function reconcile() {
   const rows = await LedgerEntry.aggregate([
@@ -50,4 +60,4 @@ async function reconcile() {
   return { rows, totalDebits, totalCredits, balanced: totalDebits === totalCredits };
 }
 
-module.exports = { record, markProcessedOnce, reconcile };
+module.exports = { record, markProcessedOnce, unmarkProcessed, reconcile };

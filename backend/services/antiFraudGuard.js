@@ -102,6 +102,30 @@ async function evaluateAcceptance({ load, carrier, req }) {
       }
     }
 
+    // ── 2b. Minimum-coverage gate (opt-in) ────────────────────────────────
+    // Coverage amounts are not yet populated by any production path (only seed
+    // scripts / a future COI-verification integration write them), so enforcing
+    // this by default would block every real carrier. Gate it behind a flag so
+    // it can be switched on the moment a coverage data source is wired — at which
+    // point ABSENT insurance data becomes a hard block instead of a silent pass.
+    if (process.env.ENFORCE_INSURANCE_COVERAGE === 'true') {
+      const AUTO_LIABILITY_MIN = 750000; // 49 CFR 387.9 general-freight floor ($)
+      const CARGO_MIN = 100000;          // market-standard cargo minimum ($)
+      if (!ins) {
+        reasons.push('Proof of insurance on file is required before accepting loads');
+      } else {
+        const autoAmt = Number(ins.autoLiability?.amount) || 0;
+        const cargoAmt = Number(ins.cargoLiability?.amount) || 0;
+        const cargoNeeded = Math.max(CARGO_MIN, Number(load?.cargoValue) || 0);
+        if (autoAmt < AUTO_LIABILITY_MIN) {
+          reasons.push(`Auto-liability coverage below the $${AUTO_LIABILITY_MIN.toLocaleString()} minimum`);
+        }
+        if (cargoAmt < cargoNeeded) {
+          reasons.push(`Cargo coverage below the required $${cargoNeeded.toLocaleString()} for this load`);
+        }
+      }
+    }
+
     // ── 3. Rapid-fire acceptance detection (soft flag) ────────────────────
     try {
       const since = new Date(Date.now() - RAPID_WINDOW_MS);

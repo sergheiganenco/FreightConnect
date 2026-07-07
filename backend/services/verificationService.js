@@ -53,14 +53,20 @@ class VerificationService {
         issues.push(`Operating status is "${data.operatingStatus || 'unknown'}" — not authorized`);
       }
 
-      // Check safety rating if available
-      const rating = (data.safetyRating || '').toLowerCase();
-      if (rating === 'unsatisfactory') {
+      // Safety rating is a letter code ('U') from the live API or a word from mock
+      // data. Check it independently here so the verdict holds regardless of whether
+      // verifyAuthority also folds it in.
+      const rating = (data.safetyRating || '').toString().trim().toLowerCase();
+      const unsatisfactory = rating === 'u' || rating === 'unsatisfactory';
+      if (unsatisfactory) {
         issues.push('Unsatisfactory safety rating');
+      }
+      if (data.outOfService) {
+        issues.push('Carrier is under an out-of-service order');
       }
 
       return {
-        verified: isAuthorized && rating !== 'unsatisfactory',
+        verified: isAuthorized && !unsatisfactory,
         data,
         issues,
       };

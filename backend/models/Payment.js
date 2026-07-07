@@ -22,7 +22,10 @@ const PaymentSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['pending', 'in_escrow', 'released', 'refunded', 'failed'],
+    // captured  = funds captured into escrow, carrier payout not yet transferred
+    // cancelled = authorization hold released (load cancelled before delivery)
+    // disputed  = cardholder chargeback opened
+    enum: ['pending', 'in_escrow', 'captured', 'released', 'refunded', 'cancelled', 'disputed', 'failed'],
     default: 'pending',
   },
 

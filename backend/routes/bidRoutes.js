@@ -218,7 +218,10 @@ router.put('/:id/accept', auth, async (req, res) => {
       loadId: bid.loadId._id,
       carrierId: bid.carrierId,
       gate,
-      extra: { rate: finalAmount },
+      // Sync rateCents too — findOneAndUpdate does NOT fire the pre('save') hook
+      // that keeps rate/rateCents in step, so escrow would otherwise hold the
+      // originally-posted amount instead of the negotiated bid.
+      extra: { rate: finalAmount, rateCents: Math.round(Number(finalAmount) * 100) },
     });
     if (!bookedLoad) {
       return res.status(409).json({ error: 'Load is no longer available for booking' });
@@ -287,8 +290,10 @@ router.put('/:id/accept', auth, async (req, res) => {
           messageType: 'system',
         });
         const io = getIO();
-        io.to(`user_${bid.loadId.postedBy}`).emit(`chat:channelCreated:${bid.loadId.postedBy}`, {});
-        io.to(`user_${bid.carrierId}`).emit(`chat:channelCreated:${bid.carrierId}`, {});
+        // ChatProvider listens for the plain 'chat:channelCreated' event name (the
+        // per-user room already scopes delivery) — a dynamic suffix was never received.
+        io.to(`user_${bid.loadId.postedBy}`).emit('chat:channelCreated', {});
+        io.to(`user_${bid.carrierId}`).emit('chat:channelCreated', {});
       }
     } catch (chatErr) {
       console.error('Failed to create load chat (non-fatal):', chatErr.message);
@@ -402,7 +407,8 @@ router.put('/:id/accept-counter', auth, async (req, res) => {
       loadId: bid.loadId._id,
       carrierId: bid.carrierId,
       gate,
-      extra: { rate: bid.counterAmount },
+      // Keep rateCents in step with the accepted counter (see note above).
+      extra: { rate: bid.counterAmount, rateCents: Math.round(Number(bid.counterAmount) * 100) },
     });
     if (!bookedLoad) {
       return res.status(409).json({ error: 'Load is no longer available for booking' });

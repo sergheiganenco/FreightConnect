@@ -39,6 +39,11 @@ module.exports = function errorHandler(err, req, res, next) {
 
   if (statusCode >= 500) {
     console.error('[Server Error]', err);
+    // Don't leak internal error details to clients in production.
+    const body = process.env.NODE_ENV === 'production'
+      ? { error: 'Internal server error' }
+      : { error: message };
+    return res.status(statusCode).json(body);
   }
 
   res.status(statusCode).json({ error: message });

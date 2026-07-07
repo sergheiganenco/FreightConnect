@@ -18,6 +18,76 @@ module.exports = (io) => {
   const { notifyUserSafe } = require('../utils/notifyUser');
   const antiFraudGuard = require('../services/antiFraudGuard');
   const { checkLoadEligibility } = require('../services/loadEligibility');
+  const { haversineMiles, boundingBox, round } = require('../utils/geo');
+
+  // ── Authorization helpers ──────────────────────────────────────────────────
+  // A "party" is the posting shipper, the accepting carrier, or an admin.
+  function isLoadParty(load, req) {
+    if (req.user.role === 'admin') return true;
+    const uid = req.user.userId;
+    return load.postedBy?.toString() === uid || load.acceptedBy?.toString() === uid;
+  }
+  // Carriers may additionally browse OPEN loads they could accept from the board.
+  function canBrowseLoad(load, req) {
+    if (isLoadParty(load, req)) return true;
+    return req.user.role === 'carrier' && load.status === 'open';
+  }
+
+  // Release an in-escrow authorization hold when a load is cancelled. The escrow
+  // uses manual capture, so the funds are only AUTHORIZED — the correct action is
+  // to cancel the PaymentIntent (which frees the hold on the shipper's card), not
+  // to mark a refund of money that was never captured. Also clears the load's
+  // escrow flags so a reopened load starts clean. Returns true if a hold existed.
+  async function releaseEscrowHold(loadId, reason) {
+    const Payment = require('../models/Payment');
+    const payment = await Payment.findOne({ loadId, status: 'in_escrow' });
+    if (!payment) return false;
+
+    if (process.env.STRIPE_SECRET_KEY && payment.stripePaymentIntentId) {
+      try {
+        const escrowService = require('../services/escrowService');
+        await escrowService.cancelHold(payment.stripePaymentIntentId, reason);
+      } catch (holdErr) {
+        console.error('[cancel] Stripe hold cancel failed (non-fatal):', holdErr.message);
+      }
+    }
+
+    payment.status = 'cancelled';
+    payment.refundedAt = new Date();
+    await payment.save();
+
+    try {
+      await Load.updateOne({ _id: loadId }, { $set: { escrowFunded: false, escrowPaymentIntentId: null } });
+    } catch (_) { /* non-critical */ }
+
+    return true;
+  }
+
+  // When a load is cancelled, terminate the records that hang off it so carriers
+  // and shippers don't see live bids/appointments/trip stops on a dead load.
+  async function cancelLoadCascade(loadId) {
+    try {
+      const Bid = require('../models/Bid');
+      await Bid.updateMany(
+        { loadId, status: { $in: ['pending', 'countered', 'accepted'] } },
+        { $set: { status: 'rejected' } }
+      );
+    } catch (e) { console.error('[cancel cascade] bids failed (non-fatal):', e.message); }
+    try {
+      const Appointment = require('../models/Appointment');
+      await Appointment.updateMany(
+        { load: loadId, status: { $in: ['pending', 'confirmed', 'rescheduled'] } },
+        { $set: { status: 'cancelled' } }
+      );
+    } catch (e) { console.error('[cancel cascade] appointments failed (non-fatal):', e.message); }
+    try {
+      const Trip = require('../models/Trip');
+      await Trip.updateMany(
+        { loads: loadId, status: { $in: ['planned', 'active'] } },
+        { $pull: { loads: loadId } }
+      );
+    } catch (e) { console.error('[cancel cascade] trips failed (non-fatal):', e.message); }
+  }
 
   // ── Helper: auto-generate Rate Confirmation (non-blocking) ─────────────────
   async function autoGenerateRateCon(loadId, carrierId, shipperId) {
@@ -64,7 +134,10 @@ module.exports = (io) => {
       const { status, equipmentType, minRate, maxRate, pickupStart, pickupEnd, sortBy, sortOrder } = req.query;
   
       let filter = {};
-  
+      // The set of open-load conditions that respect preferred-visibility gating.
+      // Reused below so a `?status=` filter can't accidentally leak preferred loads.
+      let carrierOpenVisible = null;
+
       // ---- Carrier: open loads and loads accepted by this carrier
       // Preferred-visibility loads are hidden from non-preferred carriers during firstLook window
       if (req.user.role === "carrier") {
@@ -75,40 +148,42 @@ module.exports = (io) => {
         }).select('shipper').lean();
         const preferredShipperIds = preferredEntries.map(e => e.shipper);
 
+        carrierOpenVisible = [
+          // Open loads that are public
+          { status: "open", loadVisibility: { $ne: 'preferred' } },
+          // Open loads with preferred visibility where this carrier IS preferred
+          { status: "open", loadVisibility: 'preferred', postedBy: { $in: preferredShipperIds } },
+          // Open preferred-visibility loads past their firstLook window (now public)
+          { status: "open", loadVisibility: 'preferred', postedBy: { $nin: preferredShipperIds },
+            createdAt: { $lte: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
+        ];
+
         filter = {
           $or: [
-            // Open loads that are public
-            { status: "open", loadVisibility: { $ne: 'preferred' } },
-            // Open loads with preferred visibility where this carrier IS preferred
-            { status: "open", loadVisibility: 'preferred', postedBy: { $in: preferredShipperIds } },
-            // Open preferred-visibility loads past their firstLook window (now public)
-            { status: "open", loadVisibility: 'preferred', postedBy: { $nin: preferredShipperIds },
-              createdAt: { $lte: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
+            ...carrierOpenVisible,
             // Loads accepted by this carrier
             { acceptedBy: req.user.userId },
           ],
         };
       }
-  
+
       // ---- Shipper: loads posted by this shipper
       else if (req.user.role === "shipper") {
         filter = { postedBy: req.user.userId };
       }
-  
+
       // ---- Admin: see ALL loads (no filter = all docs)
       // You can apply more admin-specific filtering if needed
-  
+
       // --- Shared filters ---
       if (status && status !== "all") {
         if (req.user.role === "carrier") {
           if (status === "open") {
-            filter = { status: "open" };
+            // Only open loads — but keep the preferred-visibility gating intact.
+            filter = { $or: carrierOpenVisible };
           } else {
-            // Show carrier's loads with this status, plus keep open loads visible
-            filter.$or = [
-              { status, acceptedBy: req.user.userId },
-              { status: "open" },
-            ];
+            // The carrier's own loads in this status (do not surface others' loads).
+            filter = { status, acceptedBy: req.user.userId };
           }
         } else {
           filter.status = status;
@@ -125,13 +200,79 @@ module.exports = (io) => {
         if (pickupStart) filter["pickupTimeWindow.start"].$gte = new Date(pickupStart);
         if (pickupEnd) filter["pickupTimeWindow.start"].$lte = new Date(pickupEnd);
       }
-  
+
+      // --- Lane / deadhead geo search ---
+      // originLat/originLng + originRadius (mi): loads picking up near a point.
+      // destLat/destLng + destRadius (mi): loads delivering near a point.
+      // A cheap bounding box pre-filters in Mongo; the exact circle is enforced in
+      // JS below. origin is also the reference for the deadhead distance.
+      const oLat = parseFloat(req.query.originLat);
+      const oLng = parseFloat(req.query.originLng);
+      const oRadius = Math.min(1000, Math.max(1, parseFloat(req.query.originRadius) || 50));
+      const hasOriginSearch = Number.isFinite(oLat) && Number.isFinite(oLng) && req.query.originRadius != null;
+
+      const dLat = parseFloat(req.query.destLat);
+      const dLng = parseFloat(req.query.destLng);
+      const dRadius = Math.min(1000, Math.max(1, parseFloat(req.query.destRadius) || 50));
+      const hasDestSearch = Number.isFinite(dLat) && Number.isFinite(dLng) && req.query.destRadius != null;
+
+      if (hasOriginSearch) {
+        const b = boundingBox(oLat, oLng, oRadius);
+        filter.originLat = { $gte: b.latMin, $lte: b.latMax };
+        filter.originLng = { $gte: b.lngMin, $lte: b.lngMax };
+      }
+      if (hasDestSearch) {
+        const b = boundingBox(dLat, dLng, dRadius);
+        filter.destinationLat = { $gte: b.latMin, $lte: b.latMax };
+        filter.destinationLng = { $gte: b.lngMin, $lte: b.lngMax };
+      }
+
       // --- Sorting ---
       const sortCriteria = {};
       if (sortBy) sortCriteria[sortBy] = sortOrder === "desc" ? -1 : 1;
       else sortCriteria.createdAt = -1;
-  
-      const loads = await Load.find(filter).sort(sortCriteria);
+
+      let loads = await Load.find(filter).sort(sortCriteria).lean();
+
+      // Refine the bounding box to the true radius and annotate each load with
+      // trip miles, rate-per-mile, and (when an origin is given) deadhead miles.
+      loads = loads
+        .map((l) => {
+          const hasO = Number.isFinite(l.originLat) && Number.isFinite(l.originLng);
+          const hasD = Number.isFinite(l.destinationLat) && Number.isFinite(l.destinationLng);
+
+          let deadheadMiles = null;
+          if (hasOriginSearch && hasO) {
+            deadheadMiles = round(haversineMiles(oLat, oLng, l.originLat, l.originLng), 0);
+          }
+          let tripMiles = null;
+          if (hasO && hasD) {
+            tripMiles = round(haversineMiles(l.originLat, l.originLng, l.destinationLat, l.destinationLng), 0);
+          }
+          const ratePerMile =
+            typeof l.rate === 'number' && tripMiles && tripMiles > 0
+              ? round(l.rate / tripMiles, 2)
+              : null;
+
+          return { ...l, deadheadMiles, tripMiles, ratePerMile };
+        })
+        // Enforce the exact circle (bounding box is a superset).
+        .filter((l) => {
+          if (hasOriginSearch) {
+            if (l.deadheadMiles == null || l.deadheadMiles > oRadius) return false;
+          }
+          if (hasDestSearch) {
+            if (!Number.isFinite(l.destinationLat) || !Number.isFinite(l.destinationLng)) return false;
+            if (haversineMiles(dLat, dLng, l.destinationLat, l.destinationLng) > dRadius) return false;
+          }
+          return true;
+        });
+
+      // When searching by origin, closest deadhead first is the most useful order.
+      if (hasOriginSearch) {
+        loads.sort((a, b) => (a.deadheadMiles ?? Infinity) - (b.deadheadMiles ?? Infinity));
+      }
+
       res.json(loads);
     } catch (err) {
       console.error("Error fetching loads:", err);
@@ -555,6 +696,13 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         return res.status(404).json({ error: "Load not found" });
       }
 
+      // Coordinates are required for routing/rate-con/tracking. Check BEFORE booking
+      // so a geocode-less load can't be half-booked (accepted in the DB but returning
+      // an error with no rate confirmation, chat thread, or status history).
+      if (!loadToCheck.originLat || !loadToCheck.originLng || !loadToCheck.destinationLat || !loadToCheck.destinationLng) {
+        return res.status(400).json({ error: "Load is missing required location coordinates" });
+      }
+
       // ── Eligibility guard: equipment subtype + endorsement requirements ─────
       // Carrier-level endorsements are checked here; the assigned driver is
       // re-checked at PUT /:id/assign-driver (driver may not be set yet).
@@ -644,10 +792,6 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
           if (escrow && escrow.error) console.warn('[accept] escrow hold:', escrow.error);
         }
       } catch (e) { console.warn('[accept] escrow hold failed (non-fatal):', e.message); }
-
-      if (!load.originLat || !load.originLng || !load.destinationLat || !load.destinationLng) {
-        return res.status(400).json({ error: "Load is missing required location coordinates" });
-      }
 
       // Auto-generate Rate Confirmation (non-blocking)
       autoGenerateRateCon(load._id, req.user.userId, load.postedBy);
@@ -763,6 +907,9 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
     try {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: "Load not found" });
+      // A party can always see their load; carriers can browse OPEN loads. Non-open
+      // loads you aren't party to (private/accepted/in-transit) are not readable.
+      if (!canBrowseLoad(load, req)) return res.status(403).json({ error: "Forbidden" });
       res.json(load);
     } catch (err) {
       res.status(500).json({ error: "Server error fetching load by ID" });
@@ -778,7 +925,10 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
         console.error("Load not found");
         return res.status(404).json({ error: "Load not found" });
       }
-  
+
+      // Live position is sensitive — only the shipper, the accepting carrier, or an admin.
+      if (!isLoadParty(load, req)) return res.status(403).json({ error: "Forbidden" });
+
       if (!load.acceptedBy) {
         console.error("Load not accepted by a carrier");
         return res.status(400).json({ error: "Load not accepted yet" });
@@ -831,6 +981,7 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
     try {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: "Load not found." });
+      if (!canBrowseLoad(load, req)) return res.status(403).json({ error: "Forbidden" });
 
       if (!load.originLat || !load.originLng || !load.destinationLat || !load.destinationLng) {
         return res.status(400).json({
@@ -997,18 +1148,25 @@ router.get('/recommended/:loadId', auth, async (req, res) => {
   }
 });
 
+// Only the load's shipper (owner) or an admin may change its time windows —
+// windows feed detention billing and on-time scorecards, so this must be locked down.
+function assertWindowEditor(load, req) {
+  if (req.user.role === 'admin') return true;
+  return load.postedBy?.toString() === req.user.userId;
+}
+
 // PUT /api/loads/:id/pickup-window  { start, end }
 router.put('/:id/pickup-window', auth, async (req, res) => {
   try {
     const { start, end } = req.body;
     if (!start || !end) return res.status(400).json({ error: 'start and end are required' });
 
-    const load = await Load.findByIdAndUpdate(
-      req.params.id,
-      { 'pickupTimeWindow.start': start, 'pickupTimeWindow.end': end },
-      { new: true, runValidators: true }
-    );
+    const load = await Load.findById(req.params.id);
     if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!assertWindowEditor(load, req)) return res.status(403).json({ error: 'Forbidden' });
+
+    load.pickupTimeWindow = { ...(load.pickupTimeWindow || {}), start, end };
+    await load.save();
 
     res.json(load);
   } catch (err) {
@@ -1025,18 +1183,12 @@ router.put('/:id/delivery-window', auth, async (req, res) => {
       return res.status(400).json({ error: 'start and end are required' });
     }
 
-    const load = await Load.findByIdAndUpdate(
-      req.params.id,
-      {
-        'deliveryTimeWindow.start': start,
-        'deliveryTimeWindow.end':   end,
-      },
-      { new: true, runValidators: true }
-    );
+    const load = await Load.findById(req.params.id);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!assertWindowEditor(load, req)) return res.status(403).json({ error: 'Forbidden' });
 
-    if (!load) {
-      return res.status(404).json({ error: 'Load not found' });
-    }
+    load.deliveryTimeWindow = { ...(load.deliveryTimeWindow || {}), start, end };
+    await load.save();
 
     res.json(load);
   } catch (err) {
@@ -1045,35 +1197,13 @@ router.put('/:id/delivery-window', auth, async (req, res) => {
   }
 });
 
-// PUT /api/loads/:id/assign-to-truck
+// PUT /api/loads/:id/assign-to-truck — DEPRECATED.
+// This route set an invalid "assigned" status (always 500'd) and skipped the booking
+// gate. Truck assignment now goes through the gated PUT /api/users/fleet/:truckId/assign-load.
 router.put("/:id/assign-to-truck", auth, async (req, res) => {
-  try {
-    // Carrier only
-    if (req.user.role !== "carrier") {
-      return res.status(403).json({ error: "Only carriers can assign loads to trucks" });
-    }
-    const { truckId } = req.body;
-    if (!truckId) {
-      return res.status(400).json({ error: "truckId is required" });
-    }
-
-    const load = await Load.findById(req.params.id);
-    if (!load) return res.status(404).json({ error: "Load not found" });
-
-    // Only allow assignment if load is open and not assigned
-    if (load.status !== "open" || load.assignedTruckId) {
-      return res.status(400).json({ error: "Load is not available for assignment" });
-    }
-
-    load.assignedTruckId = truckId;
-    load.status = "assigned";
-    await load.save();
-
-    res.json({ message: "Load assigned to truck", load });
-  } catch (err) {
-    console.error("Error assigning load to truck:", err);
-    res.status(500).json({ error: "Server error assigning load" });
-  }
+  return res.status(410).json({
+    error: 'Deprecated. Use PUT /api/users/fleet/:truckId/assign-load to assign a load to a truck.',
+  });
 });
 
 
@@ -1083,8 +1213,10 @@ router.put("/:id/assign-to-truck", auth, async (req, res) => {
 // GET /api/loads/:id/stops
 router.get('/:id/stops', auth, async (req, res) => {
   try {
-    const load = await Load.findById(req.params.id).select('stops origin destination status postedBy acceptedBy');
+    const load = await Load.findById(req.params.id).select('stops origin destination status postedBy acceptedBy loadVisibility');
     if (!load) return res.status(404).json({ error: 'Load not found' });
+    // Stops carry facility contact details — gate the same way as the load itself.
+    if (!canBrowseLoad(load, req)) return res.status(403).json({ error: 'Forbidden' });
     res.json({ stops: load.stops || [], origin: load.origin, destination: load.destination });
   } catch (err) {
     res.status(500).json({ error: 'Server error fetching stops' });
@@ -1194,12 +1326,17 @@ router.put('/:id/stops/:stopIndex/status', auth, async (req, res) => {
 
 // backend/routes/chatbot.js
 router.post('/voice-command', auth, async (req, res) => {
-  const { command } = req.body;
+  try {
+    const command = typeof req.body?.command === 'string' ? req.body.command : '';
+    if (!command) return res.status(400).json({ error: 'command is required' });
 
-  if (command.includes('recommend')) {
-    res.json({ message: 'Here are some recommended loads for you.' });
-  } else {
-    res.json({ message: 'Command not recognized.' });
+    if (command.toLowerCase().includes('recommend')) {
+      return res.json({ message: 'Here are some recommended loads for you.' });
+    }
+    return res.json({ message: 'Command not recognized.' });
+  } catch (err) {
+    console.error('[voice-command] failed:', err.message);
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -1273,6 +1410,9 @@ router.post('/voice-command', auth, async (req, res) => {
       let tonuFeeCents = 0;
       let escrowRefunded = false;
 
+      // Terminate dangling bids / appointments / trip references on the cancelled load.
+      await cancelLoadCascade(load._id);
+
       // ── TONU logic: shipper cancels after carrier already accepted ──
       if (isShipper && previousStatus === 'accepted' && load.acceptedBy) {
         // Carrier was committed — they get TONU fee
@@ -1321,7 +1461,24 @@ router.post('/voice-command', auth, async (req, res) => {
         // orphaned-history gap. Clear the acceptance fingerprint so the next
         // accepting carrier gets a fresh audit trail.
         await Load.findByIdAndUpdate(load._id, {
-          $set: { status: 'open', acceptedBy: null, assignedTruckId: null, acceptanceFingerprint: null },
+          $set: {
+            status: 'open',
+            acceptedBy: null,
+            assignedTruckId: null,
+            acceptanceFingerprint: null,
+            // Clear leftover acceptance/cancellation state so the relisted load is
+            // clean for the next carrier (no stale rate-con, driver, or escrow flags).
+            assignedDriverId: null,
+            assignedDriverName: null,
+            cancelledBy: null,
+            cancelledByRole: null,
+            cancelReason: null,
+            cancelledAt: null,
+            paymentAssured: false,
+            escrowFunded: false,
+            escrowPaymentIntentId: null,
+            'documents.rateConfirmation': null,
+          },
         });
         StatusHistory.record('load', load._id, 'cancelled', 'open', userId, 'Reopened after carrier cancellation').catch(() => {});
 
@@ -1334,16 +1491,11 @@ router.post('/voice-command', auth, async (req, res) => {
           metadata: { loadId: load._id },
         });
 
-        // Refund escrow if payment exists
+        // Release the escrow hold if one exists. The funds are only AUTHORIZED
+        // (manual capture), so the correct action is to cancel the PaymentIntent,
+        // not to mark a refund of money that was never captured.
         try {
-          const Payment = require('../models/Payment');
-          const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
-          if (payment) {
-            payment.status = 'refunded';
-            payment.refundedAt = new Date();
-            await payment.save();
-            escrowRefunded = true;
-          }
+          escrowRefunded = await releaseEscrowHold(load._id, reason);
         } catch { /* non-critical */ }
 
         return res.json({
@@ -1364,18 +1516,10 @@ router.post('/voice-command', auth, async (req, res) => {
       }
 
       // ── Default response (shipper cancelled accepted load) ─────────
-      // Handle escrow refund minus TONU
+      // Release the escrow hold (uncaptured authorization). TONU, when owed, is a
+      // separate accessorial and is not netted here.
       try {
-        const Payment = require('../models/Payment');
-        const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
-        if (payment) {
-          // In a real implementation, Stripe would refund minus TONU via partial refund
-          // For now, mark as refunded and log the TONU as owed
-          payment.status = 'refunded';
-          payment.refundedAt = new Date();
-          await payment.save();
-          escrowRefunded = true;
-        }
+        escrowRefunded = await releaseEscrowHold(load._id, reason);
       } catch { /* non-critical */ }
 
       res.json({

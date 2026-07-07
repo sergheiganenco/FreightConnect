@@ -14,6 +14,9 @@ const ADMIN_ONLY = (req, res, next) => {
   next();
 };
 
+// Escape user input before using it as a $regex to prevent ReDoS / regex injection.
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // ── GET /api/admin/stats ──────────────────────────────────────────────────────
 router.get('/stats', auth, ADMIN_ONLY, async (req, res) => {
   try {
@@ -94,9 +97,10 @@ router.get('/users', auth, ADMIN_ONLY, async (req, res) => {
 
   const filter = {};
   if (search) {
+    const safe = escapeRegex(search);
     filter.$or = [
-      { name:  { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
+      { name:  { $regex: safe, $options: 'i' } },
+      { email: { $regex: safe, $options: 'i' } },
     ];
   }
   if (role) filter.role = role;
@@ -204,10 +208,11 @@ router.get('/loads', auth, ADMIN_ONLY, async (req, res) => {
   const filter = {};
   if (req.query.status && req.query.status !== 'all') filter.status = req.query.status;
   if (req.query.q) {
+    const safeQ = escapeRegex(req.query.q);
     filter.$or = [
-      { title:       { $regex: req.query.q, $options: 'i' } },
-      { origin:      { $regex: req.query.q, $options: 'i' } },
-      { destination: { $regex: req.query.q, $options: 'i' } },
+      { title:       { $regex: safeQ, $options: 'i' } },
+      { origin:      { $regex: safeQ, $options: 'i' } },
+      { destination: { $regex: safeQ, $options: 'i' } },
     ];
   }
   if (req.query.minAmount) filter.rate = { ...(filter.rate || {}), $gte: Number(req.query.minAmount) };

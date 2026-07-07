@@ -77,7 +77,7 @@ export default function PODUploadScreen({ route, navigation }) {
       const formData = new FormData();
       const filename = image.uri.split('/').pop();
       const ext = filename.split('.').pop();
-      formData.append('pod', {
+      formData.append('file', {
         uri: image.uri,
         name: `pod_${loadId}.${ext}`,
         type: `image/${ext === 'jpg' ? 'jpeg' : ext}`,

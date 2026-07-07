@@ -13,6 +13,12 @@ const router  = express.Router();
 const auth    = require('../middlewares/authMiddleware');
 const ELDLog  = require('../models/ELDLog');
 const { notifyUserSafe } = require('../utils/notifyUser');
+const {
+  computeTotals,
+  computeShiftStatus,
+  checkCycleViolation,
+  mergeViolations,
+} = require('../services/hosRules');
 
 const CARRIER_ONLY = (req, res, next) => {
   if (req.user.role !== 'carrier' && req.user.role !== 'admin') {
@@ -30,60 +36,38 @@ function minutesBetween(start, end) {
   return Math.round((new Date(end) - new Date(start)) / 60000);
 }
 
-function computeTotals(events) {
-  const totals = { drivingMinutes: 0, onDutyNotDrivingMinutes: 0, sleeperMinutes: 0, offDutyMinutes: 0 };
-  for (const ev of events) {
-    const mins = ev.durationMinutes || (ev.endTime ? minutesBetween(ev.startTime, ev.endTime) : 0);
-    if (ev.status === 'DRIVING')             totals.drivingMinutes += mins;
-    if (ev.status === 'ON_DUTY_NOT_DRIVING') totals.onDutyNotDrivingMinutes += mins;
-    if (ev.status === 'SLEEPER_BERTH')       totals.sleeperMinutes += mins;
-    if (ev.status === 'OFF_DUTY')            totals.offDutyMinutes += mins;
-  }
-  return totals;
+// Gather duty events across the last few days so a shift (and the 10h rest that
+// starts it) is visible even when it spans midnight. Today's events are supplied
+// in-memory by the caller because they include the just-pushed, unsaved event.
+async function gatherRecentEvents(carrierId, today, todayEvents) {
+  const from = new Date();
+  from.setDate(from.getDate() - 2);
+  const fromStr = from.toISOString().slice(0, 10);
+  const priorLogs = await ELDLog.find({
+    carrier: carrierId,
+    date: { $gte: fromStr, $lt: today },
+  }).sort({ date: 1 }).select('events').lean();
+  const events = [];
+  for (const l of priorLogs) for (const e of (l.events || [])) events.push(e);
+  for (const e of (todayEvents || [])) events.push(e);
+  return events;
 }
 
-function computeRemaining(totals) {
-  const driveMinutes  = Math.max(0, 660 - totals.drivingMinutes);
-  const onDutyTotal   = totals.drivingMinutes + totals.onDutyNotDrivingMinutes;
-  const onDutyMinutes = Math.max(0, 840 - onDutyTotal);
-  return { driveMinutes, onDutyMinutes };
-}
-
-function checkViolations(totals, log) {
-  const violations = [];
-  const onDutyTotal = totals.drivingMinutes + totals.onDutyNotDrivingMinutes;
-
-  if (totals.drivingMinutes >= 660) {
-    violations.push({ type: '11_HOUR', message: '11-hour driving limit reached', severity: 'violation' });
-  } else if (totals.drivingMinutes >= 600) {
-    violations.push({ type: '11_HOUR', message: `Approaching 11-hour limit (${Math.round(totals.drivingMinutes / 60 * 10) / 10}h driven)`, severity: 'warning' });
+// Sum on-duty minutes across the driver's rolling 8-day cycle (excluding today,
+// which the caller adds live). Used for the 70-hour check.
+async function cycleOnDutyMinutesExcludingToday(carrierId, today) {
+  const from = new Date();
+  from.setDate(from.getDate() - 7);
+  const fromStr = from.toISOString().slice(0, 10);
+  const logs = await ELDLog.find({
+    carrier: carrierId,
+    date: { $gte: fromStr, $ne: today },
+  }).select('totals').lean();
+  let mins = 0;
+  for (const l of logs) {
+    mins += (l.totals?.drivingMinutes || 0) + (l.totals?.onDutyNotDrivingMinutes || 0);
   }
-
-  if (onDutyTotal >= 840) {
-    violations.push({ type: '14_HOUR', message: '14-hour on-duty window exceeded', severity: 'violation' });
-  } else if (onDutyTotal >= 780) {
-    violations.push({ type: '14_HOUR', message: `Approaching 14-hour window (${Math.round(onDutyTotal / 60 * 10) / 10}h on-duty)`, severity: 'warning' });
-  }
-
-  // 30-min break check: if drove 8+ hours without a 30-min break
-  let continuousDriving = 0;
-  let maxBreak = 0;
-  let tempBreak = 0;
-  for (const ev of (log.events || [])) {
-    if (ev.status === 'DRIVING') {
-      continuousDriving += ev.durationMinutes || 0;
-      tempBreak = 0;
-    } else if (ev.status === 'OFF_DUTY' || ev.status === 'SLEEPER_BERTH') {
-      tempBreak += ev.durationMinutes || 0;
-      maxBreak = Math.max(maxBreak, tempBreak);
-      if (tempBreak >= 30) continuousDriving = 0; // break resets the counter
-    }
-  }
-  if (continuousDriving >= 480 && maxBreak < 30) {
-    violations.push({ type: '30_MIN_BREAK', message: 'Required 30-minute break after 8 hours of driving', severity: 'violation' });
-  }
-
-  return violations;
+  return mins;
 }
 
 // ── POST /status — log a duty status change ───────────────────────────────────
@@ -118,28 +102,39 @@ router.post('/status', auth, CARRIER_ONLY, async (req, res) => {
     log.events.push({ status, startTime: now, location, load: loadId || null, odometer, notes });
     log.currentStatus = status;
 
-    // Recompute totals + remaining
-    log.totals    = computeTotals(log.events);
-    const rem     = computeRemaining(log.totals);
-    log.remaining.driveMinutes  = rem.driveMinutes;
-    log.remaining.onDutyMinutes = rem.onDutyMinutes;
+    // Day totals (for the daily-log display).
+    log.totals = computeTotals(log.events);
 
-    // Check violations
-    const newViolations = checkViolations(log.totals, log);
-    // Add only new violation types not already recorded today
-    const existingTypes = log.violations.map(v => v.type);
-    for (const v of newViolations) {
-      if (!existingTypes.includes(v.type)) {
-        log.violations.push(v);
-        if (v.severity === 'violation') {
-          notifyUserSafe(req.user.userId, {
-            type:  'exception:new',
-            title: 'HOS Violation',
-            body:  v.message,
-            link:  '/dashboard/carrier/eld',
-            metadata: { date: today },
-          });
-        }
+    // Shift-accurate HOS: gather events across the last few days so a shift that
+    // spans midnight (and the 10h rest before it) is visible, then compute the
+    // 11h/14h/break status against the CURRENT shift — not the calendar day.
+    const shiftEvents = await gatherRecentEvents(req.user.userId, today, log.events);
+    const shift = computeShiftStatus(shiftEvents, now);
+
+    log.remaining.driveMinutes  = shift.driveRemaining;
+    log.remaining.onDutyMinutes = shift.windowRemaining;
+
+    const newViolations = [...shift.violations];
+    // …plus the 70h/8-day cycle (needs prior days).
+    const cycleOnDuty =
+      (await cycleOnDutyMinutesExcludingToday(req.user.userId, today)) +
+      log.totals.drivingMinutes + log.totals.onDutyNotDrivingMinutes;
+    const cycleViolation = checkCycleViolation(cycleOnDuty);
+    if (cycleViolation) newViolations.push(cycleViolation);
+
+    // Dedupe by type AND severity so a recorded "warning" no longer suppresses the
+    // later "violation" of the same type. Notify only for newly-added violations.
+    const { merged, added } = mergeViolations(log.violations, newViolations);
+    log.violations = merged;
+    for (const v of added) {
+      if (v.severity === 'violation') {
+        notifyUserSafe(req.user.userId, {
+          type:  'exception:new',
+          title: 'HOS Violation',
+          body:  v.message,
+          link:  '/dashboard/carrier/eld',
+          metadata: { date: today },
+        });
       }
     }
 
@@ -172,24 +167,38 @@ router.get('/today', auth, CARRIER_ONLY, async (req, res) => {
       });
     }
 
-    // If there's an open event, include live duration in totals
+    // Shift-accurate live status (spans midnight; used for the gauge + remaining).
+    const now = new Date();
+    const shiftEvents = await gatherRecentEvents(req.user.userId, today, log.events);
+    const shift = computeShiftStatus(shiftEvents, now);
+    const shiftOut = {
+      onShift: shift.onShift,
+      shiftStart: shift.shiftStart,
+      driveMinutesUsed: shift.driveMinutesUsed,
+      driveRemaining: shift.driveRemaining,
+      windowElapsedMinutes: shift.windowElapsedMinutes,
+      windowRemaining: shift.windowRemaining,
+    };
+
+    // If there's an open event, include live duration in the day totals display.
     const openEvent = log.events.find(e => !e.endTime);
     if (openEvent) {
-      const liveMinutes = minutesBetween(openEvent.startTime, new Date());
+      const liveMinutes = minutesBetween(openEvent.startTime, now);
       const liveTotals  = computeTotals(log.events.map(e => {
         if (!e.endTime) return { ...e.toObject(), durationMinutes: liveMinutes };
         return e;
       }));
-      const liveRem = computeRemaining(liveTotals);
       return res.json({
         ...log.toObject(),
         totals:    liveTotals,
-        remaining: { ...log.remaining.toObject(), ...liveRem },
+        // Remaining now comes from the shift model (day-bucket was the false-negative source).
+        remaining: { ...log.remaining.toObject(), driveMinutes: shift.driveRemaining, onDutyMinutes: shift.windowRemaining },
+        shift: shiftOut,
         liveActiveMinutes: liveMinutes,
       });
     }
 
-    res.json(log);
+    res.json({ ...log.toObject(), shift: shiftOut });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch today\'s log' });
   }
@@ -274,12 +283,15 @@ router.post('/certify/:date', auth, CARRIER_ONLY, async (req, res) => {
     if (!log) return res.status(404).json({ error: 'Log not found for this date' });
     if (log.certified) return res.status(409).json({ error: 'Already certified' });
 
-    // Close any open events
+    // Close any open events. Day buckets are UTC (todayStr uses toISOString), so the
+    // end-of-day must be UTC too — a local "T23:59:59" is parsed in server-local time
+    // and produces negative/inflated durations on any non-UTC server. Guard against a
+    // negative span in case the open event somehow started after end-of-day.
     const openEvent = log.events.find(e => !e.endTime);
     if (openEvent) {
-      const eod = new Date(`${date}T23:59:59`);
+      const eod = new Date(`${date}T23:59:59.999Z`);
       openEvent.endTime         = eod;
-      openEvent.durationMinutes = minutesBetween(openEvent.startTime, eod);
+      openEvent.durationMinutes = Math.max(0, minutesBetween(openEvent.startTime, eod));
     }
 
     log.totals    = computeTotals(log.events);

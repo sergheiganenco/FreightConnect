@@ -587,8 +587,10 @@ router.get(
   async (req, res) => {
     try {
       const { origin, destination, equipment } = req.query;
-      const originLC = origin.toLowerCase();
-      const destLC = destination.toLowerCase();
+      // Escape user input before using it as a $regex to prevent ReDoS / regex injection.
+      const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const originLC = escapeRegex(origin.toLowerCase());
+      const destLC = escapeRegex(destination.toLowerCase());
 
       // Find historical loads on this lane
       const filter = {
@@ -597,7 +599,7 @@ router.get(
         destination: { $regex: destLC, $options: 'i' },
       };
       if (equipment) {
-        filter.equipmentType = { $regex: equipment, $options: 'i' };
+        filter.equipmentType = { $regex: escapeRegex(equipment), $options: 'i' };
       }
 
       const historical = await Load.find(filter)

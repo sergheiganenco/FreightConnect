@@ -344,12 +344,19 @@ export default function CarrierELD() {
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
         <TimerIcon sx={{ color: brand.indigoLight, fontSize: 32 }} />
         <Typography variant="h5" fontWeight={700} sx={{ color: '#fff' }}>
-          ELD / Hours of Service
+          HOS Advisor
         </Typography>
         <IconButton onClick={fetchAll} size="small" sx={{ ml: 'auto', color: semantic.muted }}>
           <RefreshIcon />
         </IconButton>
       </Box>
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        This is an advisory Hours-of-Service planner, <strong>not an FMCSA-registered ELD</strong>.
+        Clocks are shift-based (they reset after 10&nbsp;hours off duty, and the 14-hour window is
+        elapsed time), but this tool does not satisfy the 49&nbsp;CFR&nbsp;395.8 records-of-duty-status
+        requirement — keep using your registered ELD as your legal log of record.
+      </Alert>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 

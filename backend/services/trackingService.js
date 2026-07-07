@@ -21,6 +21,7 @@
  */
 
 const Load          = require('../models/Load');
+const User          = require('../models/User');
 const TrackingEvent = require('../models/TrackingEvent');
 const { getIO }     = require('../utils/socket');
 
@@ -80,6 +81,9 @@ async function recordLocation({
   heading = null,
   accuracy = null,
   source = 'api',
+  // When set (e.g. from the browser socket), the caller must be the load's
+  // assigned carrier. Trusted server-side ingest (HMAC token, ELD poller) omits it.
+  authCarrierId = null,
 } = {}) {
   try {
     // ── 1. Validate coordinates ───────────────────────────────────────────────
@@ -124,6 +128,26 @@ async function recordLocation({
     }
     if (!load) {
       return { ok: false, code: 404, error: 'Load not found' };
+    }
+
+    // ── 2a. Authorization (when the caller supplies an identity) ──────────────
+    if (authCarrierId && String(load.acceptedBy) !== String(authCarrierId)) {
+      return { ok: false, code: 403, error: "Not authorized to update this load's location" };
+    }
+
+    // ── 2b. Privacy gate (applies to EVERY ingest path) ───────────────────────
+    // This is the single chokepoint, so enforcing consent here covers the REST
+    // route, the browser socket, OwnTracks/OsmAnd ingest, and the ELD poller —
+    // not just POST /tracking/location. The tracked carrier (load.acceptedBy)
+    // must have granted GPS consent before any of their location is recorded.
+    if (load.acceptedBy) {
+      let carrierUser = null;
+      try {
+        carrierUser = await User.findById(load.acceptedBy).select('tracking.gpsConsent');
+      } catch (_) { /* fall through to the denial below */ }
+      if (!carrierUser?.tracking?.gpsConsent?.granted) {
+        return { ok: false, code: 403, error: 'GPS tracking consent is required before location can be recorded', consent: 'gps_consent_required' };
+      }
     }
 
     const prev = load.carrierLocation || null;

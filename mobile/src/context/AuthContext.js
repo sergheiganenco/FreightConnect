@@ -31,8 +31,13 @@ export function AuthProvider({ children }) {
     })();
   }, []);
 
-  const login = async (email, password) => {
-    const { data } = await api.post('/users/login', { email, password });
+  const login = async (email, password, mfaToken) => {
+    const { data } = await api.post('/users/login', { email, password, mfaToken });
+    // MFA-enabled accounts get { mfaRequired: true } with no token — do not persist a
+    // session; the caller must prompt for the code and call login() again with it.
+    if (data.mfaRequired && !data.token) {
+      return data;
+    }
     await SecureStore.setItemAsync('token', data.token);
     await SecureStore.setItemAsync('user', JSON.stringify(data.user || data));
     setUser(data.user || data);

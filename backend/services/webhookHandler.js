@@ -308,9 +308,11 @@ const HANDLERS = {
     payment.status = 'disputed';
     await payment.save();
 
-    // Flag the load as disputed
+    // Flag the load as disputed — but only from states the load state machine
+    // actually allows (in-transit/delivered). A chargeback on an open/accepted/
+    // cancelled load must not force an invalid transition that strands the load.
     const load = await Load.findById(payment.loadId);
-    if (load && load.status !== 'disputed') {
+    if (load && ['in-transit', 'delivered'].includes(load.status)) {
       load.status = 'disputed';
       await load.save();
     }
@@ -380,7 +382,10 @@ async function handleWebhookEvent(event) {
       return { handled: true, type: event.type };
     } catch (err) {
       console.error(`[webhookHandler] Error processing ${event.type}:`, err.message);
-      // Re-throw so the webhook endpoint can return 500 and Stripe will retry
+      // Release the idempotency claim so Stripe's retry actually reprocesses this
+      // event — otherwise its money-state effects would be lost permanently.
+      try { await ledgerService.unmarkProcessed(event.id); } catch (_) {}
+      // Re-throw so the webhook endpoint returns 500 and Stripe will retry.
       throw err;
     }
   }

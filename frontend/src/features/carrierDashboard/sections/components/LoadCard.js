@@ -27,6 +27,11 @@ export default function LoadCard({ load, onClick }) {
   const weight = load.loadWeight ? Number(load.loadWeight).toLocaleString() + ' lbs' : null;
   const accent = statusColor(load.status);
 
+  // Lane economics (annotated by the load board's geo search).
+  const tripMiles = Number.isFinite(load.tripMiles) ? load.tripMiles : null;
+  const rpm = Number.isFinite(load.ratePerMile) ? load.ratePerMile : null;
+  const deadhead = Number.isFinite(load.deadheadMiles) ? load.deadheadMiles : null;
+
   return (
     <motion.div
       whileHover={{ y: -4, boxShadow: shadow.card }}
@@ -73,11 +78,30 @@ export default function LoadCard({ load, onClick }) {
           <Typography variant="body2" fontWeight={600} sx={{ color: ST.open }}>
             {rate}
           </Typography>
+          {rpm != null && (
+            <Chip
+              label={`$${rpm.toFixed(2)}/mi`}
+              size="small"
+              sx={{ bgcolor: 'rgba(52,211,153,0.15)', color: '#34d399', fontWeight: 700, fontSize: '0.8rem', border: '1px solid rgba(52,211,153,0.35)' }}
+            />
+          )}
           {equipment && (
             <Chip label={equipment} size="small" sx={{ bgcolor: surface.glassBorder, color: '#e4e2f7', fontWeight: 600, fontSize: '0.8rem' }} />
           )}
           {weight && (
             <Typography variant="body2" color="text.secondary">{weight}</Typography>
+          )}
+        </Box>
+
+        {/* Miles row */}
+        <Box display="flex" flexWrap="wrap" gap={1.5} alignItems="center" mt={0.5}>
+          {tripMiles != null && (
+            <Typography variant="body2" color="text.secondary">{tripMiles.toLocaleString()} mi trip</Typography>
+          )}
+          {deadhead != null && (
+            <Typography variant="body2" sx={{ color: '#fbbf24', fontWeight: 600 }}>
+              {deadhead.toLocaleString()} mi deadhead
+            </Typography>
           )}
           <Typography variant="body2" color="text.secondary">
             Pickup {pickupDate}{deliveryDate ? ' \u2192 Del ' + deliveryDate : ''}

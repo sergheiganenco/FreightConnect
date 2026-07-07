@@ -234,39 +234,56 @@ router.post('/release/:loadId', auth, async (req, res) => {
     const isAdmin   = req.user.role === 'admin';
     if (!isShipper && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
+    // Escrow may only be released after delivery. Admins can override for exception
+    // handling; a shipper cannot release funds before the freight is delivered.
+    if (!isAdmin && load.status !== 'delivered') {
+      return res.status(409).json({ error: 'Escrow can only be released after the load is delivered' });
+    }
+
     const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
     if (!payment) return res.status(404).json({ error: 'No escrowed payment found for this load' });
 
     if (stripe) {
-      // Capture the held funds
-      await stripe.paymentIntents.capture(payment.stripePaymentIntentId);
-
-      // Transfer to carrier minus platform fee
-      const carrier = await User.findById(payment.carrierId);
-      if (carrier?.stripe?.connectAccountId) {
-        const payoutCents = payment.carrierPayoutCents || Math.round(payment.carrierPayout * 100);
-        await stripe.transfers.create({
-          amount: payoutCents,
-          currency: 'usd',
-          destination: carrier.stripe.connectAccountId,
-          transfer_group: `load_${load._id}`,
-          metadata: { loadId: load._id.toString() },
-        });
+      // Route through the NOA-aware capture path so a factored carrier's payout is
+      // redirected/held per UCC §9-406 instead of being paid directly (double-pay risk).
+      const escrowService = require('../services/escrowService');
+      const carrier = await User.findById(payment.carrierId).select('stripe');
+      const connectId = carrier?.stripe?.connectAccountId;
+      if (!connectId) {
+        // Don't capture the shipper's funds if we can't pay the carrier — that would
+        // strand money in the platform balance with no payable record.
+        return res.status(409).json({ error: 'Carrier has not completed payout onboarding — release is on hold.' });
       }
+
+      const result = await escrowService.captureEscrow(payment.stripePaymentIntentId, String(load._id), connectId);
+      if (result.chargeId) payment.stripeChargeId = result.chargeId;
+      if (result.transferId) {
+        payment.status = 'released';
+        payment.stripeTransferId = result.transferId;
+        payment.releasedAt = new Date();
+      } else {
+        // Captured, but the carrier payout was redirected to a factor or held (NOA).
+        payment.status = 'captured';
+      }
+      await payment.save();
+    } else {
+      // No Stripe configured (pilot/test): operational release without money movement.
+      payment.status = 'released';
+      payment.releasedAt = new Date();
+      await payment.save();
     }
 
-    payment.status = 'released';
-    payment.releasedAt = new Date();
-    await payment.save();
-
-    // Generate invoice
+    // Generate invoice (shipper was charged in all captured/released outcomes).
     const invoice = await generateInvoice(load, payment);
 
-    notify(payment.carrierId.toString(), 'payment:released', {
-      loadId: load._id,
-      amount: payment.carrierPayout,
-      invoiceId: invoice._id,
-    });
+    // Only tell the carrier they were paid if funds actually transferred to them.
+    if (payment.status === 'released') {
+      notify(payment.carrierId.toString(), 'payment:released', {
+        loadId: load._id,
+        amount: payment.carrierPayout,
+        invoiceId: invoice._id,
+      });
+    }
 
     res.json({ success: true, payment, invoice });
   } catch (err) {
@@ -353,7 +370,10 @@ router.post('/webhook', async (req, res) => {
       console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
   } catch (err) {
+    // Return 5xx so Stripe retries the delivery (the idempotency claim was rolled
+    // back in handleWebhookEvent). Returning 200 here would drop the event forever.
     console.error('[Webhook] Handler error:', err.message);
+    return res.status(500).json({ error: 'Webhook handler failed' });
   }
 
   res.json({ received: true });
@@ -370,6 +390,10 @@ async function generateInvoice(load, payment) {
     loadId:    load._id,
     shipperId: payment.shipperId,
     carrierId: payment.carrierId,
+    // Canonical cents from the payment; dollar fields kept for backward-compat.
+    subtotalCents:    payment.amountCents,
+    platformFeeCents: payment.platformFeeCents,
+    totalCents:       payment.amountCents,
     subtotal:  payment.amount,
     platformFee: payment.platformFee,
     total:     payment.amount,
@@ -446,6 +470,10 @@ async function createEscrowHoldForLoad(loadId) {
       // Save the card for later merchant-initiated accessorial charges (Path B).
       setup_future_usage: 'off_session',
       metadata: { loadId: String(load._id), shipperId: String(load.postedBy), carrierId: String(load.acceptedBy || ''), type: 'freight_escrow' },
+    }, {
+      // Idempotency: concurrent accepts (double-click / two tabs) must not create two
+      // holds. Keyed by load+carrier so a genuinely different booking gets its own hold.
+      idempotencyKey: `escrow_hold_${load._id}_${load.acceptedBy || 'none'}`,
     });
 
     await Payment.create({

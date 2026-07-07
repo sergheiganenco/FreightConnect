@@ -6,7 +6,12 @@ const InvoiceSchema = new mongoose.Schema({
   shipperId:{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   carrierId:{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
-  // Financial fields — all in dollars (existing app convention)
+  // Canonical money fields — integer cents (source of truth).
+  subtotalCents:    { type: Number },
+  platformFeeCents: { type: Number, default: 0 },
+  totalCents:       { type: Number },
+
+  // Dollar shadow fields (backward-compat with existing readers/UI).
   subtotal:    { type: Number, required: true },  // negotiated load rate
   platformFee: { type: Number, default: 0 },      // FreightConnect 2% fee
   total:       { type: Number, required: true },
@@ -39,14 +44,24 @@ const InvoiceSchema = new mongoose.Schema({
   emailedAt: { type: Date, default: null },
 }, { timestamps: true });
 
-// Auto-generate invoice number before save
+// Derive canonical cents from the dollar shadow fields when not set explicitly,
+// and generate a race-free invoice number via an atomic counter.
 InvoiceSchema.pre('save', async function (next) {
-  if (!this.invoiceNumber) {
-    const count = await this.constructor.countDocuments();
-    const year  = new Date().getFullYear();
-    this.invoiceNumber = `INV-${year}${String(count + 1).padStart(4, '0')}`;
+  try {
+    if (this.subtotalCents == null && this.subtotal != null) this.subtotalCents = Math.round(this.subtotal * 100);
+    if (this.platformFeeCents == null && this.platformFee != null) this.platformFeeCents = Math.round(this.platformFee * 100);
+    if (this.totalCents == null && this.total != null) this.totalCents = Math.round(this.total * 100);
+
+    if (!this.invoiceNumber) {
+      const Counter = require('./Counter');
+      const year = new Date().getFullYear();
+      const seq = await Counter.next(`invoice-${year}`);
+      this.invoiceNumber = `INV-${year}${String(seq).padStart(4, '0')}`;
+    }
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 });
 
 module.exports = mongoose.model('Invoice', InvoiceSchema);

@@ -4,6 +4,10 @@ import { Snackbar, Alert, Typography } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { getSocket } from '../../services/socket';
 
+// Same resolution as services/api.js — fall back to same-origin '/api' so a
+// production build with REACT_APP_API_URL unset doesn't hit 'undefined/chat/...'.
+const API_BASE = process.env.REACT_APP_API_URL || '/api';
+
 const ChatContext = createContext(null);
 
 export function useChatContext() {
@@ -29,7 +33,7 @@ export default function ChatProvider({ children }) {
     setLoadingChannels(true);
     try {
       const { data } = await axios.get(
-        `${process.env.REACT_APP_API_URL}/chat/channels`,
+        `${API_BASE}/chat/channels`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setChannels(data);
@@ -46,7 +50,7 @@ export default function ChatProvider({ children }) {
     try {
       const params = before ? `?before=${before}&limit=50` : '?limit=50';
       const { data } = await axios.get(
-        `${process.env.REACT_APP_API_URL}/chat/channels/${channelId}/messages${params}`,
+        `${API_BASE}/chat/channels/${channelId}/messages${params}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setMessages((prev) => {
@@ -70,7 +74,7 @@ export default function ChatProvider({ children }) {
     // Mark as read
     if (token) {
       axios.post(
-        `${process.env.REACT_APP_API_URL}/chat/channels/${channelId}/read`,
+        `${API_BASE}/chat/channels/${channelId}/read`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       ).catch(() => {});
@@ -88,7 +92,7 @@ export default function ChatProvider({ children }) {
     if (!token || !content.trim()) return;
     try {
       const { data } = await axios.post(
-        `${process.env.REACT_APP_API_URL}/chat/channels/${channelId}/messages`,
+        `${API_BASE}/chat/channels/${channelId}/messages`,
         { content, messageType },
         { headers: { Authorization: `Bearer ${token}` } }
       );

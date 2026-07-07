@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middlewares/authMiddleware');
 const Company = require('../models/Company');
-const Truck = require('../models/Truck');
 const User = require('../models/User');
+
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // List companies with search/filter/pagination
 router.get('/companies', auth, async (req, res) => {
@@ -28,14 +29,40 @@ router.get('/companies', auth, async (req, res) => {
   }
 });
 
-// Get full details for a company (trucks + drivers)
+// Get full details for a company (trucks + drivers).
+// Fleet trucks live embedded in User.fleet[] (there is no separate Truck
+// collection), and members link to a company by companyId or by company name.
 router.get('/companies/:id', auth, async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
   try {
     const company = await Company.findById(req.params.id);
     if (!company) return res.status(404).json({ error: "Not found" });
-    const trucks = await Truck.find({ companyId: company._id });
-    const drivers = await User.find({ companyId: company._id });
+
+    const members = await User.find({
+      $or: [
+        { companyId: company._id },
+        { companyName: { $regex: `^${escapeRegex(company.name)}$`, $options: 'i' } },
+      ],
+    }).select('name email role companyName fleet verification');
+
+    // Flatten each member's embedded fleet into a trucks list.
+    const trucks = [];
+    for (const u of members) {
+      for (const t of (u.fleet || [])) {
+        const truck = t.toObject ? t.toObject() : t;
+        trucks.push({ ...truck, ownerId: u._id, ownerName: u.name });
+      }
+    }
+
+    const drivers = members.map((u) => ({
+      _id: u._id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      companyName: u.companyName,
+      verificationStatus: u.verification?.status,
+    }));
+
     res.json({ company, trucks, drivers });
   } catch (err) {
     console.error('Admin company detail error:', err);

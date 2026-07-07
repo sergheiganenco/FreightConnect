@@ -44,32 +44,41 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!activeChannel) return;
-    fetchMessages(activeChannel._id);
+    // Backend keys channels on the string `channelId` (e.g. "load_<id>"), not the Mongo _id.
+    const channelId = activeChannel.channelId;
+    fetchMessages(channelId);
 
-    // Join socket room
+    // Join socket room. getSocket() is async, so capture the socket in a ref that the
+    // effect cleanup (which must return synchronously) can reach.
+    let socketRef = null;
+    let cancelled = false;
+    const handleNewMessage = (msg) => {
+      if (msg.channelId === channelId) {
+        setMessages((prev) => [...prev, msg]);
+      }
+    };
     (async () => {
       const socket = await getSocket();
-      if (!socket) return;
-
-      socket.emit('joinChannel', { channelId: activeChannel._id });
-      socket.on('newMessage', (msg) => {
-        if (msg.channelId === activeChannel._id) {
-          setMessages((prev) => [...prev, msg]);
-        }
-      });
-
-      return () => {
-        socket.emit('leaveChannel', { channelId: activeChannel._id });
-        socket.off('newMessage');
-      };
+      if (!socket || cancelled) return;
+      socketRef = socket;
+      socket.emit('joinChannel', { channelId });
+      socket.on('newMessage', handleNewMessage);
     })();
+
+    return () => {
+      cancelled = true;
+      if (socketRef) {
+        socketRef.emit('leaveChannel', { channelId });
+        socketRef.off('newMessage', handleNewMessage);
+      }
+    };
   }, [activeChannel, fetchMessages]);
 
   const sendMessage = async () => {
     if (!text.trim() || !activeChannel) return;
     setSending(true);
     try {
-      await api.post(`/chat/channels/${activeChannel._id}/messages`, {
+      await api.post(`/chat/channels/${activeChannel.channelId}/messages`, {
         content: text.trim(),
       });
       setText('');
@@ -98,7 +107,7 @@ export default function ChatScreen() {
                 onPress={() => setActiveChannel(item)}
               >
                 <Text style={styles.channelName} numberOfLines={1}>
-                  {item.name || item.channelId || 'Chat'}
+                  {item.loadId?.title || item.name || item.channelId || 'Chat'}
                 </Text>
                 {item.lastMessage && (
                   <Text style={styles.channelPreview} numberOfLines={1}>
@@ -131,7 +140,7 @@ export default function ChatScreen() {
           <Text style={styles.backBtn}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.chatTitle} numberOfLines={1}>
-          {activeChannel.name || 'Chat'}
+          {activeChannel.loadId?.title || activeChannel.name || 'Chat'}
         </Text>
       </View>
 
@@ -140,7 +149,9 @@ export default function ChatScreen() {
         data={messages}
         keyExtractor={(item) => item._id}
         renderItem={({ item }) => {
-          const isMe = item.sender?._id === user?._id || item.sender === user?._id;
+          // Login stores the user as { id }, so compare against both id and _id.
+          const myId = user?.id || user?._id;
+          const isMe = item.sender?._id === myId || item.sender === myId;
           const isSystem = item.sender === 'system' || item.type === 'system';
           if (isSystem) {
             return (

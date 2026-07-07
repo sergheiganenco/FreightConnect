@@ -33,19 +33,37 @@ async function fetchWithRetry(url, retries = 3) {
   }
 }
 
-// Normalize FMCSA carrier response into a flat object
+// Normalize FMCSA carrier response into a flat object.
+// The real QCMobile API nests the carrier under content.carrier and returns
+// allowedToOperate as 'Y'/'N', statusCode as 'A'/'I', safetyRating as a letter
+// code ('S'/'C'/'U' or null), and an oosDate when the carrier is out of service.
 function normalizeCarrierData(raw) {
-  const c = raw?.content || raw?.carrier || raw || {};
+  const c = raw?.content?.carrier || raw?.content || raw?.carrier || raw || {};
+  const allowed = (c.allowedToOperate ?? c.operating_status ?? '').toString().trim();
   return {
     legalName: c.legalName || c.legal_name || null,
     dbaName: c.dbaName || c.dba_name || null,
     entityType: c.entityType || c.entity_type || null,
-    operatingStatus: c.allowedToOperate || c.operating_status || null,
+    // 'Y'/'N' from the live API, or a status string from legacy/mock data.
+    allowedToOperate: allowed || null,
+    operatingStatus: allowed || null,
+    // 'A' (active) / 'I' (inactive) operating-authority status, when present.
+    authorityStatusCode: c.statusCode || null,
+    // Letter code ('S'/'C'/'U') or word; null when unrated.
     safetyRating: c.safetyRating || c.safety_rating || null,
+    // Out of service if an OOS date is on file.
+    outOfService: !!(c.oosDate || c.outOfService),
+    oosDate: c.oosDate || null,
     dotNumber: c.dotNumber || c.dot_number || null,
-    mcNumber: c.mcNumber || c.mc_mx_ff_number || null,
-    phone: c.telephone || null,
+    mcNumber: c.mcNumber || c.mc_mx_ff_number || c.docketNumber || null,
+    phone: c.telephone || c.phone || null,
   };
+}
+
+// True if the carrier's safety rating is Unsatisfactory ('U' letter code or the word).
+function isUnsatisfactory(carrierData) {
+  const r = (carrierData?.safetyRating || '').toString().trim().toLowerCase();
+  return r === 'u' || r === 'unsatisfactory';
 }
 
 /**
@@ -85,12 +103,28 @@ async function lookupByDOT(dotNumber) {
 }
 
 /**
- * Verify that a carrier's operating authority is active
+ * Verify that a carrier is legally authorized to operate: allowed to operate,
+ * not under an out-of-service order, and not rated Unsatisfactory.
  */
 function verifyAuthority(carrierData) {
   if (!carrierData) return false;
-  const status = (carrierData.operatingStatus || '').toLowerCase();
-  return status === 'authorized for property' || status === 'active' || status === 'authorized';
+  // Hard fails independent of the operating flag.
+  if (carrierData.outOfService) return false;
+  if (isUnsatisfactory(carrierData)) return false;
+  // Inactive operating authority (statusCode 'I') is not authorized.
+  const code = (carrierData.authorityStatusCode || '').toString().trim().toUpperCase();
+  if (code === 'I') return false;
+
+  const allowed = (carrierData.allowedToOperate || carrierData.operatingStatus || '')
+    .toString().trim().toLowerCase();
+  // Live API returns 'Y'/'N'; legacy/mock data uses descriptive strings.
+  return (
+    allowed === 'y' ||
+    allowed === 'yes' ||
+    allowed === 'authorized for property' ||
+    allowed === 'active' ||
+    allowed === 'authorized'
+  );
 }
 
 /**
@@ -138,4 +172,4 @@ async function runFullVerification(user, mcNumber, dotNumber) {
   }
 }
 
-module.exports = { lookupByMC, lookupByDOT, verifyAuthority, runFullVerification };
+module.exports = { lookupByMC, lookupByDOT, verifyAuthority, isUnsatisfactory, runFullVerification };

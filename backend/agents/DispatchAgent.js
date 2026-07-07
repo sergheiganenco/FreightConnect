@@ -136,7 +136,9 @@ class DispatchAgent extends Agent {
             rate: load.rate,
             score: best.score,
           });
-          io.to(`user_${load.postedBy}`).emit('load:statusUpdate', {
+          // Frontend listens for 'loadStatusUpdated' (LoadDetailsModal) — match it
+          // so auto-dispatch status actually reaches the UI.
+          io.to(`user_${load.postedBy}`).emit('loadStatusUpdated', {
             loadId: load._id,
             status: 'accepted',
             acceptedBy: best.carrier._id,

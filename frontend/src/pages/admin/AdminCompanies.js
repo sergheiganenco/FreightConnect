@@ -71,7 +71,7 @@ export default function AdminCompanies() {
   const openModal = async (company) => {
     setLoading(true);
     try {
-      const res = await api.get(`/admin/fleet/companies/${company._id}`);
+      const res = await api.get(`/admin/companies/${company._id}`);
       setSelectedCompany(res.data);
       setModalOpen(true);
     } finally {

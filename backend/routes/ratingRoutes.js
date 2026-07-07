@@ -276,6 +276,28 @@ router.get(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
+// GET /api/ratings/check/:loadId — has the current user already rated this load?
+// ────────────────────────────────────────────────────────────────────────────
+router.get(
+  '/check/:loadId',
+  auth,
+  [param('loadId').isMongoId().withMessage('Valid loadId required')],
+  validate,
+  async (req, res) => {
+    try {
+      const existing = await Rating.findOne({
+        loadId: req.params.loadId,
+        fromUser: req.user.userId,
+      }).select('_id').lean();
+      res.json({ exists: !!existing });
+    } catch (err) {
+      console.error('[ratingRoutes] GET /check/:loadId error:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// ────────────────────────────────────────────────────────────────────────────
 // GET /api/ratings/load/:loadId — Ratings for a specific load
 // ────────────────────────────────────────────────────────────────────────────
 router.get(

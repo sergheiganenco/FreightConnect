@@ -14,7 +14,14 @@ const router = express.Router();
 const uploadsDir = path.join(__dirname, '../public/documents/uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-const upload = multer({ dest: uploadsDir });
+const upload = multer({ dest: uploadsDir, limits: { fileSize: 25 * 1024 * 1024 } });
+
+// Only load participants (shipper/carrier) or an admin may read/generate a load's documents.
+function isLoadParticipant(load, req) {
+  if (req.user.role === 'admin') return true;
+  const uid = req.user.userId;
+  return load.postedBy?.toString() === uid || load.acceptedBy?.toString() === uid;
+}
 
 // ------------------------------
 // Generate BOL PDF
@@ -23,6 +30,7 @@ router.post('/generate-bol', auth, async (req, res) => {
   try {
     const load = await Load.findById(loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!isLoadParticipant(load, req)) return res.status(403).json({ error: 'Forbidden' });
 
     const fileName = `${load._id}-bol.pdf`;
     const filePath = path.join(uploadsDir, fileName);
@@ -69,6 +77,7 @@ router.get('/generate-invoice/:loadId', auth, async (req, res) => {
   try {
     const load = await Load.findById(loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!isLoadParticipant(load, req)) return res.status(403).json({ error: 'Forbidden' });
 
     const templatePath = path.join(__dirname, '../Templates/invoicetemplate.html');
     let html = fs.readFileSync(templatePath, 'utf-8');
@@ -112,17 +121,24 @@ router.get('/generate-invoice/:loadId', auth, async (req, res) => {
 // ------------------------------
 router.post('/upload-pod/:loadId', auth, upload.single('file'), async (req, res) => {
   try {
-    const { loadId } = req.params;
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    // Rename/move to standard name
-    const newFileName = `${loadId}-pod.pdf`;
+    // Load.findById validates the id (CastError on junk) which blocks path traversal,
+    // and lets us enforce that only a participant can write this load's POD.
+    const load = await Load.findById(req.params.loadId);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!isLoadParticipant(load, req)) return res.status(403).json({ error: 'Forbidden' });
+
+    // Derive the filename from the validated ObjectId, preserving the real extension.
+    const ext = path.extname(req.file.originalname || '').toLowerCase().replace(/[^.a-z0-9]/g, '') || '.pdf';
+    const newFileName = `${load._id}-pod${ext}`;
     const destPath = path.join(uploadsDir, newFileName);
     fs.renameSync(req.file.path, destPath);
 
-    // Optionally update Load with POD uploaded info
+    const podPath = `/documents/uploads/${newFileName}`;
+    await Load.findByIdAndUpdate(load._id, { 'documents.pod': podPath });
 
-    res.json({ filePath: `/documents/uploads/${newFileName}` });
+    res.json({ filePath: podPath });
   } catch (err) {
     console.error('POD upload error:', err);
     res.status(500).json({ error: 'Failed to upload POD' });
@@ -163,6 +179,7 @@ router.post('/generate-invoice', auth, async (req, res) => {
   try {
     const load = await Load.findById(loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!isLoadParticipant(load, req)) return res.status(403).json({ error: 'Forbidden' });
 
     const templatePath = path.join(__dirname, '../Templates/invoicetemplate.html');
     let html = fs.readFileSync(templatePath, 'utf-8');
@@ -297,14 +314,20 @@ router.post('/pod/:loadId', auth, upload.single('file'), async (req, res) => {
   try {
     const load = await Load.findById(req.params.loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!isLoadParticipant(load, req)) return res.status(403).json({ error: 'Forbidden' });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const newFileName = req.params.loadId + '-pod.pdf';
+    // Preserve the real extension (photos are JP/PNG, not PDF).
+    const ext = path.extname(req.file.originalname || '').toLowerCase().replace(/[^.a-z0-9]/g, '') || '.pdf';
+    const newFileName = `${load._id}-pod${ext}`;
     const destPath = path.join(uploadsDir, newFileName);
     fs.renameSync(req.file.path, destPath);
 
     const podPath = '/documents/uploads/' + newFileName;
-    await Load.findByIdAndUpdate(req.params.loadId, { 'documents.pod': podPath });
+    const update = { 'documents.pod': podPath };
+    // Capture the consignee signer name if the driver collected one at the dock.
+    if (req.body.signerName) update['documents.podSignerName'] = String(req.body.signerName).slice(0, 120);
+    await Load.findByIdAndUpdate(load._id, update);
 
     const BASE = process.env.BACKEND_URL || 'http://localhost:5000';
     res.json({ url: BASE + podPath });
