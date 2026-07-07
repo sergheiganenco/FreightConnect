@@ -128,8 +128,7 @@ export default function MfaSetup() {
       </Stack>
 
       <Typography variant="body2" sx={{ color: T.secondary, mb: 2 }}>
-        Protect your admin account with an authenticator app (Google Authenticator, Authy, 1Password).
-        Admin MFA is required by the operations runbook.
+        Protect your account with an authenticator app (Google Authenticator, Authy, 1Password).
       </Typography>
 
       {unavailable && (
