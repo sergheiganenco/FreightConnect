@@ -1,78 +1,85 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import Navbar from './components/Navbar';
 import Footer from './components/FooterFull';
 import OfflineDetector from './components/OfflineDetector';
-import AIInsightsPanel from './components/AIInsightsPanel';
-import CarrierScorecard from './components/CarrierScorecard';
 import ChatProvider from './components/chat/ChatProvider';
-import ChatPage from './components/chat/ChatPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import TosGuardProvider from './components/TosGuardProvider';
 import NotFound from './pages/NotFound';
+import { RoleRoute } from './components/PrivateRoute';
 
-/* marketing pages */
+/* marketing + auth pages (eager — first paint, no auth gate) */
 import Home from './pages/Home';
 import About from './pages/About';
 import Features from './pages/Features';
 import Contact from './pages/Contact';
-
-/* auth and dashboard pages */
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import VerifyEmail from './pages/VerifyEmail';
-import ShipperDashboard from './pages/shipper/ShipperDashboard';
-import ShipperPostLoad from './pages/shipper/ShipperPostLoad';
-import ShipperDocuments from './pages/shipper/ShipperDocuments';
-import ShipperLoadBoardSection from './features/shipperDashboard/sections/ShipperLoadBoardSection';
-import ShipperProfile from './pages/shipper/ShipperProfile';
-import CarrierDashboard from './pages/carrier/CarrierDashboard';
-import CarrierMyLoads from './pages/carrier/CarrierMyLoads';
-import Profile from './pages/carrier/CarrierProfile';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import AdminProfile from './pages/admin/AdminProfile';
-import DocumentsSection from './features/carrierDashboard/sections/DocumentsSection';
-import CarrierLoadBoardSection from './features/carrierDashboard/sections/CarrierLoadBoardSection';
-import CarrierFleet from './pages/carrier/CarrierFleet';
-import CarrierDrivers from './pages/carrier/CarrierDrivers';
-import CarrierTeam from './pages/carrier/CarrierTeam';
-import CarrierFleetHOS from './pages/carrier/CarrierFleetHOS';
-import { RoleRoute } from './components/PrivateRoute';
-import CarrierLiveMap from './pages/carrier/CarrierLiveMap';
-import FleetMap from './pages/FleetMap';
-import CarrierAnalytics from './pages/carrier/CarrierAnalytics';
-import CarrierVerification from './pages/carrier/CarrierVerification';
-import CarrierPayments from './pages/carrier/CarrierPayments';
-import CarrierNetwork from './pages/carrier/CarrierNetwork';
-import ShipperAnalytics from './pages/shipper/ShipperAnalytics';
-import ShipperPayments from './pages/shipper/ShipperPayments';
-import ShipperContracts from './pages/shipper/ShipperContracts';
-import CarrierContracts from './pages/carrier/CarrierContracts';
-import ShipperAppointments from './pages/shipper/ShipperAppointments';
-import CarrierAppointments from './pages/carrier/CarrierAppointments';
-import CarrierTripPlanning from './pages/carrier/CarrierTripPlanning';
-import CarrierELD from './pages/carrier/CarrierELD';
-import CarrierFactoring from './pages/carrier/CarrierFactoring';
-import CarrierTax from './pages/carrier/CarrierTax';
-import CarrierExpenses from './pages/carrier/CarrierExpenses';
-import ShipperEDI from './pages/shipper/ShipperEDI';
-import ShipperTax from './pages/shipper/ShipperTax';
-import ShipperVerification from './pages/shipper/ShipperVerification';
-import ShipperTeam from './pages/shipper/ShipperTeam';
 
-// --- Real Admin Pages ---
-import AdminOverview from './pages/admin/AdminOverview';
-import AdminLoads from './pages/admin/AdminLoads';
-import AdminUsers from './pages/admin/AdminUsers';
-import AdminCompanies from './pages/admin/AdminCompanies';
-import AdminExceptions from './pages/admin/AdminExceptions';
-import AdminVerifications from './pages/admin/AdminVerifications';
-import AdminLedger from './pages/admin/AdminLedger';
-import AdminReviewQueue from './pages/admin/AdminReviewQueue';
-import AdminFactoring from './pages/admin/AdminFactoring';
+/* dashboard + admin pages (lazy — split into their own chunks, loaded on demand) */
+const AIInsightsPanel = lazy(() => import('./components/AIInsightsPanel'));
+const CarrierScorecard = lazy(() => import('./components/CarrierScorecard'));
+const ChatPage = lazy(() => import('./components/chat/ChatPage'));
+const ShipperDashboard = lazy(() => import('./pages/shipper/ShipperDashboard'));
+const ShipperPostLoad = lazy(() => import('./pages/shipper/ShipperPostLoad'));
+const ShipperDocuments = lazy(() => import('./pages/shipper/ShipperDocuments'));
+const ShipperLoadBoardSection = lazy(() => import('./features/shipperDashboard/sections/ShipperLoadBoardSection'));
+const ShipperProfile = lazy(() => import('./pages/shipper/ShipperProfile'));
+const CarrierDashboard = lazy(() => import('./pages/carrier/CarrierDashboard'));
+const CarrierMyLoads = lazy(() => import('./pages/carrier/CarrierMyLoads'));
+const Profile = lazy(() => import('./pages/carrier/CarrierProfile'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const AdminProfile = lazy(() => import('./pages/admin/AdminProfile'));
+const DocumentsSection = lazy(() => import('./features/carrierDashboard/sections/DocumentsSection'));
+const CarrierLoadBoardSection = lazy(() => import('./features/carrierDashboard/sections/CarrierLoadBoardSection'));
+const CarrierFleet = lazy(() => import('./pages/carrier/CarrierFleet'));
+const CarrierDrivers = lazy(() => import('./pages/carrier/CarrierDrivers'));
+const CarrierTeam = lazy(() => import('./pages/carrier/CarrierTeam'));
+const CarrierFleetHOS = lazy(() => import('./pages/carrier/CarrierFleetHOS'));
+const CarrierLiveMap = lazy(() => import('./pages/carrier/CarrierLiveMap'));
+const FleetMap = lazy(() => import('./pages/FleetMap'));
+const CarrierAnalytics = lazy(() => import('./pages/carrier/CarrierAnalytics'));
+const CarrierVerification = lazy(() => import('./pages/carrier/CarrierVerification'));
+const CarrierPayments = lazy(() => import('./pages/carrier/CarrierPayments'));
+const CarrierNetwork = lazy(() => import('./pages/carrier/CarrierNetwork'));
+const ShipperAnalytics = lazy(() => import('./pages/shipper/ShipperAnalytics'));
+const ShipperPayments = lazy(() => import('./pages/shipper/ShipperPayments'));
+const ShipperContracts = lazy(() => import('./pages/shipper/ShipperContracts'));
+const CarrierContracts = lazy(() => import('./pages/carrier/CarrierContracts'));
+const ShipperAppointments = lazy(() => import('./pages/shipper/ShipperAppointments'));
+const CarrierAppointments = lazy(() => import('./pages/carrier/CarrierAppointments'));
+const CarrierTripPlanning = lazy(() => import('./pages/carrier/CarrierTripPlanning'));
+const CarrierELD = lazy(() => import('./pages/carrier/CarrierELD'));
+const CarrierFactoring = lazy(() => import('./pages/carrier/CarrierFactoring'));
+const CarrierTax = lazy(() => import('./pages/carrier/CarrierTax'));
+const CarrierExpenses = lazy(() => import('./pages/carrier/CarrierExpenses'));
+const ShipperEDI = lazy(() => import('./pages/shipper/ShipperEDI'));
+const ShipperTax = lazy(() => import('./pages/shipper/ShipperTax'));
+const ShipperVerification = lazy(() => import('./pages/shipper/ShipperVerification'));
+const ShipperTeam = lazy(() => import('./pages/shipper/ShipperTeam'));
+const AdminOverview = lazy(() => import('./pages/admin/AdminOverview'));
+const AdminLoads = lazy(() => import('./pages/admin/AdminLoads'));
+const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
+const AdminCompanies = lazy(() => import('./pages/admin/AdminCompanies'));
+const AdminExceptions = lazy(() => import('./pages/admin/AdminExceptions'));
+const AdminVerifications = lazy(() => import('./pages/admin/AdminVerifications'));
+const AdminLedger = lazy(() => import('./pages/admin/AdminLedger'));
+const AdminReviewQueue = lazy(() => import('./pages/admin/AdminReviewQueue'));
+const AdminFactoring = lazy(() => import('./pages/admin/AdminFactoring'));
+
+// Fallback shown while a lazy route chunk loads.
+function RouteFallback() {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <CircularProgress />
+    </Box>
+  );
+}
 
 // Wrapper so CarrierVerification gets an onComplete handler
 function CarrierVerificationPage() {
@@ -86,6 +93,7 @@ function App() {
       <Navbar />
       <OfflineDetector />
       <Box component="main" id="main-content">
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* Public Marketing Pages */}
           <Route path="/" element={<Home />} />
@@ -167,6 +175,7 @@ function App() {
           {/* 404 -- catch-all */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
       </Box>
       <Footer />
     </Router>
