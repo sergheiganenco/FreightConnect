@@ -5,8 +5,10 @@ import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import AuthNavigator from './src/navigation/AuthNavigator';
+import * as SecureStore from 'expo-secure-store';
 import { registerForPushNotifications, showLocalNotification } from './src/services/notifications';
 import { getSocket } from './src/services/socket';
+import api from './src/services/api';
 import { COLORS } from './src/constants/config';
 
 // Import tracking task definition (must be at top level)
@@ -19,7 +21,17 @@ function RootNavigator() {
   useEffect(() => {
     if (!user) return;
 
-    registerForPushNotifications();
+    // Register this device's Expo push token with the backend so it can send
+    // remote notifications when the app is closed.
+    (async () => {
+      try {
+        const token = await registerForPushNotifications();
+        if (token) {
+          await SecureStore.setItemAsync('pushToken', token);
+          await api.post('/users/push-token', { token });
+        }
+      } catch (_) { /* non-fatal — in-app socket notifications still work */ }
+    })();
 
     // Listen for in-app notifications via socket
     (async () => {

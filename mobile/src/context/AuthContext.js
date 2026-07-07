@@ -46,6 +46,15 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    // Unregister this device's push token before clearing the session (so a shared
+    // phone doesn't keep pushing to the previous user).
+    try {
+      const pushToken = await SecureStore.getItemAsync('pushToken');
+      if (pushToken) {
+        await api.delete('/users/push-token', { data: { token: pushToken } });
+        await SecureStore.deleteItemAsync('pushToken');
+      }
+    } catch (_) { /* non-fatal */ }
     disconnectSocket();
     await SecureStore.deleteItemAsync('token');
     await SecureStore.deleteItemAsync('user');

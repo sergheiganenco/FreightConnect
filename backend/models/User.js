@@ -66,6 +66,9 @@ const UserSchema = new mongoose.Schema({
   // Deactivated accounts cannot log in (used to disable a dispatcher/driver).
   active: { type: Boolean, default: true },
 
+  // Expo push tokens for this account's devices (remote notifications).
+  pushTokens: { type: [String], default: [] },
+
   // -- For Carrier Accounts Only --
   fleet: [TruckSchema],
 

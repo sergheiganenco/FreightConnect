@@ -448,6 +448,30 @@ router.get("/whoami", auth, (req, res) => {
   res.json({ user: req.user });
 });
 
+// POST /api/users/push-token — register an Expo push token for this device
+router.post('/push-token', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string') return res.status(400).json({ error: 'token is required' });
+    await User.updateOne({ _id: req.user.userId }, { $addToSet: { pushTokens: token } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[push-token register] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/users/push-token — unregister a token (on logout)
+router.delete('/push-token', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (token) await User.updateOne({ _id: req.user.userId }, { $pull: { pushTokens: token } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ----------------------
 // 3b) Company team (sub-accounts): dispatchers & drivers under one company
 // ----------------------

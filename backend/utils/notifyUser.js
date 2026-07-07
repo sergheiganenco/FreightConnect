@@ -32,7 +32,7 @@ async function notifyUser(userId, { type, title, body = '', link = null, metadat
     metadata,
   });
 
-  // Real-time push to the user's personal socket room
+  // Real-time push to the user's personal socket room (app open / web)
   try {
     getIO().to(`user_${userId}`).emit('notification:new', {
       _id: notification._id,
@@ -45,6 +45,13 @@ async function notifyUser(userId, { type, title, body = '', link = null, metadat
       createdAt: notification.createdAt,
     });
   } catch (_) { /* socket not available — notification still persisted */ }
+
+  // Remote push to the user's mobile devices (app closed). Detached + never
+  // throws, so it can't affect the persisted notification or the caller.
+  try {
+    const { sendPushToUser } = require('../services/pushService');
+    sendPushToUser(userId, { title, body, data: { link, type, ...metadata } });
+  } catch (_) { /* pushService unavailable — socket + DB notification still delivered */ }
 
   return notification;
 }
