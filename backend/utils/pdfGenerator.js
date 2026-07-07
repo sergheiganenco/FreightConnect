@@ -74,6 +74,28 @@ function sigLine(doc, label, x, y, lineWidth) {
     .strokeColor('#94a3b8').lineWidth(0.8).stroke();
 }
 
+// Render a captured e-signature (base64 PNG data URL) into a signature column,
+// or fall back to a blank ruled line when none was captured. A corrupt/oversized
+// PNG must never crash BOL generation — hence the try/catch.
+function drawSignature(doc, sig, label, x, y, lineWidth) {
+  const dataUrl = sig && sig.dataUrl;
+  if (dataUrl && /^data:image\/png;base64,/.test(dataUrl)) {
+    try {
+      const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+      doc.image(Buffer.from(b64, 'base64'), x, y - 2, { fit: [lineWidth - x - 10, 40] });
+    } catch (_) { /* fall through to the ruled line below */ }
+  }
+  sigLine(doc, label, x, y, lineWidth);
+  sigLine(doc, 'Print Name:', x, y + 28, lineWidth);
+  if (sig && sig.signerName) {
+    doc.fontSize(9).fillColor('#1e293b').font('Helvetica').text(String(sig.signerName), x + 112, y + 32);
+  }
+  sigLine(doc, 'Date:', x, y + 56, lineWidth);
+  if (sig && sig.signedAt) {
+    doc.fontSize(9).fillColor('#1e293b').font('Helvetica').text(fmtDate(sig.signedAt), x + 112, y + 60);
+  }
+}
+
 // ── Bill of Lading ───────────────────────────────────────────────────────────
 
 exports.generateBOL = (load, carrier, shipper) => {
@@ -136,14 +158,82 @@ exports.generateBOL = (load, carrier, shipper) => {
       );
     y += 50;
 
-    // Signatures
+    // Signatures — embed captured e-signatures (pickup = carrier col, delivery =
+    // shipper/consignee col) when present; fall back to blank ruled lines.
     y = sectionTitle(doc, 'SIGNATURES', y);
-    sigLine(doc, 'Carrier Signature:', 50, y, 300);
-    sigLine(doc, 'Shipper Signature:', 320, y, 562);
-    sigLine(doc, 'Print Name:', 50, y + 28, 300);
-    sigLine(doc, 'Print Name:', 320, y + 28, 562);
-    sigLine(doc, 'Date:', 50, y + 56, 300);
-    sigLine(doc, 'Date:', 320, y + 56, 562);
+    drawSignature(doc, load.pickupSignature, 'Carrier Signature:', 50, y, 300);
+    drawSignature(doc, load.deliverySignature, 'Consignee Signature:', 320, y, 562);
+
+    addFooter(doc);
+    doc.end();
+    stream.on('finish', () => resolve('/documents/uploads/' + fileName));
+    stream.on('error', reject);
+  });
+};
+
+// ── Driver Settlement Statement ──────────────────────────────────────────────
+// All settlement money is stored in integer cents; fmtMoney takes dollars, so
+// divide by 100 at the boundary.
+
+exports.generateSettlementStatement = (settlement, driver, company) => {
+  return new Promise((resolve, reject) => {
+    const fileName = settlement._id + '-settlement.pdf';
+    const filePath = path.join(UPLOADS_DIR, fileName);
+
+    const doc = new PDFDocument({ size: 'LETTER', margins: { top: 100, bottom: 60, left: 50, right: 50 } });
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
+
+    addHeader(doc, 'DRIVER SETTLEMENT', settlement.settlementNumber || String(settlement._id).slice(-8).toUpperCase());
+
+    let y = 110;
+
+    // Parties
+    y = sectionTitle(doc, 'PARTIES', y);
+    y = infoRow(doc, 'Carrier (Company)', (company && (company.companyName || company.name)) || 'N/A', y);
+    y = infoRow(doc, 'MC Number', (company && (company.mcNumber || (company.verification && company.verification.mcNumber))) || 'N/A', y);
+    y = infoRow(doc, 'Driver', (driver && driver.name) || settlement.driverName || 'N/A', y);
+    y = infoRow(doc, 'Statement #', settlement.settlementNumber || String(settlement._id), y);
+    y += 8; drawHRule(doc, y); y += 12;
+
+    // Period
+    y = sectionTitle(doc, 'PAY PERIOD', y);
+    y = infoRow(doc, 'Period Start', fmtDate(settlement.periodStart), y);
+    y = infoRow(doc, 'Period End', fmtDate(settlement.periodEnd), y);
+    y = infoRow(doc, 'Pay Type', settlement.payType || 'N/A', y);
+    y += 8; drawHRule(doc, y); y += 12;
+
+    // Line items
+    y = sectionTitle(doc, 'LOADS & EARNINGS', y);
+    doc.fontSize(8.5).fillColor('#64748b').font('Helvetica-Bold');
+    doc.text('Load', 50, y, { width: 200 });
+    doc.text('Delivered', 250, y, { width: 80 });
+    doc.text('Revenue', 330, y, { width: 70, align: 'right' });
+    doc.text('Deduct', 400, y, { width: 70, align: 'right' });
+    doc.text('Net', 470, y, { width: 92, align: 'right' });
+    doc.font('Helvetica').fillColor('#000000');
+    y += 16;
+    (settlement.lineItems || []).forEach((li) => {
+      if (y > doc.page.height - 140) { doc.addPage(); y = 60; }
+      doc.fontSize(8.5).fillColor('#1e293b');
+      doc.text(String(li.loadTitle || li.loadId || 'Load'), 50, y, { width: 200 });
+      doc.text(fmtDate(li.deliveredAt), 250, y, { width: 80 });
+      doc.text(fmtMoney((li.loadRevenueCents || 0) / 100), 330, y, { width: 70, align: 'right' });
+      doc.text(fmtMoney((li.deductionsCents || 0) / 100), 400, y, { width: 70, align: 'right' });
+      doc.text(fmtMoney((li.netCents || 0) / 100), 470, y, { width: 92, align: 'right' });
+      y += 15;
+    });
+    y += 6; drawHRule(doc, y); y += 12;
+
+    // Totals
+    y = sectionTitle(doc, 'SETTLEMENT TOTALS', y);
+    y = infoRow(doc, 'Gross Earnings', fmtMoney((settlement.grossCents || 0) / 100), y);
+    y = infoRow(doc, 'Total Deductions', fmtMoney((settlement.deductionsCents || 0) / 100), y);
+    doc.rect(50, y, 512, 30).fillAndStroke('#f0fdf4', '#16a34a');
+    doc.fontSize(12).fillColor('#15803d').font('Helvetica-Bold').text('NET PAY:', 66, y + 9);
+    doc.fontSize(15).fillColor('#166534')
+      .text(fmtMoney((settlement.netCents || 0) / 100), 350, y + 6, { align: 'right', width: 200 });
+    doc.font('Helvetica').fillColor('#000000');
 
     addFooter(doc);
     doc.end();

@@ -472,6 +472,15 @@ app.use('/api/ledger', require('./routes/ledgerRoutes'));
 // Review Queue Routes (manual review / moderation)
 app.use('/api/review-queue', require('./routes/reviewQueueRoutes'));
 
+// Cargo Claims Routes (freight damage/loss/shortage/overage disputes)
+app.use('/api/claims', require('./routes/claimRoutes'));
+
+// Driver Settlement Routes (carrier company pays its drivers)
+app.use('/api/settlements', require('./routes/settlementRoutes'));
+
+// IFTA Routes (quarterly fuel-tax worksheet)
+app.use('/api/ifta', require('./routes/iftaRoutes'));
+
 // ── Client-side routing catch-all (production only) ─────────────────────────
 // Serves index.html for any non-API route so React Router handles navigation.
 // Must be AFTER all /api routes and BEFORE the 404 handler.

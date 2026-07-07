@@ -22,6 +22,9 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import GroupsIcon from '@mui/icons-material/Groups';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
+import GavelIcon from '@mui/icons-material/Gavel';
+import PaymentsIcon from '@mui/icons-material/Payments';
+import LocalGasStationIcon from '@mui/icons-material/LocalGasStation';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
@@ -65,8 +68,11 @@ const moreItems = [
   { key: "contracts",    label: "Contracts",     icon: <AssignmentIcon /> },
   { key: "network",      label: "Network",       icon: <PeopleIcon /> },
   { key: "factoring",    label: "Factoring",     icon: <MonetizationOnIcon /> },
+  { key: "settlements",  label: "Driver Pay",    icon: <PaymentsIcon />,        access: 'manager' },
   { key: "expenses",     label: "Expenses",      icon: <ReceiptIcon /> },
   { key: "tax",          label: "Tax & 1099",    icon: <ReceiptLongIcon /> },
+  { key: "ifta",         label: "IFTA",          icon: <LocalGasStationIcon />, access: 'manager' },
+  { key: "claims",       label: "Claims",        icon: <GavelIcon /> },
   { key: "analytics",    label: "Analytics",     icon: <BarChartIcon /> },
   { key: "ai-insights",  label: "AI Insights",   icon: <PsychologyIcon /> },
   { key: "scorecard",    label: "Scorecard",     icon: <AssessmentIcon /> },

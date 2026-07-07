@@ -14,6 +14,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import GroupsIcon from '@mui/icons-material/Groups';
+import GavelIcon from '@mui/icons-material/Gavel';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
@@ -53,6 +54,7 @@ const moreItems = [
   { key: "ai-insights",  label: "AI Insights",  icon: <PsychologyIcon fontSize="medium" /> },
   { key: "tax",          label: "Tax",          icon: <ReceiptLongIcon fontSize="medium" /> },
   { key: "edi",          label: "EDI",          icon: <CodeIcon fontSize="medium" /> },
+  { key: "claims",       label: "Claims",       icon: <GavelIcon fontSize="medium" /> },
   { key: "verification", label: "Verification", icon: <VerifiedUserIcon fontSize="medium" /> },
 ];
 

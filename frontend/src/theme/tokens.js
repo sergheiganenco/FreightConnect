@@ -49,6 +49,15 @@ export const exceptionStatus = {
   dismissed:     '#94a3b8',
 };
 
+// Cargo-claim status colors (open→resolved/denied/withdrawn lifecycle)
+export const claimStatus = {
+  open:          '#6366f1',
+  investigating: '#fbbf24',
+  resolved:      '#34d399',
+  denied:        '#ef4444',
+  withdrawn:     '#94a3b8',
+};
+
 // ── Semantic ────────────────────────────────────────────────────
 export const semantic = {
   success:  '#34d399',

@@ -20,6 +20,23 @@ function sanitizeDriver(driver) {
   return d;
 }
 
+// Coerce a driver pay config to safe integer-cents values (settlement math relies
+// on these). Returns undefined when nothing usable is supplied so the schema
+// default applies.
+const PAY_TYPES = ['per_mile', 'per_load', 'percentage', 'flat'];
+function sanitizePay(pay) {
+  if (!pay || typeof pay !== 'object') return undefined;
+  const intCents = (v) => Math.max(0, Math.round(Number(v) || 0));
+  const out = {
+    type: PAY_TYPES.includes(pay.type) ? pay.type : 'percentage',
+    perMileCents: intCents(pay.perMileCents),
+    perLoadCents: intCents(pay.perLoadCents),
+    percentage: Math.min(100, Math.max(0, Number(pay.percentage) || 0)),
+    flatCents: intCents(pay.flatCents),
+  };
+  return out;
+}
+
 // ── Helper: generate a roster-unique driverId ───────────────────────────────
 function generateDriverId(existingDrivers = []) {
   const existing = new Set(existingDrivers.map((d) => d.driverId));
@@ -58,7 +75,7 @@ router.post(
 
       const {
         name, phone, licenseNumber, licenseState, licenseExpiry,
-        endorsements, hazmatExpiry,
+        endorsements, hazmatExpiry, pay,
       } = req.body;
       // Canonical field is medicalCardExpiry; accept the web form's legacy
       // `medicalExpiry` alias too (a silent mismatch here lost the date entirely).
@@ -75,6 +92,7 @@ router.post(
         endorsements: Array.isArray(endorsements) ? endorsements : [],
         hazmatExpiry: hazmatExpiry || undefined,
         medicalCardExpiry: medicalCardExpiry || undefined,
+        pay: sanitizePay(pay),
         status: 'active',
         createdAt: new Date(),
       };
@@ -194,6 +212,11 @@ router.put('/:driverId', auth, managerOnly, async (req, res) => {
         continue;
       }
       driver[key] = req.body[key];
+    }
+    // Pay config is a nested object — sanitize to integer cents before storing.
+    if (req.body.pay !== undefined) {
+      const p = sanitizePay(req.body.pay);
+      if (p) driver.pay = p;
     }
 
     await user.save();

@@ -85,6 +85,15 @@ const UserSchema = new mongoose.Schema({
     medicalCardExpiry: Date,
     status:          { type: String, enum: ['active','inactive','on_leave'], default: 'active' },
     assignedTruckId: { type: String, default: null },
+    // Driver pay configuration — drives settlement statement math. All money in
+    // integer cents; percentage is 0-100 of the load's gross rate.
+    pay: {
+      type:         { type: String, enum: ['per_mile','per_load','percentage','flat'], default: 'percentage' },
+      perMileCents: { type: Number, default: 0 },
+      perLoadCents: { type: Number, default: 0 },
+      percentage:   { type: Number, default: 0, min: 0, max: 100 },
+      flatCents:    { type: Number, default: 0 },
+    },
     createdAt:       { type: Date, default: Date.now },
   }],
 

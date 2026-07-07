@@ -24,6 +24,47 @@ function isLoadParticipant(load, req) {
   return load.postedBy?.toString() === uid || load.acceptedBy?.toString() === uid;
 }
 
+// Validate a base64 PNG signature data URL. Returns the clean data URL or null.
+// Caps the decoded image at 256KB so signature bytes can't bloat the Load doc or
+// the list queries that return full loads.
+const MAX_SIGNATURE_BYTES = 256 * 1024;
+function parseSignatureDataUrl(dataUrl) {
+  if (typeof dataUrl !== 'string' || !/^data:image\/png;base64,/.test(dataUrl)) return null;
+  const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+  // 4 base64 chars ≈ 3 bytes; bail before decoding an oversized payload.
+  if (b64.length > Math.ceil(MAX_SIGNATURE_BYTES / 3) * 4) return null;
+  let buf;
+  try { buf = Buffer.from(b64, 'base64'); } catch (_) { return null; }
+  if (!buf.length || buf.length > MAX_SIGNATURE_BYTES) return null;
+  return dataUrl;
+}
+
+// Build a Load signature subdoc from the request actor.
+function buildSignature(dataUrl, signerName, req) {
+  return {
+    dataUrl,
+    signerName: signerName ? String(signerName).slice(0, 120) : null,
+    signedByRole: req.user.role === 'shipper' ? 'shipper' : 'carrier',
+    signedBy: req.user.companyOwnerId || req.user.userId,
+    signedAt: new Date(),
+  };
+}
+
+// Regenerate a load's BOL from the current Load state (picks up whatever
+// pickup/delivery signatures + dates are stored). Idempotent — overwrites the
+// same `<id>-bol.pdf`. Returns the stored path.
+async function regenerateBol(loadId) {
+  const load = await Load.findById(loadId);
+  if (!load) return null;
+  const [carrier, shipper] = await Promise.all([
+    load.acceptedBy ? User.findById(load.acceptedBy).select('name email companyName mcNumber dotNumber verification') : null,
+    load.postedBy ? User.findById(load.postedBy).select('name email companyName') : null,
+  ]);
+  const filePath = await generateBOL(load, carrier, shipper);
+  await Load.findByIdAndUpdate(loadId, { 'documents.bol': filePath });
+  return filePath;
+}
+
 // ------------------------------
 // Generate BOL PDF
 router.post('/generate-bol', auth, async (req, res) => {
@@ -322,13 +363,63 @@ router.post('/pod/:loadId', auth, upload.single('file'), async (req, res) => {
     const update = { 'documents.pod': podPath };
     // Capture the consignee signer name if the driver collected one at the dock.
     if (req.body.signerName) update['documents.podSignerName'] = String(req.body.signerName).slice(0, 120);
+    // Persist the delivery e-signature (mobile posts it as `signatureData`) — it
+    // was previously discarded. It is embedded into the BOL as the consignee sig.
+    const sigDataUrl = parseSignatureDataUrl(req.body.signatureData || req.body.dataUrl);
+    if (sigDataUrl) update.deliverySignature = buildSignature(sigDataUrl, req.body.signerName, req);
     await Load.findByIdAndUpdate(load._id, update);
+
+    // Regenerate the BOL so the delivery signature is embedded (non-blocking).
+    if (sigDataUrl) regenerateBol(load._id).catch(() => {});
 
     const BASE = process.env.BACKEND_URL || 'http://localhost:5000';
     res.json({ url: BASE + podPath });
   } catch (err) {
     console.error('POD upload error:', err);
     res.status(500).json({ error: 'Failed to upload POD' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /api/documents/:loadId/pickup-signature — capture the pickup e-signature
+// (carrier or shipper at the dock), embed it into the BOL, and return the BOL url.
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/:loadId/pickup-signature', auth, async (req, res) => {
+  try {
+    const load = await Load.findById(req.params.loadId);
+    if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!isLoadParticipant(load, req)) return res.status(403).json({ error: 'Forbidden' });
+    // Pickup window: only meaningful once accepted and before/at delivery.
+    if (!['accepted', 'in-transit'].includes(load.status)) {
+      return res.status(409).json({ error: 'Pickup signature can only be captured after acceptance and before delivery' });
+    }
+    const dataUrl = parseSignatureDataUrl(req.body.dataUrl || req.body.signatureData);
+    if (!dataUrl) return res.status(400).json({ error: 'A valid PNG signature (data:image/png;base64,...) is required' });
+
+    load.pickupSignature = buildSignature(dataUrl, req.body.signerName, req);
+    await load.save();
+
+    // Generate the BOL now so the pickup signature is captured on paper.
+    let bolUrl = null;
+    try {
+      const bolPath = await regenerateBol(load._id);
+      const BASE = process.env.BACKEND_URL || 'http://localhost:5000';
+      bolUrl = bolPath ? BASE + bolPath : null;
+    } catch (e) {
+      console.error('[pickup-signature] BOL generation failed (non-fatal):', e.message);
+    }
+
+    res.json({
+      url: bolUrl,
+      pickupSignature: {
+        signerName: load.pickupSignature.signerName,
+        signedByRole: load.pickupSignature.signedByRole,
+        signedAt: load.pickupSignature.signedAt,
+      },
+    });
+  } catch (err) {
+    console.error('Pickup signature error:', err);
+    res.status(500).json({ error: 'Failed to save pickup signature' });
   }
 });
 

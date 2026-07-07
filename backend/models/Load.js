@@ -121,6 +121,24 @@ const LoadSchema = new mongoose.Schema({
     podSignerName:    { type: String, default: null }, // consignee signer captured at delivery
   },
 
+  // ── E-signatures (base64 PNG data URLs) captured at pickup and delivery ─────
+  // Embedded into the BOL PDF. NEVER indexed; excluded from load list projections
+  // to keep the signature bytes out of high-volume queries.
+  pickupSignature: {
+    dataUrl:     { type: String, default: null },
+    signerName:  { type: String, default: null },
+    signedByRole:{ type: String, enum: ['carrier', 'shipper', null], default: null },
+    signedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    signedAt:    { type: Date, default: null },
+  },
+  deliverySignature: {
+    dataUrl:     { type: String, default: null },
+    signerName:  { type: String, default: null },
+    signedByRole:{ type: String, enum: ['carrier', 'shipper', null], default: null },
+    signedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    signedAt:    { type: Date, default: null },
+  },
+
   // ── Contract reference ────────────────────────────────────────────────────
   contractId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Contract', default: null, index: true },
   isContractLoad: { type: Boolean, default: false },

@@ -16,6 +16,7 @@ import {
 import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
+import SignaturePad from '../../components/SignaturePad';
 import { glassCard } from '../../theme/tokens';
 
 export default function CarrierMyLoads({ embedded = false }) {
@@ -28,6 +29,8 @@ export default function CarrierMyLoads({ embedded = false }) {
 
   // state for modal
   const [selected, setSelected] = useState(null);
+  // Pickup e-signature pad (opened when a load transitions to in-transit)
+  const [sigPad, setSigPad] = useState({ open: false, loadId: null });
 
   /* ── fetch loads once ─────────────────────────────────────── */
   useEffect(() => {
@@ -72,8 +75,8 @@ export default function CarrierMyLoads({ embedded = false }) {
     return sortLoads(base);
   }, [loads, statusFilter]);
 
-  /* ── update status on dropdown change ─────────────────────── */
-  const updateStatus = async (id, newStatus) => {
+  /* ── apply a status change (the actual PUT) ───────────────── */
+  const applyStatus = async (id, newStatus) => {
     try {
       const token = localStorage.getItem('token');
       await api.put(
@@ -93,6 +96,30 @@ export default function CarrierMyLoads({ embedded = false }) {
       setError('Failed to update status.');
       console.error(err);
     }
+  };
+
+  /* ── update status on dropdown change ─────────────────────── */
+  // Transitioning to in-transit = pickup: capture a BOL e-signature first.
+  const updateStatus = async (id, newStatus) => {
+    if (newStatus === 'in-transit') {
+      setSigPad({ open: true, loadId: id });
+      return;
+    }
+    await applyStatus(id, newStatus);
+  };
+
+  /* ── pickup signature captured → save it, then transition ─── */
+  const handlePickupSigned = async ({ dataUrl, signerName }) => {
+    const id = sigPad.loadId;
+    setSigPad({ open: false, loadId: null });
+    if (!id) return;
+    try {
+      // Non-fatal: even if signature capture fails, still mark the pickup.
+      await api.post(`/documents/${id}/pickup-signature`, { dataUrl, signerName });
+    } catch (err) {
+      console.error('Pickup signature failed (continuing):', err);
+    }
+    await applyStatus(id, 'in-transit');
   };
 
   /* ── accent colours for card strips ───────────────────────── */
@@ -261,6 +288,15 @@ export default function CarrierMyLoads({ embedded = false }) {
           }}
         />
       )}
+
+      {/* Pickup e-signature pad — captured before the in-transit transition */}
+      <SignaturePad
+        open={sigPad.open}
+        title="Pickup Signature"
+        subtitle="Sign to confirm the freight was picked up in good order. This is embedded into the Bill of Lading."
+        onClose={() => setSigPad({ open: false, loadId: null })}
+        onSave={handlePickupSigned}
+      />
     </Box>
   );
 }

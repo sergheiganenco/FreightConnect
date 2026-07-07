@@ -117,9 +117,12 @@ module.exports = (io) => {
   async function autoGenerateBOL(loadId) {
     try {
       const load = await Load.findById(loadId);
-      if (!load || (load.documents && load.documents.bol)) return; // skip if already generated
+      // Always (re)generate on delivery: a pickup-signed BOL must be refreshed so
+      // it embeds deliveredAt + the delivery/consignee signature. Idempotent —
+      // overwrites the same <id>-bol.pdf.
+      if (!load) return;
       const [carrier, shipper] = await Promise.all([
-        load.acceptedBy ? User.findById(load.acceptedBy).select('name email companyName mcNumber dotNumber') : null,
+        load.acceptedBy ? User.findById(load.acceptedBy).select('name email companyName mcNumber dotNumber verification') : null,
         load.postedBy ? User.findById(load.postedBy).select('name email companyName') : null,
       ]);
       if (!carrier || !shipper || typeof generateBOL !== 'function') return;
@@ -1095,6 +1098,10 @@ router.put("/:id/deliver", auth, async (req, res) => {
       io.to(`user_${deliveredLoad.postedBy?._id || deliveredLoad.postedBy}`).emit("loadStatusUpdated", payload);
       io.to(`user_${deliveredLoad.acceptedBy?._id || deliveredLoad.acceptedBy}`).emit("loadStatusUpdated", payload);
     } catch (_) {}
+
+    // Refresh the BOL with delivery data/signature (non-blocking). The /status
+    // path already does this; the /deliver path previously did not.
+    autoGenerateBOL(deliveredLoad._id);
   } catch (err) {
     console.error("Error marking load as delivered:", err);
     res.status(500).json({ error: "Internal server error" });

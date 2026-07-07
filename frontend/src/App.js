@@ -71,6 +71,11 @@ const AdminVerifications = lazy(() => import('./pages/admin/AdminVerifications')
 const AdminLedger = lazy(() => import('./pages/admin/AdminLedger'));
 const AdminReviewQueue = lazy(() => import('./pages/admin/AdminReviewQueue'));
 const AdminFactoring = lazy(() => import('./pages/admin/AdminFactoring'));
+const ShipperClaims = lazy(() => import('./pages/shipper/ShipperClaims'));
+const CarrierClaims = lazy(() => import('./pages/carrier/CarrierClaims'));
+const AdminClaims = lazy(() => import('./pages/admin/AdminClaims'));
+const CarrierSettlements = lazy(() => import('./pages/carrier/CarrierSettlements'));
+const CarrierIFTA = lazy(() => import('./pages/carrier/CarrierIFTA'));
 
 // Fallback shown while a lazy route chunk loads.
 function RouteFallback() {
@@ -121,6 +126,7 @@ function App() {
             <Route path="tax" element={<ShipperTax />} />
             <Route path="edi" element={<ShipperEDI />} />
             <Route path="team" element={<ShipperTeam />} />
+            <Route path="claims" element={<ShipperClaims />} />
             <Route path="verification" element={<ShipperVerification />} />
             <Route path="ai-insights" element={<AIInsightsPanel />} />
             <Route path="chat" element={<ChatPage />} />
@@ -149,6 +155,9 @@ function App() {
             <Route path="expenses" element={<CarrierExpenses />} />
             <Route path="factoring" element={<CarrierFactoring />} />
             <Route path="tax" element={<CarrierTax />} />
+            <Route path="settlements" element={<CarrierSettlements />} />
+            <Route path="ifta" element={<CarrierIFTA />} />
+            <Route path="claims" element={<CarrierClaims />} />
             <Route path="network" element={<CarrierNetwork />} />
             <Route path="ai-insights" element={<AIInsightsPanel />} />
             <Route path="scorecard" element={<CarrierScorecard />} />
@@ -169,6 +178,7 @@ function App() {
             <Route path="ledger" element={<AdminLedger />} />
             <Route path="review-queue" element={<AdminReviewQueue />} />
             <Route path="factoring" element={<AdminFactoring />} />
+            <Route path="claims" element={<AdminClaims />} />
             <Route path="profile" element={<AdminProfile />} />
           </Route>
 
