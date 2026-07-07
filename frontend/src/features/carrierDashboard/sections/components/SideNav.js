@@ -20,6 +20,8 @@ import PsychologyIcon from '@mui/icons-material/Psychology';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ReceiptIcon from '@mui/icons-material/Receipt';
+import GroupsIcon from '@mui/icons-material/Groups';
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
@@ -49,8 +51,10 @@ const coreItems = [
 
 // MORE — secondary tools, collapsed by default
 const moreItems = [
+  { key: "team",         label: "Team",          icon: <GroupsIcon /> },
   { key: "fleet",        label: "Fleet",         icon: <DirectionsCarIcon /> },
   { key: "drivers",      label: "Drivers",       icon: <BadgeIcon /> },
+  { key: "fleetHos",     label: "Fleet HOS",     icon: <MonitorHeartIcon /> },
   { key: "fleetMap",     label: "Fleet Map",     icon: <MapIcon /> },
   { key: "trips",        label: "Trip Planning", icon: <RouteIcon /> },
   { key: "eld",          label: "HOS Advisor",   icon: <TimerIcon /> },

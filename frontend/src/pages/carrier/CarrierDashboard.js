@@ -103,6 +103,8 @@ export default function CarrierDashboard() {
   else if (path.includes('/ai-insights')) currentSection = 'ai-insights';
   else if (path.includes('/scorecard')) currentSection = 'scorecard';
   else if (path.includes('/drivers')) currentSection = 'drivers';
+  else if (path.includes('/team')) currentSection = 'team';
+  else if (path.includes('/fleet-hos')) currentSection = 'fleetHos';
   else if (path.includes('/fleet')) currentSection = 'fleet';
   else if (path.includes('/chat')) currentSection = 'chat';
   else if (path.includes('/verification')) currentSection = 'verification';
@@ -197,6 +199,8 @@ export default function CarrierDashboard() {
               else if (key === "documents") navigate("/dashboard/carrier/documents");
               else if (key === "myLoads") navigate("/dashboard/carrier/my-loads");
               else if (key === "drivers") navigate("/dashboard/carrier/drivers");
+              else if (key === "team") navigate("/dashboard/carrier/team");
+              else if (key === "fleetHos") navigate("/dashboard/carrier/fleet-hos");
               else if (key === "fleet") navigate("/dashboard/carrier/fleet");
               else if (key === "fleetMap") navigate("/dashboard/carrier/fleet-map");
               else if (key === "analytics") navigate("/dashboard/carrier/analytics");

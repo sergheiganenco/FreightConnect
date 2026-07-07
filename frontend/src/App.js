@@ -38,6 +38,8 @@ import DocumentsSection from './features/carrierDashboard/sections/DocumentsSect
 import CarrierLoadBoardSection from './features/carrierDashboard/sections/CarrierLoadBoardSection';
 import CarrierFleet from './pages/carrier/CarrierFleet';
 import CarrierDrivers from './pages/carrier/CarrierDrivers';
+import CarrierTeam from './pages/carrier/CarrierTeam';
+import CarrierFleetHOS from './pages/carrier/CarrierFleetHOS';
 import { RoleRoute } from './components/PrivateRoute';
 import CarrierLiveMap from './pages/carrier/CarrierLiveMap';
 import FleetMap from './pages/FleetMap';
@@ -123,7 +125,9 @@ function App() {
             <Route path="documents" element={<DocumentsSection />} />
             <Route path="my-loads" element={<CarrierMyLoads embedded />} />
             <Route path="fleet" element={<CarrierFleet />} />
+            <Route path="fleet-hos" element={<CarrierFleetHOS />} />
             <Route path="drivers" element={<CarrierDrivers />} />
+            <Route path="team" element={<CarrierTeam />} />
             <Route path="live-map" element={<CarrierLiveMap />} />
             <Route path="fleet-map" element={<FleetMap />} />
             <Route path="analytics" element={<CarrierAnalytics />} />
