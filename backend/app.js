@@ -155,6 +155,11 @@ app.use('/api/', apiLimiter);
 const tosGuard = require('./middlewares/tosGuard');
 app.use('/api/', tosGuard);
 
+// Audit trail — record every successful mutating API request (logs on response
+// finish, so the route's auth middleware has populated req.user by then).
+const { auditRequests } = require('./middlewares/auditLogger');
+app.use('/api/', auditRequests());
+
 // File upload route — requires auth
 app.post('/api/documents/upload', auth, upload.single('file'), (req, res) => {
   res.json({ message: 'File uploaded successfully', filePath: req.file.path });

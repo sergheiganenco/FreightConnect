@@ -7,6 +7,7 @@ const Load = require("../models/Load");
 const User = require("../models/User");
 const Exception = require("../models/Exception");
 const Company = require('../models/Company');
+const AuditLog = require('../models/AuditLog');
 const companyNormalize = require('../utils/companyNormalize');
 
 const ADMIN_ONLY = (req, res, next) => {
@@ -16,6 +17,35 @@ const ADMIN_ONLY = (req, res, next) => {
 
 // Escape user input before using it as a $regex to prevent ReDoS / regex injection.
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// ── GET /api/admin/audit-logs ─────────────────────────────────────────────────
+// Paginated audit trail, filterable by entity / action / userId.
+router.get('/audit-logs', auth, ADMIN_ONLY, async (req, res) => {
+  try {
+    const page  = parseInt(req.query.page, 10)  || 1;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const skip  = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.entity) filter.entity = req.query.entity;
+    if (req.query.action) filter.action = req.query.action;
+    if (req.query.userId && /^[a-f\d]{24}$/i.test(req.query.userId)) filter.userId = req.query.userId;
+
+    const [total, logs] = await Promise.all([
+      AuditLog.countDocuments(filter),
+      AuditLog.find(filter)
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('userId', 'name email role companyRole'),
+    ]);
+
+    res.json({ logs, total, page, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    console.error('[admin audit-logs] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // ── GET /api/admin/stats ──────────────────────────────────────────────────────
 router.get('/stats', auth, ADMIN_ONLY, async (req, res) => {
