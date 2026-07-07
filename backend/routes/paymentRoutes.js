@@ -119,7 +119,7 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
 
     const load = await Load.findById(req.params.loadId).populate('acceptedBy');
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (load.postedBy.toString() !== req.user.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (load.postedBy.toString() !== (req.user.companyOwnerId || req.user.userId)) return res.status(403).json({ error: 'Forbidden' });
     if (load.status !== 'accepted') return res.status(409).json({ error: 'Load must be accepted before payment' });
 
     // Check carrier has Connect account with payouts enabled
@@ -184,7 +184,7 @@ router.post('/fund-escrow/:loadId', auth, async (req, res) => {
 
     const load = await Load.findById(req.params.loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (load.postedBy.toString() !== req.user.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (load.postedBy.toString() !== (req.user.companyOwnerId || req.user.userId)) return res.status(403).json({ error: 'Forbidden' });
     if (load.status !== 'accepted') return res.status(409).json({ error: 'Load must be accepted before funding' });
 
     // Record the shipper's mandate authorizing later off-session accessorial
@@ -230,7 +230,7 @@ router.post('/release/:loadId', auth, async (req, res) => {
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
     // Only shipper who owns the load or admin can trigger release
-    const isShipper = req.user.role === 'shipper' && load.postedBy.toString() === req.user.userId;
+    const isShipper = req.user.role === 'shipper' && load.postedBy.toString() === (req.user.companyOwnerId || req.user.userId);
     const isAdmin   = req.user.role === 'admin';
     if (!isShipper && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
 

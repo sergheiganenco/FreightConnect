@@ -92,6 +92,40 @@ describe('company sub-accounts', () => {
     expect(res.status).toBe(403);
   });
 
+  test('a dispatcher BOOKS a load and it attributes to the company, not the sub-account', async () => {
+    // Owner carrier must pass the booking gate: verified + a truck in the fleet.
+    const bookingOwner = await createTestUser({
+      role: 'carrier', companyRole: 'owner', companyName: 'Book Co',
+      verification: { status: 'verified', insurance: { status: 'valid' } },
+      fleet: [{ truckId: 'T1', status: 'Available' }],
+    });
+    const bookingOwnerToken = generateToken(bookingOwner);
+    const shipper = await createTestUser({ role: 'shipper' });
+    const load = await createTestLoad(shipper._id, { status: 'open', equipmentType: 'Dry Van' });
+
+    // Create a dispatcher under the booking owner and log in as them.
+    const email = `disp-${Date.now()}@bookco.com`;
+    await request(app).post('/api/users/team')
+      .set('Authorization', `Bearer ${bookingOwnerToken}`)
+      .send({ name: 'Book Dispatcher', email, password: 'DispatchPass1', companyRole: 'dispatcher' });
+    const login = await request(app).post('/api/users/login').send({ email, password: 'DispatchPass1' });
+    const dispToken = login.body.token;
+
+    const res = await request(app)
+      .put(`/api/loads/${load._id}/accept`)
+      .set('Authorization', `Bearer ${dispToken}`);
+    expect(res.status).toBe(200);
+
+    // The load is owned by the COMPANY (owner), not the acting dispatcher.
+    const fresh = await Load.findById(load._id);
+    expect(fresh.status).toBe('accepted');
+    expect(String(fresh.acceptedBy)).toBe(String(bookingOwner._id));
+
+    // The owner sees the load the dispatcher booked.
+    const ownerView = await request(app).get('/api/loads/my-loads').set('Authorization', `Bearer ${bookingOwnerToken}`);
+    expect(ownerView.body.map((l) => String(l._id))).toContain(String(load._id));
+  });
+
   test('a dispatcher sees the company loads (board scoped to the owner)', async () => {
     // A load the OWNER accepted.
     await createTestLoad(owner._id /* shipper stand-in for postedBy */, {

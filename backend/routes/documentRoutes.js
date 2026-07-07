@@ -16,10 +16,11 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const upload = multer({ dest: uploadsDir, limits: { fileSize: 25 * 1024 * 1024 } });
 
-// Only load participants (shipper/carrier) or an admin may read/generate a load's documents.
+// Only load participants (shipper/carrier company) or an admin may read/generate a
+// load's documents. Compared at the company level so sub-accounts are recognized.
 function isLoadParticipant(load, req) {
   if (req.user.role === 'admin') return true;
-  const uid = req.user.userId;
+  const uid = req.user.companyOwnerId || req.user.userId;
   return load.postedBy?.toString() === uid || load.acceptedBy?.toString() === uid;
 }
 
@@ -228,8 +229,8 @@ router.get('/load/:loadId', auth, async (req, res) => {
     const load = await Load.findById(req.params.loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    // Access control: only participants or admin
-    const uid = req.user.userId;
+    // Access control: only participants or admin (company-level)
+    const uid = req.user.companyOwnerId || req.user.userId;
     const role = req.user.role;
     if (
       role !== 'admin' &&

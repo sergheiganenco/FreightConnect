@@ -100,7 +100,7 @@ router.post('/', auth, async (req, res) => {
 
     // Upsert: carrier can revise their bid (replaces previous)
     const bid = await Bid.findOneAndUpdate(
-      { loadId, carrierId: req.user.userId },
+      { loadId, carrierId: (req.user.companyOwnerId || req.user.userId) },
       {
         $set: { amount: Number(amount), message, status: 'pending', counterAmount: null },
         $push: {
@@ -121,7 +121,7 @@ router.post('/', auth, async (req, res) => {
       loadId,
       loadTitle: load.title,
       amount: bid.amount,
-      carrierId: req.user.userId,
+      carrierId: (req.user.companyOwnerId || req.user.userId),
     });
     notifyUserSafe(load.postedBy.toString(), {
       type: 'bid:new',
@@ -149,10 +149,10 @@ router.get('/load/:loadId', auth, async (req, res) => {
     let filter = { loadId: req.params.loadId };
 
     if (req.user.role === 'carrier') {
-      filter.carrierId = req.user.userId; // carrier sees only their own bid
+      filter.carrierId = (req.user.companyOwnerId || req.user.userId); // carrier sees only their own bid
     } else if (req.user.role === 'shipper') {
       // Verify this shipper owns the load
-      if (load.postedBy.toString() !== req.user.userId) {
+      if (load.postedBy.toString() !== (req.user.companyOwnerId || req.user.userId)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
     }
@@ -175,7 +175,7 @@ router.get('/load/:loadId', auth, async (req, res) => {
 router.get('/my', auth, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-    const bids = await Bid.find({ carrierId: req.user.userId })
+    const bids = await Bid.find({ carrierId: (req.user.companyOwnerId || req.user.userId) })
       .populate('loadId', 'title origin destination rate status')
       .sort({ updatedAt: -1 })
       .limit(50);
@@ -193,7 +193,7 @@ router.put('/:id/accept', auth, async (req, res) => {
     const bid = await Bid.findById(req.params.id).populate('loadId');
     if (!bid) return res.status(404).json({ error: 'Bid not found' });
     if (req.user.role !== 'shipper') return res.status(403).json({ error: 'Only shippers can accept bids' });
-    if (bid.loadId.postedBy.toString() !== req.user.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (bid.loadId.postedBy.toString() !== (req.user.companyOwnerId || req.user.userId)) return res.status(403).json({ error: 'Forbidden' });
     if (!['pending', 'countered'].includes(bid.status)) {
       return res.status(409).json({ error: 'Bid is not in an acceptable state' });
     }
@@ -313,7 +313,7 @@ router.put('/:id/reject', auth, async (req, res) => {
   try {
     const bid = await Bid.findById(req.params.id).populate('loadId', 'postedBy title');
     if (!bid) return res.status(404).json({ error: 'Bid not found' });
-    if (req.user.role !== 'shipper' || bid.loadId.postedBy.toString() !== req.user.userId) {
+    if (req.user.role !== 'shipper' || bid.loadId.postedBy.toString() !== (req.user.companyOwnerId || req.user.userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     bid.status = 'rejected';
@@ -350,7 +350,7 @@ router.put('/:id/counter', auth, async (req, res) => {
     }
     const bid = await Bid.findById(req.params.id).populate('loadId', 'postedBy title');
     if (!bid) return res.status(404).json({ error: 'Bid not found' });
-    if (req.user.role !== 'shipper' || bid.loadId.postedBy.toString() !== req.user.userId) {
+    if (req.user.role !== 'shipper' || bid.loadId.postedBy.toString() !== (req.user.companyOwnerId || req.user.userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (bid.status !== 'pending') return res.status(409).json({ error: 'Can only counter a pending bid' });
@@ -387,7 +387,7 @@ router.put('/:id/accept-counter', auth, async (req, res) => {
   try {
     const bid = await Bid.findById(req.params.id).populate('loadId');
     if (!bid) return res.status(404).json({ error: 'Bid not found' });
-    if (req.user.role !== 'carrier' || bid.carrierId.toString() !== req.user.userId) {
+    if (req.user.role !== 'carrier' || bid.carrierId.toString() !== (req.user.companyOwnerId || req.user.userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (bid.status !== 'countered') return res.status(409).json({ error: 'Bid has not been countered' });
@@ -458,7 +458,7 @@ router.delete('/:id', auth, async (req, res) => {
   try {
     const bid = await Bid.findById(req.params.id);
     if (!bid) return res.status(404).json({ error: 'Bid not found' });
-    if (req.user.role !== 'carrier' || bid.carrierId.toString() !== req.user.userId) {
+    if (req.user.role !== 'carrier' || bid.carrierId.toString() !== (req.user.companyOwnerId || req.user.userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (!['pending', 'countered'].includes(bid.status)) {

@@ -21,11 +21,17 @@ module.exports = (io) => {
   const { haversineMiles, boundingBox, round } = require('../utils/geo');
 
   // ── Authorization helpers ──────────────────────────────────────────────────
-  // A "party" is the posting shipper, the accepting carrier, or an admin.
+  // The company (owner id) that the acting account belongs to. Sub-accounts
+  // (dispatcher/driver) resolve to their owner; owners resolve to themselves.
+  function companyOf(req) {
+    return req.user.companyOwnerId || req.user.userId;
+  }
+  // A "party" is the posting shipper company, the accepting carrier company, or an
+  // admin — compared at the COMPANY level so sub-accounts are recognized.
   function isLoadParty(load, req) {
     if (req.user.role === 'admin') return true;
-    const uid = req.user.userId;
-    return load.postedBy?.toString() === uid || load.acceptedBy?.toString() === uid;
+    const cid = companyOf(req);
+    return load.postedBy?.toString() === cid || load.acceptedBy?.toString() === cid;
   }
   // Carriers may additionally browse OPEN loads they could accept from the board.
   function canBrowseLoad(load, req) {
@@ -312,12 +318,13 @@ router.get("/open", auth, async (req, res) => {
       const { page = 1, limit = 10 } = req.query;
       const skip = (parseInt(page) - 1) * parseInt(limit);
 
-      const acceptedLoads = await Load.find({ acceptedBy: req.user.userId })
+      const scopeId = req.user.companyOwnerId || req.user.userId;
+      const acceptedLoads = await Load.find({ acceptedBy: scopeId })
         .skip(skip)
         .limit(parseInt(limit));
 
       const totalCount = await Load.countDocuments({
-        acceptedBy: req.user.userId,
+        acceptedBy: scopeId,
       });
 
       res.json({
@@ -369,7 +376,8 @@ router.get("/open", auth, async (req, res) => {
       }
       const { findMatchesForCarrier } = require('../services/matchingService');
       const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-      const matches = await findMatchesForCarrier(req.user.userId, limit);
+      // Match against the company's preferences (which live on the owner account).
+      const matches = await findMatchesForCarrier(req.user.companyOwnerId || req.user.userId, limit);
       res.json(matches); // [{load, score}]
     } catch (err) {
       console.error('Error fetching recommended loads:', err);
@@ -395,9 +403,11 @@ const createLoadValidation = [
 router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   try {
     // ── Shipper verification guard ──────────────────────────────────
-    // Must have payment method on file before posting loads
+    // Must have payment method on file before posting loads. Verification lives on
+    // the company owner, so a shipper sub-account is checked against the company.
+    const companyId = req.user.companyOwnerId || req.user.userId;
     if (req.user.role === 'shipper') {
-      const shipper = await User.findById(req.user.userId).select('shipperVerification');
+      const shipper = await User.findById(companyId).select('shipperVerification');
       const sv = shipper?.shipperVerification;
 
       if (sv?.status === 'suspended') {
@@ -543,7 +553,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       destinationLng: destinationC.lng,
       rate,
       equipmentType,
-      postedBy: req.user.userId,
+      // Attribute ownership to the company so any of its sub-accounts can manage it.
+      postedBy: companyId,
       commodityType: commodityType || undefined,
       commodityCategory: commodityCategory || undefined,
       loadWeight: weight ? Number(weight) : undefined,
@@ -636,7 +647,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     (async () => {
       try {
         const preferredCarriers = await PreferredCarrier.find({
-          shipper: req.user.userId,
+          shipper: companyId,
           isActive: true,
         }).populate('carrier', 'name email');
 
@@ -679,7 +690,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
-      const result = await checkScheduleConflicts(req.user.userId, load);
+      const result = await checkScheduleConflicts(req.user.companyOwnerId || req.user.userId, load);
       res.json(result);
     } catch (err) {
       console.error('Error checking schedule:', err);
@@ -692,9 +703,12 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   // ----------------------------------------
   router.put("/:id/accept", auth, async (req, res) => {
     try {
-      // Pre-fetch the carrier (full verification sub-doc) and the load for the
-      // anti-fraud evaluation.
-      const carrier = await User.findById(req.user.userId)
+      // A sub-account books on behalf of its company: ownership, the eligibility/
+      // fraud gate, and verification/fleet/insurance all resolve to the owner account.
+      const companyId = req.user.companyOwnerId || req.user.userId;
+      // Pre-fetch the carrier COMPANY (verification/fleet live on the owner) and the
+      // load for the anti-fraud evaluation.
+      const carrier = await User.findById(companyId)
         .select('role verification fleet carrierEndorsements');
       const loadToCheck = await Load.findById(req.params.id);
       if (!loadToCheck) {
@@ -738,9 +752,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       }
 
       // Schedule conflict check — block if "blocking" conflicts exist
-      // (carrier can bypass warnings with ?force=true)
+      // (carrier can bypass warnings with ?force=true). Checked against the
+      // company's other loads.
       {
-        const scheduleResult = await checkScheduleConflicts(req.user.userId, loadToCheck);
+        const scheduleResult = await checkScheduleConflicts(companyId, loadToCheck);
         if (!scheduleResult.canAccept && req.query.force !== 'true') {
           return res.status(409).json({
             error: 'Schedule conflict prevents accepting this load',
@@ -752,10 +767,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
 
       // Atomic: only succeeds if load is still open and not yet accepted.
       // Also records the device/identity fingerprint + any soft risk flags for audit.
-      const acceptanceFingerprint = antiFraudGuard.buildFingerprint(req, req.user.userId);
+      const acceptanceFingerprint = antiFraudGuard.buildFingerprint(req, companyId);
       const acceptUpdate = {
         status: "accepted",
-        acceptedBy: req.user.userId,
+        acceptedBy: companyId,
         acceptanceFingerprint,
       };
       if (fraudResult.riskFlags && fraudResult.riskFlags.length > 0) {
@@ -798,10 +813,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         }
       } catch (e) { console.warn('[accept] escrow hold failed (non-fatal):', e.message); }
 
-      // Auto-generate Rate Confirmation (non-blocking)
-      autoGenerateRateCon(load._id, req.user.userId, load.postedBy);
+      // Auto-generate Rate Confirmation (non-blocking) — carrier = the company.
+      autoGenerateRateCon(load._id, companyId, load.postedBy);
 
-      // Auto-create a load_thread channel between carrier and shipper
+      // Auto-create a load_thread channel between the carrier company and shipper.
       try {
         const Channel = require("../models/Channel");
         const Message = require("../models/Message");
@@ -813,7 +828,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
             channelId,
             loadId: load._id,
             participants: [
-              { user: req.user.userId, role: "carrier" },
+              { user: companyId, role: "carrier" },
               { user: load.postedBy, role: "shipper" },
             ],
             lastMessageAt: new Date(),
@@ -1043,9 +1058,10 @@ router.put("/:id/deliver", auth, async (req, res) => {
       return res.status(404).json({ error: "Load not found" });
     }
 
-    // ── Anti double-brokering: the account marking delivered MUST be the same
-    //    carrier that accepted the load. ─────────────────────────────────────
-    const haulerCheck = antiFraudGuard.verifyHaulerMatchesAcceptor(load, req.user.userId);
+    // ── Anti double-brokering: the COMPANY marking delivered MUST be the same
+    //    carrier company that accepted the load (a sub-account counts as its
+    //    company). ─────────────────────────────────────────────────────────────
+    const haulerCheck = antiFraudGuard.verifyHaulerMatchesAcceptor(load, req.user.companyOwnerId || req.user.userId);
     if (!haulerCheck.ok) {
       return res.status(403).json({ error: haulerCheck.reason });
     }
@@ -1097,7 +1113,7 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(404).json({ error: "Load not found." });
     }
 
-    if (req.user.role !== "carrier" || String(existingLoad.acceptedBy) !== req.user.userId) {
+    if (req.user.role !== "carrier" || String(existingLoad.acceptedBy) !== (req.user.companyOwnerId || req.user.userId)) {
       return res.status(403).json({ error: "Unauthorized action." });
     }
 
@@ -1155,11 +1171,11 @@ router.get('/recommended/:loadId', auth, async (req, res) => {
   }
 });
 
-// Only the load's shipper (owner) or an admin may change its time windows —
+// Only the load's shipper company or an admin may change its time windows —
 // windows feed detention billing and on-time scorecards, so this must be locked down.
 function assertWindowEditor(load, req) {
   if (req.user.role === 'admin') return true;
-  return load.postedBy?.toString() === req.user.userId;
+  return load.postedBy?.toString() === (req.user.companyOwnerId || req.user.userId);
 }
 
 // PUT /api/loads/:id/pickup-window  { start, end }
@@ -1238,7 +1254,7 @@ router.put('/:id/stops', auth, async (req, res) => {
     }
     const load = await Load.findById(req.params.id);
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (String(load.postedBy) !== req.user.userId) {
+    if (String(load.postedBy) !== (req.user.companyOwnerId || req.user.userId)) {
       return res.status(403).json({ error: 'Not your load' });
     }
     if (load.status !== 'open') {
@@ -1292,7 +1308,7 @@ router.put('/:id/stops/:stopIndex/status', auth, async (req, res) => {
     }
     const load = await Load.findById(req.params.id);
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (String(load.acceptedBy) !== req.user.userId) {
+    if (String(load.acceptedBy) !== (req.user.companyOwnerId || req.user.userId)) {
       return res.status(403).json({ error: 'Not your load' });
     }
 
@@ -1368,12 +1384,13 @@ router.post('/voice-command', auth, async (req, res) => {
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
       const { reason } = req.body;
-      const userId = req.user.userId;
+      const userId = req.user.userId;           // the acting person (audit)
+      const companyId = req.user.companyOwnerId || userId; // the company (ownership)
       const role   = req.user.role;
 
-      // ── Validate who can cancel ───────────────────────────────────
-      const isShipper = String(load.postedBy) === userId;
-      const isCarrier = String(load.acceptedBy) === userId;
+      // ── Validate who can cancel (company-level) ───────────────────
+      const isShipper = String(load.postedBy) === companyId;
+      const isCarrier = String(load.acceptedBy) === companyId;
 
       if (!isShipper && !isCarrier) {
         return res.status(403).json({ error: 'Only the shipper or assigned carrier can cancel' });
@@ -1816,12 +1833,14 @@ router.post('/voice-command', auth, async (req, res) => {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
-      // Must be the carrier who accepted this load
-      if (String(load.acceptedBy) !== req.user.userId) {
+      // Must be the carrier company that accepted this load
+      const companyId = req.user.companyOwnerId || req.user.userId;
+      if (String(load.acceptedBy) !== companyId) {
         return res.status(403).json({ error: 'Only the carrier who accepted this load can assign a driver' });
       }
 
-      const carrier = await User.findById(req.user.userId).select('drivers carrierEndorsements');
+      // The driver roster lives on the company owner account.
+      const carrier = await User.findById(companyId).select('drivers carrierEndorsements');
       if (!carrier) return res.status(404).json({ error: 'Carrier not found' });
 
       const driver = (carrier.drivers || []).find(d => d.driverId === driverId);
@@ -1868,7 +1887,7 @@ router.post('/voice-command', auth, async (req, res) => {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
-      const isShipper = String(load.postedBy) === req.user.userId;
+      const isShipper = String(load.postedBy) === (req.user.companyOwnerId || req.user.userId);
       const isAdmin = req.user.role === 'admin';
       if (!isShipper && !isAdmin) {
         return res.status(403).json({ error: 'Only the shipper or an admin can reconsign a load' });
@@ -1935,8 +1954,8 @@ router.post('/voice-command', auth, async (req, res) => {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
-      const isShipper = String(load.postedBy) === req.user.userId;
-      const isCarrier = String(load.acceptedBy) === req.user.userId;
+      const isShipper = String(load.postedBy) === (req.user.companyOwnerId || req.user.userId);
+      const isCarrier = String(load.acceptedBy) === (req.user.companyOwnerId || req.user.userId);
       const isAdmin = req.user.role === 'admin';
       if (!isShipper && !isCarrier && !isAdmin) {
         return res.status(403).json({ error: 'Only the carrier, shipper, or an admin can record a redelivery' });
@@ -1997,7 +2016,7 @@ router.post('/voice-command', auth, async (req, res) => {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
-      const isCarrier = String(load.acceptedBy) === req.user.userId;
+      const isCarrier = String(load.acceptedBy) === (req.user.companyOwnerId || req.user.userId);
       const isAdmin = req.user.role === 'admin';
       if (!isCarrier && !isAdmin) {
         return res.status(403).json({ error: 'Only the assigned carrier or an admin can request accessorials' });
@@ -2064,7 +2083,7 @@ router.post('/voice-command', auth, async (req, res) => {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
-      const isShipper = String(load.postedBy) === req.user.userId;
+      const isShipper = String(load.postedBy) === (req.user.companyOwnerId || req.user.userId);
       const isAdmin = req.user.role === 'admin';
       if (!isShipper && !isAdmin) {
         return res.status(403).json({ error: 'Only the shipper or an admin can approve accessorials' });
@@ -2182,7 +2201,7 @@ router.post('/voice-command', auth, async (req, res) => {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
 
-      const isShipper = String(load.postedBy) === req.user.userId;
+      const isShipper = String(load.postedBy) === (req.user.companyOwnerId || req.user.userId);
       const isAdmin = req.user.role === 'admin';
       if (!isShipper && !isAdmin) {
         return res.status(403).json({ error: 'Only the shipper or an admin can reject accessorials' });

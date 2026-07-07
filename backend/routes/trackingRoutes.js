@@ -36,11 +36,12 @@ router.post('/location', auth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid coordinates' });
     }
 
-    // Authorization: only the assigned carrier (or admin) can push location.
-    // auth middleware sets req.user.userId (not _id).
+    // Authorization: only the assigned carrier company (or admin) can push location —
+    // a driver/dispatcher sub-account counts as its company.
     const load = await Load.findById(loadId).select('acceptedBy');
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (String(load.acceptedBy) !== String(req.user.userId) && req.user.role !== 'admin') {
+    const companyId = req.user.companyOwnerId || req.user.userId;
+    if (String(load.acceptedBy) !== String(companyId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Not authorized to update this load\'s location' });
     }
 
@@ -127,7 +128,7 @@ router.get('/:loadId', auth, async (req, res) => {
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
     // Only shipper, assigned carrier, or admin can view
-    const userId = String(req.user.userId);
+    const userId = String(req.user.companyOwnerId || req.user.userId);
     const allowed = userId === String(load.postedBy) || userId === String(load.acceptedBy) || req.user.role === 'admin';
     if (!allowed) return res.status(403).json({ error: 'Not authorized' });
 
@@ -149,7 +150,7 @@ router.get('/:loadId/history', auth, async (req, res) => {
     const load = await Load.findById(req.params.loadId).select('postedBy acceptedBy');
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    const userId = String(req.user.userId);
+    const userId = String(req.user.companyOwnerId || req.user.userId);
     const allowed = userId === String(load.postedBy) || userId === String(load.acceptedBy) || req.user.role === 'admin';
     if (!allowed) return res.status(403).json({ error: 'Not authorized' });
 
@@ -206,7 +207,7 @@ router.get('/:loadId/eta', auth, async (req, res) => {
       .select('carrierLocation destination destinationLat destinationLng postedBy acceptedBy');
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    const userId = String(req.user.userId);
+    const userId = String(req.user.companyOwnerId || req.user.userId);
     const allowed = userId === String(load.postedBy) || userId === String(load.acceptedBy) || req.user.role === 'admin';
     if (!allowed) return res.status(403).json({ error: 'Not authorized' });
 
