@@ -22,6 +22,7 @@ function buildApp() {
   app.use(express.json());
   app.use('/api/users', require('../../routes/userRoutes'));
   app.use('/api/loads', require('../../routes/loadRoutes')(mockIo));
+  app.use('/api/drivers', require('../../routes/driverRoutes'));
   return app;
 }
 
@@ -124,6 +125,35 @@ describe('company sub-accounts', () => {
     // The owner sees the load the dispatcher booked.
     const ownerView = await request(app).get('/api/loads/my-loads').set('Authorization', `Bearer ${bookingOwnerToken}`);
     expect(ownerView.body.map((l) => String(l._id))).toContain(String(load._id));
+  });
+
+  test('a dispatcher manages the company fleet and driver roster', async () => {
+    const email = `disp-fleet-${Date.now()}@acme.com`;
+    await addDispatcher({ email, password: 'DispatchPass1' });
+    const login = await request(app).post('/api/users/login').send({ email, password: 'DispatchPass1' });
+    const dispToken = login.body.token;
+
+    // Add a truck to the COMPANY fleet as the dispatcher.
+    const addTruck = await request(app).post('/api/users/fleet')
+      .set('Authorization', `Bearer ${dispToken}`)
+      .send({ truckId: 'TRK-9', driverName: 'Sam' });
+    expect(addTruck.status).toBe(201);
+
+    // The truck landed on the OWNER's fleet, and the owner sees it.
+    const ownerFresh = await User.findById(owner._id);
+    expect((ownerFresh.fleet || []).some(t => t.truckId === 'TRK-9')).toBe(true);
+    const ownerFleet = await request(app).get('/api/users/fleet').set('Authorization', `Bearer ${ownerToken}`);
+    expect(ownerFleet.body.fleet.some(t => t.truckId === 'TRK-9')).toBe(true);
+
+    // Add a driver to the company roster as the dispatcher.
+    const addDriver = await request(app).post('/api/drivers')
+      .set('Authorization', `Bearer ${dispToken}`)
+      .send({ name: 'Rosa Driver', licenseNumber: 'DL123', licenseState: 'TX' });
+    expect(addDriver.status).toBe(201);
+
+    // The driver is on the company roster, visible to the owner.
+    const ownerDrivers = await request(app).get('/api/drivers').set('Authorization', `Bearer ${ownerToken}`);
+    expect(ownerDrivers.body.some(d => d.name === 'Rosa Driver')).toBe(true);
   });
 
   test('a dispatcher sees the company loads (board scoped to the owner)', async () => {

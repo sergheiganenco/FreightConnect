@@ -21,7 +21,7 @@ function generateDriverId(existingDrivers = []) {
 router.get('/', auth, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user.drivers || []);
   } catch (err) {
@@ -39,7 +39,7 @@ router.post(
   async (req, res) => {
     try {
       if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-      const user = await User.findById(req.user.userId);
+      const user = await User.findById(req.user.companyOwnerId || req.user.userId);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const {
@@ -86,7 +86,7 @@ router.put(
   async (req, res) => {
     try {
       if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-      const user = await User.findById(req.user.userId);
+      const user = await User.findById(req.user.companyOwnerId || req.user.userId);
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       const filtered = req.body.endorsements.filter((e) => ALLOWED_ENDORSEMENTS.includes(e));
@@ -105,7 +105,7 @@ router.put(
 router.get('/compliance-alerts', auth, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const now = Date.now();
@@ -151,7 +151,7 @@ router.get('/compliance-alerts', auth, async (req, res) => {
 router.put('/:driverId', auth, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const driver = user.drivers.find((d) => d.driverId === req.params.driverId);
@@ -182,7 +182,7 @@ router.put('/:driverId', auth, async (req, res) => {
 router.delete('/:driverId', auth, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const idx = user.drivers.findIndex((d) => d.driverId === req.params.driverId);

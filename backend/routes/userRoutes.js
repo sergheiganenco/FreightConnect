@@ -644,7 +644,8 @@ router.get('/fleet', auth, async (req, res) => {
     if (req.user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers have fleets" });
     }
-    const user = await User.findById(req.user.userId).select("fleet");
+    // The fleet lives on the company owner; a dispatcher/driver sees the company fleet.
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId).select("fleet");
     if (!user) {
       return res.status(404).json({ error: "Carrier not found" });
     }
@@ -663,7 +664,7 @@ router.post('/fleet', auth, async (req, res) => {
     const { truckId, driverName, status } = req.body;
     if (!truckId) return res.status(400).json({ error: "Truck ID is required" });
 
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: "Carrier not found" });
 
     // Prevent duplicate truck IDs in the fleet
@@ -699,7 +700,7 @@ router.put('/fleet/:truckId', auth, async (req, res) => {
     const { truckId } = req.params;
     const { driverName, status, location, currentLoadId } = req.body;
 
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: "Carrier not found" });
 
     const truck = user.fleet.find(t => t.truckId === truckId);
@@ -725,7 +726,7 @@ router.delete('/fleet/:truckId', auth, async (req, res) => {
       return res.status(403).json({ error: "Only carriers can remove trucks" });
     }
     const { truckId } = req.params;
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user) return res.status(404).json({ error: "Carrier not found" });
 
     user.fleet = user.fleet.filter(t => t.truckId !== truckId);
@@ -745,8 +746,10 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
     const { loadId } = req.body;
     if (!loadId) return res.status(400).json({ error: "Missing loadId." });
 
-    // 1. Validate carrier
-    const user = await User.findById(req.user.userId);
+    // 1. Validate carrier — the fleet + verification live on the company owner, so a
+    //    dispatcher assigns from the company fleet and books as the company (user._id
+    //    below is the owner, which flows into the gate and acceptedBy attribution).
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user || user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers can assign loads to trucks." });
     }
@@ -839,7 +842,7 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
     }
 
     // 6. Enrich fleet with assigned load details for frontend
-    const updatedUser = await User.findById(req.user.userId);
+    const updatedUser = await User.findById(req.user.companyOwnerId || req.user.userId);
     const LoadModel = require("../models/Load");
     const fleetWithAssignedLoads = await Promise.all(
       updatedUser.fleet.map(async (t) => {
@@ -894,8 +897,8 @@ router.put('/fleet/:truckId/unassign-load', auth, async (req, res) => {
   try {
     const { truckId } = req.params;
 
-    // 1. Validate carrier
-    const user = await User.findById(req.user.userId);
+    // 1. Validate carrier (company fleet lives on the owner)
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user || user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers can unassign loads from trucks." });
     }
@@ -933,7 +936,7 @@ router.put('/fleet/:truckId/unassign-load', auth, async (req, res) => {
     await load.save();
 
     // 4. Enrich the updated fleet with assigned load details
-    const updatedUser = await User.findById(req.user.userId);
+    const updatedUser = await User.findById(req.user.companyOwnerId || req.user.userId);
     const LoadModel = require("../models/Load");
     const fleetWithAssignedLoads = await Promise.all(
       updatedUser.fleet.map(async (t) => {
@@ -986,8 +989,8 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
   try {
     const { truckId } = req.params;
 
-    // 1. Validate carrier
-    const user = await User.findById(req.user.userId);
+    // 1. Validate carrier (company fleet lives on the owner)
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user || user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers can mark loads as delivered." });
     }
@@ -1072,7 +1075,7 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
     }
 
     // 8. Enrich the updated fleet with assigned load details
-    const updatedUser = await User.findById(req.user.userId);
+    const updatedUser = await User.findById(req.user.companyOwnerId || req.user.userId);
     const LoadModel = require("../models/Load");
     const fleetWithAssignedLoads = await Promise.all(
       updatedUser.fleet.map(async (t) => {
@@ -1215,7 +1218,7 @@ router.put('/fleet/:truckId/location', auth, async (req, res) => {
   try {
     const { truckId } = req.params;
     const { latitude, longitude } = req.body;
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user || user.role !== "carrier") return res.status(403).json({ error: "Only carriers can update location." });
     const truck = user.fleet.find(t => t.truckId === truckId);
     if (!truck) return res.status(404).json({ error: "Truck not found." });
@@ -1231,7 +1234,7 @@ router.put('/fleet/:truckId/location', auth, async (req, res) => {
 router.put('/update-location', auth, async (req, res) => {
   try {
     const { truckId, latitude, longitude } = req.body;
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
     if (!user || user.role !== "carrier") {
       return res.status(403).json({ error: "Only carriers can update location." });
     }
@@ -1256,15 +1259,21 @@ router.put('/update-location', auth, async (req, res) => {
 router.put("/fleet/:truckId/availability", auth, async (req, res) => {
   try {
     const { available } = req.body;
-    const status = available ? "Available" : "Unavailable";
-    const truck = await Truck.findOneAndUpdate(
-      { truckId: req.params.truckId, owner: req.user.userId },
-      { available, status, lastStatusUpdate: new Date() },
-      { new: true }
-    );
+    // Trucks are embedded in the company owner's User.fleet[] (no Truck collection).
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId);
+    if (!user || user.role !== "carrier") {
+      return res.status(403).json({ error: "Only carriers can update truck availability" });
+    }
+    const truck = user.fleet.find(t => t.truckId === req.params.truckId);
     if (!truck) return res.status(404).json({ error: "Truck not found" });
+
+    truck.available = !!available;
+    truck.status = available ? "Available" : "Unavailable";
+    truck.lastStatusUpdate = new Date();
+    await user.save();
     res.json(truck);
   } catch (err) {
+    console.error("Fleet availability error:", err.message);
     res.status(500).json({ error: "Failed to update truck availability" });
   }
 });
