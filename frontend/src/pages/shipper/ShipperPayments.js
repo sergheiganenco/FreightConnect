@@ -22,6 +22,81 @@ const STATUS_CONFIG = {
   failed:    { label: 'Failed',     color: 'error'   },
 };
 
+const fmt = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Shared invoice fetch + expand/collapse state, used by both the table row
+// (md+) and the stacked phone card (below md).
+function useInvoice(payment) {
+  const [open, setOpen] = useState(false);
+  const [invoice, setInvoice] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = async () => {
+    if (invoice) { setOpen(o => !o); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/payments/invoice/${payment.loadId?._id}`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      if (res.ok) setInvoice(await res.json());
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+      setOpen(true);
+    }
+  };
+
+  return { open, invoice, loading, toggle };
+}
+
+// Shared invoice detail body rendered inside the Collapse for both layouts.
+function InvoiceDetail({ invoice, loading }) {
+  return (
+    <Box sx={{ p: 2, background: surface.glass, borderRadius: 2, mb: 1 }}>
+      {loading ? (
+        <Skeleton variant="rounded" height={80} />
+      ) : invoice ? (
+        <Stack spacing={0.5}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="subtitle2" fontWeight={700}>
+              Invoice #{invoice.invoiceNumber}
+            </Typography>
+            <Chip label={invoice.status.toUpperCase()} color="success" size="small" />
+          </Stack>
+          <Divider sx={{ borderColor: surface.glassBorder }} />
+          {invoice.lineItems?.map((li, i) => (
+            <Stack key={i} direction="row" justifyContent="space-between">
+              <Typography variant="caption" color="text.secondary">{li.description}</Typography>
+              <Typography variant="caption">{fmt(li.total)}</Typography>
+            </Stack>
+          ))}
+          <Divider sx={{ borderColor: surface.glassBorder }} />
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="caption" color="text.secondary">Platform Fee (2%)</Typography>
+            <Typography variant="caption">{fmt(invoice.platformFee)}</Typography>
+          </Stack>
+          <Stack direction="row" justifyContent="space-between">
+            <Typography variant="body2" fontWeight={700}>Total Paid</Typography>
+            <Typography variant="body2" fontWeight={700} color={chart.green}>{fmt(invoice.total)}</Typography>
+          </Stack>
+          {invoice.issuedAt && (
+            <Typography variant="caption" color="text.secondary">
+              Issued: {new Date(invoice.issuedAt).toLocaleDateString()}
+              {invoice.paidAt && ` · Paid: ${new Date(invoice.paidAt).toLocaleDateString()}`}
+            </Typography>
+          )}
+          <Stack direction="row" spacing={1} mt={0.5}>
+            <Typography variant="caption" color="text.secondary">
+              Carrier: {invoice.carrierId?.companyName || invoice.carrierId?.name}
+            </Typography>
+          </Stack>
+        </Stack>
+      ) : (
+        <Typography variant="caption" color="text.secondary">Invoice not available.</Typography>
+      )}
+    </Box>
+  );
+}
+
 function SummaryCard({ icon, label, value, sub, color }) {
   return (
     <Card sx={{ flex: 1, minWidth: 160, background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
@@ -38,27 +113,10 @@ function SummaryCard({ icon, label, value, sub, color }) {
 }
 
 function InvoiceRow({ payment }) {
-  const [open, setOpen] = useState(false);
-  const [invoice, setInvoice] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const fetchInvoice = async () => {
-    if (invoice) { setOpen(o => !o); return; }
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/payments/invoice/${payment.loadId?._id}`, {
-        headers: { Authorization: `Bearer ${token()}` },
-      });
-      if (res.ok) setInvoice(await res.json());
-    } catch { /* ignore */ } finally {
-      setLoading(false);
-      setOpen(true);
-    }
-  };
+  const { open, invoice, loading, toggle } = useInvoice(payment);
 
   const load = payment.loadId;
   const cfg  = STATUS_CONFIG[payment.status] || { label: payment.status, color: 'default' };
-  const fmt  = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const canViewInvoice = payment.status === 'released' && load?._id;
 
@@ -86,7 +144,7 @@ function InvoiceRow({ payment }) {
         </TableCell>
         <TableCell align="center">
           {canViewInvoice ? (
-            <IconButton size="small" onClick={fetchInvoice} title="View Invoice">
+            <IconButton size="small" onClick={toggle} title="View Invoice">
               {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
             </IconButton>
           ) : '—'}
@@ -97,54 +155,66 @@ function InvoiceRow({ payment }) {
         <TableRow>
           <TableCell colSpan={6} sx={{ py: 0, border: 0 }}>
             <Collapse in={open} timeout="auto" unmountOnExit>
-              <Box sx={{ p: 2, background: surface.glass, borderRadius: 2, mb: 1 }}>
-                {loading ? (
-                  <Skeleton variant="rounded" height={80} />
-                ) : invoice ? (
-                  <Stack spacing={0.5}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                      <Typography variant="subtitle2" fontWeight={700}>
-                        Invoice #{invoice.invoiceNumber}
-                      </Typography>
-                      <Chip label={invoice.status.toUpperCase()} color="success" size="small" />
-                    </Stack>
-                    <Divider sx={{ borderColor: surface.glassBorder }} />
-                    {invoice.lineItems?.map((li, i) => (
-                      <Stack key={i} direction="row" justifyContent="space-between">
-                        <Typography variant="caption" color="text.secondary">{li.description}</Typography>
-                        <Typography variant="caption">{fmt(li.total)}</Typography>
-                      </Stack>
-                    ))}
-                    <Divider sx={{ borderColor: surface.glassBorder }} />
-                    <Stack direction="row" justifyContent="space-between">
-                      <Typography variant="caption" color="text.secondary">Platform Fee (2%)</Typography>
-                      <Typography variant="caption">{fmt(invoice.platformFee)}</Typography>
-                    </Stack>
-                    <Stack direction="row" justifyContent="space-between">
-                      <Typography variant="body2" fontWeight={700}>Total Paid</Typography>
-                      <Typography variant="body2" fontWeight={700} color={chart.green}>{fmt(invoice.total)}</Typography>
-                    </Stack>
-                    {invoice.issuedAt && (
-                      <Typography variant="caption" color="text.secondary">
-                        Issued: {new Date(invoice.issuedAt).toLocaleDateString()}
-                        {invoice.paidAt && ` · Paid: ${new Date(invoice.paidAt).toLocaleDateString()}`}
-                      </Typography>
-                    )}
-                    <Stack direction="row" spacing={1} mt={0.5}>
-                      <Typography variant="caption" color="text.secondary">
-                        Carrier: {invoice.carrierId?.companyName || invoice.carrierId?.name}
-                      </Typography>
-                    </Stack>
-                  </Stack>
-                ) : (
-                  <Typography variant="caption" color="text.secondary">Invoice not available.</Typography>
-                )}
-              </Box>
+              <InvoiceDetail invoice={invoice} loading={loading} />
             </Collapse>
           </TableCell>
         </TableRow>
       )}
     </>
+  );
+}
+
+// Phone layout (below md): each payment rendered as a compact stacked card,
+// surfacing the same columns and the same view-invoice action as the table.
+function InvoiceCard({ payment }) {
+  const { open, invoice, loading, toggle } = useInvoice(payment);
+
+  const load = payment.loadId;
+  const cfg  = STATUS_CONFIG[payment.status] || { label: payment.status, color: 'default' };
+
+  const canViewInvoice = payment.status === 'released' && load?._id;
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{ p: 2, mb: 1.5, borderRadius: 3, background: surface.glass, border: `1px solid ${surface.glassBorder}` }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body2" fontWeight={600} sx={{ wordBreak: 'break-word' }}>
+            {load?.title || 'Unnamed Load'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+            {load?.origin || '—'} → {load?.destination || '—'}
+          </Typography>
+        </Box>
+        <Typography variant="body2" fontWeight={700} sx={{ flexShrink: 0 }}>
+          {fmt(payment.amount)}
+        </Typography>
+      </Stack>
+
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mt: 1 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+          <Chip label={cfg.label} color={cfg.color} size="small" />
+          <Typography variant="caption" color="text.secondary">
+            {new Date(payment.createdAt).toLocaleDateString()}
+          </Typography>
+        </Stack>
+        {canViewInvoice && (
+          <IconButton size="small" onClick={toggle} title="View Invoice" sx={{ flexShrink: 0 }}>
+            {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+          </IconButton>
+        )}
+      </Stack>
+
+      {canViewInvoice && (
+        <Collapse in={open} timeout="auto" unmountOnExit>
+          <Box sx={{ mt: 1 }}>
+            <InvoiceDetail invoice={invoice} loading={loading} />
+          </Box>
+        </Collapse>
+      )}
+    </Paper>
   );
 }
 
@@ -174,8 +244,6 @@ export default function ShipperPayments() {
   }, []);
 
   useEffect(() => { fetchPayments(1); }, [fetchPayments]);
-
-  const fmt = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const totalSpent  = payments.filter(p => p.status === 'released').reduce((s, p) => s + (p.amount || 0), 0);
   const inEscrow    = payments.filter(p => p.status === 'in_escrow').reduce((s, p) => s + (p.amount || 0), 0);
@@ -238,7 +306,8 @@ export default function ShipperPayments() {
             </Box>
           ) : (
             <>
-              <TableContainer component={Paper} sx={{ background: surface.glass, borderRadius: 2 }}>
+              {/* Desktop / tablet: full table (md and up) */}
+              <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' }, background: surface.glass, borderRadius: 2 }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
@@ -257,6 +326,13 @@ export default function ShipperPayments() {
                   </TableBody>
                 </Table>
               </TableContainer>
+
+              {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+              <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                {payments.map((p) => (
+                  <InvoiceCard key={p._id} payment={p} />
+                ))}
+              </Box>
 
               {pages > 1 && (
                 <Box mt={2} display="flex" justifyContent="center">

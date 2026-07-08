@@ -375,7 +375,9 @@ export default function CarrierSettlements() {
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} sx={{ ...glassCard.standard }}>
+        <>
+        {/* Desktop / tablet: full table (md and up) */}
+        <TableContainer component={Paper} sx={{ ...glassCard.standard, display: { xs: 'none', md: 'block' } }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -437,6 +439,72 @@ export default function CarrierSettlements() {
             </TableBody>
           </Table>
         </TableContainer>
+
+        {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+        <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+          {settlements.map((s) => {
+            const sColor = STATUS_COLOR[s.status] || semantic.muted;
+            return (
+              <Paper key={s._id} sx={{ ...glassCard.subtle, p: 2, mb: 1.5 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ color: T.primary, fontWeight: 700, wordBreak: 'break-word' }}>
+                      {s.settlementNumber || '—'}
+                    </Typography>
+                    <Typography sx={{ color: T.strong, fontSize: '0.9em', wordBreak: 'break-word' }}>
+                      {rowDriverLabel(s)}
+                    </Typography>
+                    <Typography sx={{ color: T.secondary, fontSize: '0.8em' }}>
+                      {fmtDate(s.periodStart)} – {fmtDate(s.periodEnd)}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    size="small" label={prettify(s.status || 'draft')}
+                    sx={{ bgcolor: tint(sColor, 0.2), color: sColor, fontWeight: 700, textTransform: 'capitalize', flexShrink: 0 }}
+                  />
+                </Stack>
+                <Stack direction="row" spacing={3} sx={{ mt: 1.5 }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: T.muted, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.62rem' }}>
+                      Gross
+                    </Typography>
+                    <Typography sx={{ color: T.primary, fontWeight: 700 }}>{fmt$(grossOf(s))}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: T.muted, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.62rem' }}>
+                      Net
+                    </Typography>
+                    <Typography sx={{ color: semantic.success, fontWeight: 700 }}>{fmt$(netOf(s))}</Typography>
+                  </Box>
+                </Stack>
+                <Stack direction="row" spacing={0.5} justifyContent="flex-end" sx={{ mt: 1 }}>
+                  {s.status === 'draft' && (
+                    <Tooltip title="Finalize">
+                      <span>
+                        <IconButton size="small" onClick={() => handleFinalize(s)} disabled={busyId === s._id} sx={{ color: brand.indigo }}>
+                          {busyId === s._id ? <CircularProgress size={16} /> : <TaskAltIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  )}
+                  {s.status === 'finalized' && (
+                    <Tooltip title="Mark Paid">
+                      <IconButton size="small" onClick={() => openPay(s)} sx={{ color: semantic.success }}>
+                        <PaidIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  <Tooltip title="Download PDF">
+                    <IconButton size="small" onClick={() => handlePdf(s)} sx={{ color: T.secondary }}>
+                      <PictureAsPdfIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Paper>
+            );
+          })}
+        </Box>
+        </>
       )}
 
       {/* ── Mark-paid dialog ──────────────────────────────────────────────── */}

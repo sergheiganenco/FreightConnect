@@ -341,7 +341,7 @@ export default function CarrierExpenses() {
         </Paper>
       ) : (
         <>
-          <TableContainer component={Paper} sx={{ borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
+          <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' }, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -400,6 +400,65 @@ export default function CarrierExpenses() {
               </TableBody>
             </Table>
           </TableContainer>
+
+          {/* Phone: stacked cards (below md) so the wide table never overflows the screen */}
+          <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+            {expenses.map(exp => (
+              <Paper
+                key={exp._id}
+                sx={{ p: 2, mb: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}
+              >
+                <Stack
+                  direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}
+                  onClick={() => openDetail(exp)}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Chip
+                      size="small"
+                      icon={CATEGORY_ICONS[exp.category]}
+                      label={CATEGORY_LABELS[exp.category] || exp.category}
+                      sx={{ bgcolor: (CATEGORY_COLORS[exp.category] || '#94a3b8') + '22', color: CATEGORY_COLORS[exp.category] || '#94a3b8', fontWeight: 600, fontSize: '0.75rem' }}
+                    />
+                    <Typography sx={{ color: 'rgba(255,255,255,0.85)', fontWeight: 700, mt: 0.75 }}>
+                      {exp.vendor || '—'}
+                    </Typography>
+                    {exp.description && (
+                      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', wordBreak: 'break-word', mt: 0.25 }}>
+                        {exp.description}
+                      </Typography>
+                    )}
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block', mt: 0.5 }}>
+                      {new Date(exp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ color: '#ef4444', fontWeight: 800, flexShrink: 0 }}>
+                    {fmt$(exp.amountCents)}
+                  </Typography>
+                </Stack>
+
+                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 1 }}>
+                  {exp.receiptUrl ? (
+                    <Tooltip title="View Receipt">
+                      <IconButton size="small" onClick={() => window.open(exp.receiptUrl, '_blank')} sx={{ color: '#34d399' }}>
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="Upload Receipt">
+                      <IconButton size="small" component="label" disabled={uploading} sx={{ color: 'rgba(255,255,255,0.3)' }}>
+                        <UploadFileIcon fontSize="small" />
+                        <input type="file" hidden accept="image/*,.pdf" onChange={e => { if (e.target.files[0]) handleReceiptUpload(exp._id, e.target.files[0]); }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  <Box sx={{ flex: 1 }} />
+                  <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(exp)} sx={{ color: '#6366f1' }}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                  <Tooltip title="Delete"><IconButton size="small" onClick={() => handleDelete(exp._id)} sx={{ color: '#ef4444' }}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                </Stack>
+              </Paper>
+            ))}
+          </Box>
 
           {pages > 1 && (
             <Stack direction="row" justifyContent="center" mt={2}>

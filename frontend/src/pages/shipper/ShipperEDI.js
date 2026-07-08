@@ -406,6 +406,48 @@ export default function ShipperEDI() {
     } catch { setDetail(doc); setDrawerOpen(true); }
   };
 
+  const downloadDoc = (doc) => {
+    const url = doc.rawContent
+      ? URL.createObjectURL(new Blob([doc.rawContent], { type: 'text/plain' }))
+      : null;
+    if (url) {
+      const a = document.createElement('a');
+      a.href = url; a.download = `EDI_${doc.type}_${doc._id}.edi`;
+      a.click(); URL.revokeObjectURL(url);
+    }
+  };
+
+  // Row actions — shared by the md+ table and the phone stacked cards
+  const renderActions = (doc) => (
+    <Stack direction="row" spacing={0.5}>
+      <Tooltip title="View details">
+        <IconButton size="small" sx={{ color: '#9ca3af' }}
+          onClick={() => openDetail(doc)}
+        >
+          <InfoOutlinedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      {doc.direction === 'inbound' && doc.status === 'parsed' && (
+        <Tooltip title="Create Load">
+          <IconButton size="small" sx={{ color: '#10b981' }}
+            onClick={() => { setCreateDoc(doc); setCreateOpen(true); }}
+          >
+            <AddIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+      {doc.direction === 'outbound' && (
+        <Tooltip title="Download">
+          <IconButton size="small" sx={{ color: '#6366f1' }}
+            onClick={() => downloadDoc(doc)}
+          >
+            <DownloadIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Stack>
+  );
+
   const filtered = tab === 0 ? docs
     : tab === 1 ? docs.filter(d => d.direction === 'inbound')
     : docs.filter(d => d.direction === 'outbound');
@@ -488,86 +530,97 @@ export default function ShipperEDI() {
                 </Box>
               )
               : (
-                <Box sx={{ overflowX: 'auto' }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        {['Date', 'Type', 'Direction', 'Shipment/Load', 'Status', 'Actions'].map(h => (
-                          <TableCell key={h} sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.08)', fontWeight: 600 }}>{h}</TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filtered.map(doc => {
-                        const tm = TYPE_META[doc.type] || {};
-                        return (
-                          <TableRow key={doc._id} hover
-                            sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}
-                            onClick={() => openDetail(doc)}
-                          >
-                            <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
-                              {fmtDate(doc.createdAt)}
-                            </TableCell>
-                            <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                              <Chip label={doc.type} size="small"
-                                sx={{ bgcolor: `${tm.color || '#6366f1'}22`, color: tm.color || '#6366f1', fontWeight: 700, fontSize: '0.72rem' }}
-                              />
-                            </TableCell>
-                            <TableCell sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.06)', textTransform: 'capitalize' }}>
-                              {doc.direction}
-                            </TableCell>
-                            <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
-                              {doc.load?.title || doc.parsedData?.shipmentId || doc.parsedData?.bolNumber || '--'}
-                            </TableCell>
-                            <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                              <StatusChip status={doc.status} />
-                            </TableCell>
-                            <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}
-                              onClick={e => e.stopPropagation()}
+                <>
+                  {/* Desktop / tablet: full table (md and up) */}
+                  <Box sx={{ overflowX: 'auto', display: { xs: 'none', md: 'block' } }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          {['Date', 'Type', 'Direction', 'Shipment/Load', 'Status', 'Actions'].map(h => (
+                            <TableCell key={h} sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.08)', fontWeight: 600 }}>{h}</TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filtered.map(doc => {
+                          const tm = TYPE_META[doc.type] || {};
+                          return (
+                            <TableRow key={doc._id} hover
+                              sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}
+                              onClick={() => openDetail(doc)}
                             >
-                              <Stack direction="row" spacing={0.5}>
-                                <Tooltip title="View details">
-                                  <IconButton size="small" sx={{ color: '#9ca3af' }}
-                                    onClick={() => openDetail(doc)}
-                                  >
-                                    <InfoOutlinedIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                {doc.direction === 'inbound' && doc.status === 'parsed' && (
-                                  <Tooltip title="Create Load">
-                                    <IconButton size="small" sx={{ color: '#10b981' }}
-                                      onClick={() => { setCreateDoc(doc); setCreateOpen(true); }}
-                                    >
-                                      <AddIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                )}
-                                {doc.direction === 'outbound' && (
-                                  <Tooltip title="Download">
-                                    <IconButton size="small" sx={{ color: '#6366f1' }}
-                                      onClick={() => {
-                                        const url = doc.rawContent
-                                          ? URL.createObjectURL(new Blob([doc.rawContent], { type: 'text/plain' }))
-                                          : null;
-                                        if (url) {
-                                          const a = document.createElement('a');
-                                          a.href = url; a.download = `EDI_${doc.type}_${doc._id}.edi`;
-                                          a.click(); URL.revokeObjectURL(url);
-                                        }
-                                      }}
-                                    >
-                                      <DownloadIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                )}
+                              <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
+                                {fmtDate(doc.createdAt)}
+                              </TableCell>
+                              <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                                <Chip label={doc.type} size="small"
+                                  sx={{ bgcolor: `${tm.color || '#6366f1'}22`, color: tm.color || '#6366f1', fontWeight: 700, fontSize: '0.72rem' }}
+                                />
+                              </TableCell>
+                              <TableCell sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.06)', textTransform: 'capitalize' }}>
+                                {doc.direction}
+                              </TableCell>
+                              <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
+                                {doc.load?.title || doc.parsedData?.shipmentId || doc.parsedData?.bolNumber || '--'}
+                              </TableCell>
+                              <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                                <StatusChip status={doc.status} />
+                              </TableCell>
+                              <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}
+                                onClick={e => e.stopPropagation()}
+                              >
+                                {renderActions(doc)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </Box>
+
+                  {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+                  <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                    {filtered.map(doc => {
+                      const tm = TYPE_META[doc.type] || {};
+                      return (
+                        <Box
+                          key={doc._id}
+                          onClick={() => openDetail(doc)}
+                          sx={{
+                            p: 2, mb: 1.5, borderRadius: 2, cursor: 'pointer',
+                            bgcolor: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                            <Box sx={{ minWidth: 0 }}>
+                              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.75, flexWrap: 'wrap' }}>
+                                <Chip label={doc.type} size="small"
+                                  sx={{ bgcolor: `${tm.color || '#6366f1'}22`, color: tm.color || '#6366f1', fontWeight: 700, fontSize: '0.72rem' }}
+                                />
+                                <Typography variant="caption" sx={{ color: '#9ca3af', textTransform: 'capitalize' }}>
+                                  {doc.direction}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                                  {fmtDate(doc.createdAt)}
+                                </Typography>
                               </Stack>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </Box>
+                              <Typography variant="body2" sx={{ color: '#e5e7eb', fontWeight: 600, wordBreak: 'break-word' }}>
+                                {doc.load?.title || doc.parsedData?.shipmentId || doc.parsedData?.bolNumber || '--'}
+                              </Typography>
+                              <Box sx={{ mt: 1 }}>
+                                <StatusChip status={doc.status} />
+                              </Box>
+                            </Box>
+                            <Box sx={{ flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                              {renderActions(doc)}
+                            </Box>
+                          </Stack>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </>
               )
           }
         </CardContent>

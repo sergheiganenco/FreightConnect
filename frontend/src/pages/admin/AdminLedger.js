@@ -35,6 +35,19 @@ function DirectionChip({ direction }) {
   );
 }
 
+function CardRow({ label, value, title }) {
+  return (
+    <Stack direction="row" justifyContent="space-between" spacing={1}>
+      <Typography sx={{ color: T.muted, fontSize: "0.78em", flexShrink: 0 }}>{label}</Typography>
+      <Tooltip title={title || ""}>
+        <Typography sx={{ color: T.primary, fontSize: "0.85em", textAlign: "right", wordBreak: "break-word" }}>
+          {value}
+        </Typography>
+      </Tooltip>
+    </Stack>
+  );
+}
+
 export default function AdminLedger() {
   // Reconciliation
   const [recon, setRecon] = useState(null);
@@ -99,40 +112,68 @@ export default function AdminLedger() {
   const balanced = recon?.balanced;
 
   const entriesTable = (rows) => (
-    <TableContainer>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell sx={cellHead}>Date</TableCell>
-            <TableCell sx={cellHead}>Txn</TableCell>
-            <TableCell sx={cellHead}>Type</TableCell>
-            <TableCell sx={cellHead}>Account</TableCell>
-            <TableCell sx={cellHead}>Direction</TableCell>
-            <TableCell sx={cellHead} align="right">Amount</TableCell>
-            <TableCell sx={cellHead}>Stripe Ref</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.length === 0 ? (
-            <TableRow><TableCell colSpan={7} align="center" sx={{ color: T.muted }}>No entries.</TableCell></TableRow>
-          ) : rows.map((e, i) => (
-            <TableRow key={e._id || i}>
-              <TableCell sx={cellBody}>{fmtDate(e.createdAt)}</TableCell>
-              <TableCell sx={cellBody}>
-                <Tooltip title={e.transactionId || ""}><span>{shortId(e.transactionId)}</span></Tooltip>
-              </TableCell>
-              <TableCell sx={cellBody}>{e.entryType || "—"}</TableCell>
-              <TableCell sx={cellBody}>{e.account || "—"}</TableCell>
-              <TableCell><DirectionChip direction={e.direction} /></TableCell>
-              <TableCell sx={{ ...cellBody, fontWeight: 800 }} align="right">{fmtMoney(e.amountCents)}</TableCell>
-              <TableCell sx={cellBody}>
-                <Tooltip title={e.stripeRef || ""}><span>{e.stripeRef ? shortId(e.stripeRef) : "—"}</span></Tooltip>
-              </TableCell>
+    <>
+      {/* Desktop / tablet: full table (md and up) */}
+      <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={cellHead}>Date</TableCell>
+              <TableCell sx={cellHead}>Txn</TableCell>
+              <TableCell sx={cellHead}>Type</TableCell>
+              <TableCell sx={cellHead}>Account</TableCell>
+              <TableCell sx={cellHead}>Direction</TableCell>
+              <TableCell sx={cellHead} align="right">Amount</TableCell>
+              <TableCell sx={cellHead}>Stripe Ref</TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+          </TableHead>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow><TableCell colSpan={7} align="center" sx={{ color: T.muted }}>No entries.</TableCell></TableRow>
+            ) : rows.map((e, i) => (
+              <TableRow key={e._id || i}>
+                <TableCell sx={cellBody}>{fmtDate(e.createdAt)}</TableCell>
+                <TableCell sx={cellBody}>
+                  <Tooltip title={e.transactionId || ""}><span>{shortId(e.transactionId)}</span></Tooltip>
+                </TableCell>
+                <TableCell sx={cellBody}>{e.entryType || "—"}</TableCell>
+                <TableCell sx={cellBody}>{e.account || "—"}</TableCell>
+                <TableCell><DirectionChip direction={e.direction} /></TableCell>
+                <TableCell sx={{ ...cellBody, fontWeight: 800 }} align="right">{fmtMoney(e.amountCents)}</TableCell>
+                <TableCell sx={cellBody}>
+                  <Tooltip title={e.stripeRef || ""}><span>{e.stripeRef ? shortId(e.stripeRef) : "—"}</span></Tooltip>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+      <Box sx={{ display: { xs: "block", md: "none" }, p: 1.5 }}>
+        {rows.length === 0 ? (
+          <Typography align="center" sx={{ color: T.muted, py: 4 }}>No entries.</Typography>
+        ) : rows.map((e, i) => (
+          <Paper
+            key={e._id || i}
+            elevation={0}
+            sx={{ p: 2, mb: 1.5, borderRadius: 3, background: surface.glass, border: `1px solid ${surface.glassBorder}` }}
+          >
+            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} mb={1}>
+              <Typography sx={{ ...cellBody, fontWeight: 800 }}>{fmtMoney(e.amountCents)}</Typography>
+              <DirectionChip direction={e.direction} />
+            </Stack>
+            <Stack spacing={0.5}>
+              <CardRow label="Date" value={fmtDate(e.createdAt)} />
+              <CardRow label="Type" value={e.entryType || "—"} />
+              <CardRow label="Account" value={e.account || "—"} />
+              <CardRow label="Txn" value={shortId(e.transactionId)} title={e.transactionId} />
+              <CardRow label="Stripe Ref" value={e.stripeRef ? shortId(e.stripeRef) : "—"} title={e.stripeRef} />
+            </Stack>
+          </Paper>
+        ))}
+      </Box>
+    </>
   );
 
   return (

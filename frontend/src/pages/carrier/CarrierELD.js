@@ -522,7 +522,8 @@ export default function CarrierELD() {
           <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 2 }}>
             8-Day Log History
           </Typography>
-          <Box sx={{ overflowX: 'auto' }}>
+          {/* Desktop / tablet: full table (md and up) */}
+          <Box sx={{ overflowX: 'auto', display: { xs: 'none', md: 'block' } }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -595,6 +596,75 @@ export default function CarrierELD() {
                 )}
               </TableBody>
             </Table>
+          </Box>
+
+          {/* Phone: stacked cards (below md) so the wide table never overflows the screen */}
+          <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+            {logs.length === 0 ? (
+              <Typography variant="caption" sx={{ color: semantic.muted, textAlign: 'center', display: 'block', py: 3 }}>
+                No log history found
+              </Typography>
+            ) : logs.map(log => {
+              const driveH  = Math.round((log.totals?.drivingMinutes || 0) / 60 * 10) / 10;
+              const onDutyH = Math.round(((log.totals?.drivingMinutes || 0) + (log.totals?.onDutyNotDrivingMinutes || 0)) / 60 * 10) / 10;
+              const isToday = log.date === todayDate;
+              const violationCount = (log.violations || []).length;
+              const canCertify = !log.certified && !isToday;
+              return (
+                <Box
+                  key={log._id || log.date}
+                  sx={{ p: 2, mb: 1.5, borderRadius: 2, bgcolor: surface.glass, border: `1px solid ${surface.glassHover}` }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                      <Typography sx={{ color: '#e5e7eb', fontWeight: 700 }}>{log.date}</Typography>
+                      {isToday && <Chip label="today" size="small" sx={{ bgcolor: brand.indigo, color: '#fff', fontSize: '0.65rem' }} />}
+                    </Box>
+                    {log.certified ? (
+                      <Chip icon={<VerifiedIcon />} label="Certified" size="small" sx={{ bgcolor: semantic.success, color: '#fff', fontWeight: 700, flexShrink: 0 }} />
+                    ) : (
+                      <Typography variant="caption" sx={{ color: semantic.muted, flexShrink: 0 }}>Pending</Typography>
+                    )}
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: semantic.muted, display: 'block' }}>Driving</Typography>
+                      <Typography variant="body2" sx={{ color: semantic.success, fontWeight: 700 }}>{driveH}h</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: semantic.muted, display: 'block' }}>On-Duty</Typography>
+                      <Typography variant="body2" sx={{ color: semantic.warning, fontWeight: 700 }}>{onDutyH}h</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', mb: 0.5 }}>Violations</Typography>
+                      {violationCount > 0 ? (
+                        <Chip
+                          label={violationCount}
+                          size="small"
+                          icon={<ErrorIcon sx={{ fontSize: '14px !important' }} />}
+                          sx={{ bgcolor: semantic.error, color: '#fff', fontWeight: 700 }}
+                        />
+                      ) : (
+                        <Typography variant="body2" sx={{ color: semantic.muted }}>None</Typography>
+                      )}
+                    </Box>
+                  </Box>
+                  {canCertify && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      fullWidth
+                      startIcon={<VerifiedIcon />}
+                      onClick={() => certifyLog(log.date)}
+                      disabled={certifyLoading}
+                      sx={{ borderColor: semantic.success, color: semantic.success, fontSize: '0.75rem', mt: 1.5 }}
+                    >
+                      Certify
+                    </Button>
+                  )}
+                </Box>
+              );
+            })}
           </Box>
         </CardContent>
       </Card>

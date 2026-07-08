@@ -132,9 +132,10 @@ export default function AdminReviewQueue() {
                 borderRadius: 4, p: { xs: 2.5, sm: 3 },
                 background: surface.indigoTint, border: `1px solid ${surface.indigoBorderLight}`,
                 boxShadow: "0 4px 24px #1e034315",
+                overflowWrap: "anywhere",
               }}>
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} mb={1.5}>
-                  <Box sx={{ flex: 1 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography variant="h6" fontWeight={900} sx={{ color: T.primary }}>
                       {subj.name || "Unknown carrier"}
                     </Typography>

@@ -233,7 +233,8 @@ export default function CarrierPayments() {
             </Box>
           ) : (
             <>
-              <TableContainer component={Paper} sx={{ background: surface.glass, borderRadius: 2 }}>
+              {/* Desktop / tablet: full table (md and up) */}
+              <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' }, background: surface.glass, borderRadius: 2 }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
@@ -285,6 +286,50 @@ export default function CarrierPayments() {
                   </TableBody>
                 </Table>
               </TableContainer>
+
+              {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+              <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                {payments.map((p) => {
+                  const cfg = STATUS_CONFIG[p.status] || { label: p.status, color: 'default' };
+                  const load = p.loadId;
+                  return (
+                    <Paper
+                      key={p._id}
+                      elevation={0}
+                      sx={{ p: 2, mb: 1.5, borderRadius: 2, background: surface.glass, border: `1px solid ${surface.glassBorder}` }}
+                    >
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600} sx={{ wordBreak: 'break-word' }}>
+                            {load?.title || 'Unnamed Load'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                            {load?.origin || '—'} → {load?.destination || '—'}
+                          </Typography>
+                        </Box>
+                        <Chip label={cfg.label} color={cfg.color} size="small" sx={{ flexShrink: 0 }} />
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-end" sx={{ mt: 1.5 }}>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">Gross</Typography>
+                          <Typography variant="body2">{fmt(p.amount)}</Typography>
+                        </Box>
+                        <Box textAlign="right">
+                          <Typography variant="caption" color="text.secondary" display="block">Your Payout</Typography>
+                          <Tooltip title={`Platform fee: ${fmt(p.platformFee)}`}>
+                            <Typography variant="body2" fontWeight={700} color={chart.green}>
+                              {fmt(p.carrierPayout)}
+                            </Typography>
+                          </Tooltip>
+                        </Box>
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        {new Date(p.createdAt).toLocaleDateString()}
+                      </Typography>
+                    </Paper>
+                  );
+                })}
+              </Box>
 
               {pages > 1 && (
                 <Box mt={2} display="flex" justifyContent="center">

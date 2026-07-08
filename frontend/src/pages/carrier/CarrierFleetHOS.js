@@ -75,52 +75,105 @@ export default function CarrierFleetHOS() {
       {error && <Alert severity={error.includes('owners and dispatchers') ? 'info' : 'error'} sx={{ my: 2 }}>{error}</Alert>}
 
       {!error && (
-        <Paper variant="outlined" sx={{ mt: 2, overflowX: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Driver</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Drove today</TableCell>
-                <TableCell>Drive remaining</TableCell>
-                <TableCell>14h window left</TableCell>
-                <TableCell align="center">Violations</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {drivers.length === 0 && (
+        <>
+          {/* Desktop / tablet: full table (md and up) */}
+          <Paper variant="outlined" sx={{ mt: 2, overflowX: 'auto', display: { xs: 'none', md: 'block' } }}>
+            <Table size="small">
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={6}>
-                    <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                      No driver logs yet today. Drivers appear here once they log a duty status.
-                    </Typography>
-                  </TableCell>
+                  <TableCell>Driver</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Drove today</TableCell>
+                  <TableCell>Drive remaining</TableCell>
+                  <TableCell>14h window left</TableCell>
+                  <TableCell align="center">Violations</TableCell>
                 </TableRow>
-              )}
-              {drivers.map((d) => (
-                <TableRow key={d.driverId}>
-                  <TableCell sx={{ fontWeight: 600 }}>
+              </TableHead>
+              <TableBody>
+                {drivers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                        No driver logs yet today. Drivers appear here once they log a duty status.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {drivers.map((d) => (
+                  <TableRow key={d.driverId}>
+                    <TableCell sx={{ fontWeight: 600 }}>
+                      {d.name}
+                      {d.companyRole && d.companyRole !== 'owner' && (
+                        <Chip size="small" label={d.companyRole} sx={{ ml: 1 }} variant="outlined" />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip size="small" label={STATUS_LABEL[d.currentStatus] || d.currentStatus} color={STATUS_COLOR[d.currentStatus] || 'default'} />
+                    </TableCell>
+                    <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(d.drivingMinutesToday)}</TableCell>
+                    <TableCell><RemainingBar minutes={d.driveRemainingMinutes} limit={660} /></TableCell>
+                    <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(d.windowRemainingMinutes)}</TableCell>
+                    <TableCell align="center">
+                      {d.violations > 0
+                        ? <Chip size="small" color="error" label={d.violations} />
+                        : <Typography variant="body2" color="text.secondary">—</Typography>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Paper>
+
+          {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+          <Box sx={{ display: { xs: 'block', md: 'none' }, mt: 2 }}>
+            {drivers.length === 0 ? (
+              <Paper variant="outlined" sx={{ p: 3 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                  No driver logs yet today. Drivers appear here once they log a duty status.
+                </Typography>
+              </Paper>
+            ) : drivers.map((d) => (
+              <Paper key={d.driverId} variant="outlined" sx={{ p: 2, mb: 1.5 }}>
+                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 1 }}>
+                  <Typography sx={{ fontWeight: 700, minWidth: 0, wordBreak: 'break-word' }}>
                     {d.name}
                     {d.companyRole && d.companyRole !== 'owner' && (
                       <Chip size="small" label={d.companyRole} sx={{ ml: 1 }} variant="outlined" />
                     )}
-                  </TableCell>
-                  <TableCell>
-                    <Chip size="small" label={STATUS_LABEL[d.currentStatus] || d.currentStatus} color={STATUS_COLOR[d.currentStatus] || 'default'} />
-                  </TableCell>
-                  <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(d.drivingMinutesToday)}</TableCell>
-                  <TableCell><RemainingBar minutes={d.driveRemainingMinutes} limit={660} /></TableCell>
-                  <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(d.windowRemainingMinutes)}</TableCell>
-                  <TableCell align="center">
+                  </Typography>
+                  <Chip
+                    size="small"
+                    label={STATUS_LABEL[d.currentStatus] || d.currentStatus}
+                    color={STATUS_COLOR[d.currentStatus] || 'default'}
+                    sx={{ flexShrink: 0 }}
+                  />
+                </Stack>
+
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="caption" color="text.secondary" display="block">Drive remaining</Typography>
+                  <RemainingBar minutes={d.driveRemainingMinutes} limit={660} />
+                </Box>
+
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1} sx={{ mt: 1.5 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" display="block">Drove today</Typography>
+                    <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(d.drivingMinutesToday)}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" display="block">14h window left</Typography>
+                    <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(d.windowRemainingMinutes)}</Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Violations</Typography>
                     {d.violations > 0
                       ? <Chip size="small" color="error" label={d.violations} />
                       : <Typography variant="body2" color="text.secondary">—</Typography>}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
+                  </Box>
+                </Stack>
+              </Paper>
+            ))}
+          </Box>
+        </>
       )}
     </Box>
   );

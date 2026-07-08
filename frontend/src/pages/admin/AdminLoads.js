@@ -145,6 +145,7 @@ export default function AdminLoads() {
           borderRadius: 4,
           background: "linear-gradient(90deg, #392a7cbb 0%, #b833eb55 100%)",
           display: "flex",
+          flexWrap: { xs: "wrap", md: "nowrap" },
           gap: 2,
           p: 2,
           alignItems: "center"
@@ -282,7 +283,8 @@ export default function AdminLoads() {
           <Typography color="error" sx={{ p: 4 }}>{error}</Typography>
         ) : (
           <>
-            <TableContainer>
+            {/* Desktop / tablet: full table (md and up) */}
+            <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
               <Table>
                 <TableHead>
                   <TableRow>
@@ -377,6 +379,86 @@ export default function AdminLoads() {
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+            <Box sx={{ display: { xs: "block", md: "none" }, p: 1.5 }}>
+              {loads.length === 0 ? (
+                <Typography align="center" sx={{ color: "#fff", py: 4 }}>
+                  No loads found.
+                </Typography>
+              ) : (
+                loads.map((load, idx) => (
+                  <Paper
+                    key={load._id || idx}
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      mb: 1.5,
+                      borderRadius: 3,
+                      background: "rgba(124,140,248,0.14)",
+                      border: "1px solid rgba(168,169,244,0.25)"
+                    }}
+                  >
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: "#fff", fontWeight: 800, wordBreak: "break-word" }}>
+                          {load.title}
+                        </Typography>
+                        <Typography sx={{ color: "#bcbcff", fontSize: "0.85em", wordBreak: "break-word" }}>
+                          {load.shipperName || (load.postedBy && load.postedBy.name) || "N/A"}
+                        </Typography>
+                      </Box>
+                      <Tooltip title="View Details">
+                        <IconButton
+                          onClick={() => openModal(load)}
+                          sx={{
+                            flexShrink: 0,
+                            color: "#fff",
+                            bgcolor: "#f04ca7",
+                            borderRadius: "50%",
+                            p: 1,
+                            "&:hover": { bgcolor: "#fa37ad", color: "#fff" },
+                            transition: "all 0.2s"
+                          }}
+                        >
+                          <InfoOutlinedIcon sx={{ fontSize: 24 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+
+                    <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 1, mt: 1.5 }}>
+                      <Chip
+                        label={load.status?.toUpperCase() || "OPEN"}
+                        size="small"
+                        sx={{
+                          bgcolor: load.status === "delivered"
+                            ? "#34D399"
+                            : load.status === "pending"
+                              ? "#F59E42"
+                              : "#6366f1",
+                          color: "#fff",
+                          fontWeight: 700,
+                          px: 1.5
+                        }}
+                      />
+                      <Typography sx={{ color: "#fff", fontWeight: 700 }}>
+                        {load.rate ? `$${Number(load.rate).toLocaleString()}` : "N/A"}
+                      </Typography>
+                    </Box>
+
+                    <Typography sx={{ color: "#fff", fontSize: "0.9em", mt: 1.5, wordBreak: "break-word" }}>
+                      <Box component="span" sx={{ color: "#b6b8f3", fontWeight: 700 }}>Route: </Box>
+                      {(load.origin || "N/A")} → {(load.destination || "N/A")}
+                    </Typography>
+                    <Typography sx={{ color: "#bcbcff", fontSize: "0.8em", mt: 0.5 }}>
+                      <Box component="span" sx={{ color: "#b6b8f3", fontWeight: 700 }}>Posted: </Box>
+                      {load.createdAt ? new Date(load.createdAt).toLocaleString() : "—"}
+                    </Typography>
+                  </Paper>
+                ))
+              )}
+            </Box>
+
             <TablePagination
               component="div"
               count={total}

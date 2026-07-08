@@ -163,7 +163,8 @@ export default function AdminFactoring() {
           <Box p={8} display="flex" justifyContent="center"><CircularProgress /></Box>
         ) : (
           <>
-            <TableContainer>
+            {/* Desktop / tablet: full table (md and up) */}
+            <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -209,6 +210,61 @@ export default function AdminFactoring() {
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+            <Box sx={{ display: { xs: "block", md: "none" }, p: 1.5 }}>
+              {rows.length === 0 ? (
+                <Typography align="center" sx={{ color: T.muted, py: 4 }}>No assignments.</Typography>
+              ) : rows.map((r) => {
+                const c = r.carrier || {};
+                return (
+                  <Paper
+                    key={r._id}
+                    elevation={0}
+                    onClick={() => openDrawer(r)}
+                    sx={{ p: 2, mb: 1.5, borderRadius: 3, background: surface.glass, border: `1px solid ${surface.glassBorder}`, cursor: "pointer" }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: T.primary, fontWeight: 800, wordBreak: "break-word" }}>{c.name || "—"}</Typography>
+                        {(c.companyName || c.email) && (
+                          <Typography sx={{ color: T.secondary, fontSize: "0.85em", wordBreak: "break-all" }}>{c.companyName || c.email}</Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ flexShrink: 0 }}><StatusChip value={r.status} /></Box>
+                    </Stack>
+
+                    <Stack spacing={0.5} sx={{ mt: 1 }}>
+                      {[
+                        ["MC #", c.mcNumber || "—"],
+                        ["Factor", r.factorCompanyName || "—"],
+                        ["Effective", fmtDate(r.effectiveDate)],
+                      ].map(([label, value]) => (
+                        <Stack key={label} direction="row" justifyContent="space-between" spacing={1}>
+                          <Typography variant="caption" sx={{ color: T.muted, fontWeight: 800 }}>{label}</Typography>
+                          <Typography variant="caption" sx={{ color: T.primary, textAlign: "right", wordBreak: "break-word" }}>{value}</Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1.5 }}>
+                      {r.noaDocumentUrl ? (
+                        <Link
+                          href={r.noaDocumentUrl} target="_blank" rel="noopener"
+                          onClick={(e) => e.stopPropagation()}
+                          sx={{ color: brand.indigoLight, display: "inline-flex", alignItems: "center", gap: 0.5, fontSize: "0.85em" }}
+                        >
+                          View NOA <OpenInNewIcon sx={{ fontSize: 14 }} />
+                        </Link>
+                      ) : <Typography variant="caption" sx={{ color: T.muted }}>No NOA</Typography>}
+                      <Button size="small" onClick={(e) => { e.stopPropagation(); openDrawer(r); }}
+                        sx={{ color: brand.pink, fontWeight: 800 }}>Review</Button>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Box>
+
             <TablePagination
               component="div" count={total} page={page}
               onPageChange={(_, p) => setPage(p)}

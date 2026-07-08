@@ -9,7 +9,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Stack, Tabs, Tab, Paper, Chip, Button,
   CircularProgress, Drawer, Grid, IconButton, Alert, Divider,
-  Table, TableBody, TableCell, TableHead, TableRow,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -230,26 +230,49 @@ function ContractDetail({ contractId, open, onClose, onRefresh }) {
           {loads.length === 0
             ? <Typography sx={{ color: '#aaa', fontSize: '0.9rem' }}>No loads generated yet.</Typography>
             : (
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ color: '#94a3b8' }}>Title</TableCell>
-                    <TableCell sx={{ color: '#94a3b8' }}>Status</TableCell>
-                    <TableCell sx={{ color: '#94a3b8' }}>Rate</TableCell>
-                    <TableCell sx={{ color: '#94a3b8' }}>Date</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
+              <>
+                {/* Tablet / desktop: full table (md and up) */}
+                <TableContainer sx={{ display: { xs: 'none', md: 'block' } }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ color: '#94a3b8' }}>Title</TableCell>
+                        <TableCell sx={{ color: '#94a3b8' }}>Status</TableCell>
+                        <TableCell sx={{ color: '#94a3b8' }}>Rate</TableCell>
+                        <TableCell sx={{ color: '#94a3b8' }}>Date</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {loads.map(l => (
+                        <TableRow key={l._id}>
+                          <TableCell sx={{ color: '#fff' }}>{l.title}</TableCell>
+                          <TableCell><Chip label={l.status} size="small" sx={{ color: '#c4b5fd', bgcolor: 'rgba(164,117,248,0.15)' }} /></TableCell>
+                          <TableCell sx={{ color: '#fff' }}>${l.rate}</TableCell>
+                          <TableCell sx={{ color: '#94a3b8' }}>{fmtDate(l.createdAt)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+
+                {/* Phone: stacked cards (below md) so nothing overflows the drawer */}
+                <Box sx={{ display: { xs: 'block', md: 'none' } }}>
                   {loads.map(l => (
-                    <TableRow key={l._id}>
-                      <TableCell sx={{ color: '#fff' }}>{l.title}</TableCell>
-                      <TableCell><Chip label={l.status} size="small" sx={{ color: '#c4b5fd', bgcolor: 'rgba(164,117,248,0.15)' }} /></TableCell>
-                      <TableCell sx={{ color: '#fff' }}>${l.rate}</TableCell>
-                      <TableCell sx={{ color: '#94a3b8' }}>{fmtDate(l.createdAt)}</TableCell>
-                    </TableRow>
+                    <Paper key={l._id} sx={{ bgcolor: 'rgba(255,255,255,0.06)', p: 1.5, borderRadius: 2, mb: 1 }}>
+                      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                        <Typography sx={{ color: '#fff', fontWeight: 600, wordBreak: 'break-word', flex: 1, minWidth: 0 }}>
+                          {l.title}
+                        </Typography>
+                        <Chip label={l.status} size="small" sx={{ color: '#c4b5fd', bgcolor: 'rgba(164,117,248,0.15)', flexShrink: 0 }} />
+                      </Stack>
+                      <Stack direction="row" alignItems="center" justifyContent="space-between" mt={0.75}>
+                        <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>${l.rate}</Typography>
+                        <Typography variant="body2" sx={{ color: '#94a3b8' }}>{fmtDate(l.createdAt)}</Typography>
+                      </Stack>
+                    </Paper>
                   ))}
-                </TableBody>
-              </Table>
+                </Box>
+              </>
             )
           }
         </Box>

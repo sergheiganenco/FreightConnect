@@ -21,9 +21,12 @@ test('renders a per-driver HOS row from the fleet endpoint', async () => {
 
   render(<CarrierFleetHOS />);
 
-  expect(await screen.findByText('Rosa Driver')).toBeInTheDocument();
-  expect(screen.getByText('Driving')).toBeInTheDocument();      // status chip
-  expect(screen.getByText('5h 0m left')).toBeInTheDocument();   // 300 min drive remaining
+  // The page renders the driver in BOTH a desktop table and a mobile card layout
+  // (one hidden via CSS media query, which jsdom doesn't evaluate), so the data
+  // appears more than once in the DOM — assert it's present at least once.
+  expect((await screen.findAllByText('Rosa Driver')).length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Driving').length).toBeGreaterThan(0);     // status chip
+  expect(screen.getAllByText('5h 0m left').length).toBeGreaterThan(0);  // 300 min drive remaining
   expect(api.get).toHaveBeenCalledWith('/eld/fleet');
 });
 

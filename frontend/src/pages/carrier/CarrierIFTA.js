@@ -442,7 +442,9 @@ export default function CarrierIFTA() {
               </Typography>
             </Paper>
           ) : (
-            <TableContainer component={Paper} sx={{ mb: 4, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
+            <>
+            {/* Desktop / tablet: full table (md and up) */}
+            <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' }, mb: 4, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -489,6 +491,60 @@ export default function CarrierIFTA() {
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+            <Box sx={{ display: { xs: 'block', md: 'none' }, mb: 4 }}>
+              {fuel.map((f) => (
+                <Paper key={f._id} sx={{ p: 2, mb: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: '#fff', fontWeight: 700, wordBreak: 'break-word' }}>
+                        {f.jurisdiction}{STATE_NAME[f.jurisdiction] ? ` — ${STATE_NAME[f.jurisdiction]}` : ''}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                        {f.date ? new Date(f.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                      <Tooltip title="Edit">
+                        <span>
+                          <IconButton size="small" onClick={() => openEditFuel(f)} disabled={!canEdit} sx={{ color: '#6366f1' }}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <span>
+                          <IconButton size="small" onClick={() => handleDeleteFuel(f._id)} disabled={!canEdit} sx={{ color: '#ef4444' }}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Stack>
+                  </Stack>
+                  <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
+                  <Stack direction="row" flexWrap="wrap" gap={1.5}>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Fuel Type</Typography>
+                      <Typography sx={{ color: 'rgba(255,255,255,0.85)', textTransform: 'capitalize' }}>{f.fuelType || '—'}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Gallons</Typography>
+                      <Typography sx={{ color: '#fff', fontWeight: 600 }}>{fmtGal(f.gallons)}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Total Cost</Typography>
+                      <Typography sx={{ color: '#f97316', fontWeight: 700 }}>{fmt$(f.totalCostCents)}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Vendor</Typography>
+                      <Typography sx={{ color: 'rgba(255,255,255,0.7)' }}>{f.vendor || '—'}</Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+            </>
           )}
 
           {/* ── Jurisdiction Worksheet ─────────────────────────────────────── */}
@@ -516,7 +572,8 @@ export default function CarrierIFTA() {
           {saveError && <Alert severity="error" sx={{ mb: 2, borderRadius: 3 }}>{saveError}</Alert>}
           {saveSuccess && <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>Worksheet saved.</Alert>}
 
-          <TableContainer component={Paper} sx={{ borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
+          {/* Desktop / tablet: full worksheet table (md and up) */}
+          <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' }, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -604,6 +661,112 @@ export default function CarrierIFTA() {
               )}
             </Table>
           </TableContainer>
+
+          {/* Phone: stacked worksheet cards (below md) so nothing overflows the screen */}
+          <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+            {rows.length === 0 ? (
+              <Paper sx={{ p: 3, borderRadius: 3, textAlign: 'center', bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
+                <Typography sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                  No jurisdictions yet. Add a state below or log a fuel purchase to begin.
+                </Typography>
+              </Paper>
+            ) : (
+              <>
+                {rows.map((r) => {
+                  const c = computeRow(r);
+                  return (
+                    <Paper key={r.jurisdiction} sx={{ p: 2, mb: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.04)', border: '1.5px solid rgba(255,255,255,0.08)' }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: '#fff', fontWeight: 800, wordBreak: 'break-word' }}>
+                          {r.jurisdiction}{STATE_NAME[r.jurisdiction] ? ` — ${STATE_NAME[r.jurisdiction]}` : ''}
+                        </Typography>
+                        <Tooltip title="Remove row">
+                          <span>
+                            <IconButton size="small" onClick={() => handleRemoveRow(r.jurisdiction)} disabled={!canEdit} sx={{ color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                      <Divider sx={{ my: 1, borderColor: 'rgba(255,255,255,0.08)' }} />
+                      <Grid container spacing={1.5}>
+                        <Grid item xs={6}>
+                          <TextField
+                            label="Total Miles" variant="standard" type="number" size="small" fullWidth value={r.totalMiles}
+                            onChange={(e) => handleRowChange(r.jurisdiction, 'totalMiles', e.target.value)}
+                            disabled={!canEdit} inputProps={{ min: 0, style: { color: '#fff' } }}
+                            InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
+                          />
+                        </Grid>
+                        <Grid item xs={6}>
+                          <TextField
+                            label="Taxable Miles" variant="standard" type="number" size="small" fullWidth value={r.taxableMiles}
+                            onChange={(e) => handleRowChange(r.jurisdiction, 'taxableMiles', e.target.value)}
+                            disabled={!canEdit} inputProps={{ min: 0, style: { color: '#fff' } }}
+                            InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
+                          />
+                        </Grid>
+                        <Grid item xs={6}>
+                          <TextField
+                            label="Tax Rate ($/gal)" variant="standard" type="number" size="small" fullWidth value={r.taxRate}
+                            onChange={(e) => handleRowChange(r.jurisdiction, 'taxRate', e.target.value)}
+                            disabled={!canEdit}
+                            InputProps={{ startAdornment: <InputAdornment position="start" sx={{ '& p': { color: 'rgba(255,255,255,0.5)' } }}>$</InputAdornment> }}
+                            inputProps={{ min: 0, step: 0.001, style: { color: '#fff' } }}
+                            InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
+                          />
+                        </Grid>
+                      </Grid>
+                      <Stack direction="row" flexWrap="wrap" gap={1.5} sx={{ mt: 1.5 }}>
+                        <Box>
+                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Taxable Gal</Typography>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>{fmtGal(c.taxableGallons)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Tax-Paid Gal</Typography>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>{fmtGal(c.taxPaidGallons)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Net Taxable Gal</Typography>
+                          <Typography sx={{ color: c.netTaxableGallons >= 0 ? '#fbbf24' : '#34d399', fontWeight: 700 }}>{fmtGal(c.netTaxableGallons)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Net Tax</Typography>
+                          <Typography sx={{ color: c.netTaxCents >= 0 ? '#ef4444' : '#34d399', fontWeight: 700 }}>{fmt$(c.netTaxCents)}</Typography>
+                        </Box>
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+                {/* Totals card */}
+                <Paper sx={{ p: 2, mb: 1.5, borderRadius: 3, bgcolor: 'rgba(99,102,241,0.10)', border: '1.5px solid rgba(255,255,255,0.12)' }}>
+                  <Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Totals</Typography>
+                  <Stack direction="row" flexWrap="wrap" gap={1.5}>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Total Miles</Typography>
+                      <Typography sx={{ color: '#fff', fontWeight: 800 }}>{fmtMiles(totals.totalMiles)}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Taxable Gal</Typography>
+                      <Typography sx={{ color: '#fff', fontWeight: 800 }}>{fmtGal(totals.taxableGallons)}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Tax-Paid Gal</Typography>
+                      <Typography sx={{ color: '#fff', fontWeight: 800 }}>{fmtGal(totals.taxPaidGallons)}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Net Taxable Gal</Typography>
+                      <Typography sx={{ color: '#fbbf24', fontWeight: 800 }}>{fmtGal(totals.netTaxableGallons)}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block' }}>Net Tax</Typography>
+                      <Typography sx={{ color: '#ef4444', fontWeight: 800 }}>{fmt$(totals.netTaxCents)}</Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+              </>
+            )}
+          </Box>
 
           {/* Add jurisdiction row */}
           {canEdit && availableStates.length > 0 && (

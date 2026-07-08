@@ -11,7 +11,7 @@ import {
   CircularProgress, TextField, MenuItem, Dialog, DialogTitle,
   DialogContent, DialogActions, Drawer, Divider, Grid,
   IconButton, Tooltip, Alert, Switch, FormControlLabel,
-  Table, TableBody, TableCell, TableHead, TableRow,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
@@ -442,7 +442,8 @@ function ContractDetail({ contractId, open, onClose, onRefresh }) {
             {loads.length === 0
               ? <Typography sx={{ color: '#aaa', fontSize: '0.9rem', mb: 2 }}>No loads generated yet.</Typography>
               : (
-                <Table size="small" sx={{ mb: 2 }}>
+                <TableContainer sx={{ overflowX: 'auto', mb: 2 }}>
+                <Table size="small">
                   <TableHead>
                     <TableRow>
                       <TableCell sx={{ color: '#94a3b8' }}>Title</TableCell>
@@ -462,6 +463,7 @@ function ContractDetail({ contractId, open, onClose, onRefresh }) {
                     ))}
                   </TableBody>
                 </Table>
+                </TableContainer>
               )
             }
 
@@ -608,6 +610,7 @@ export default function ShipperContracts() {
 
       <Tabs
         value={tabIdx} onChange={(_, v) => setTabIdx(v)}
+        variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile
         sx={{ mb: 3, '& .MuiTab-root': { color: '#a78bfa', fontWeight: 600 }, '& .Mui-selected': { color: '#fff' } }}>
         {STATUS_TABS.map(t => <Tab key={t.value} label={t.label} />)}
       </Tabs>

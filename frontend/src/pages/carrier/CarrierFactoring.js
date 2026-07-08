@@ -506,52 +506,100 @@ export default function CarrierFactoring() {
                 </Box>
               )
               : (
-                <Box sx={{ overflowX: 'auto' }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        {['Date', 'Loads', 'Invoice Total', `Advance (${ADVANCE_PCT}%)`, 'Status', ''].map(h => (
-                          <TableCell key={h} sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.08)', fontWeight: 600 }}>
-                            {h}
-                          </TableCell>
+                <>
+                  {/* Desktop / tablet: full table (md and up) */}
+                  <Box sx={{ overflowX: 'auto', display: { xs: 'none', md: 'block' } }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          {['Date', 'Loads', 'Invoice Total', `Advance (${ADVANCE_PCT}%)`, 'Status', ''].map(h => (
+                            <TableCell key={h} sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.08)', fontWeight: 600 }}>
+                              {h}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {requests.map(req => (
+                          <TableRow
+                            key={req._id}
+                            hover
+                            sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}
+                            onClick={() => openDetail(req)}
+                          >
+                            <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
+                              {fmtDate(req.createdAt)}
+                            </TableCell>
+                            <TableCell sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.06)' }}>
+                              {(req.loads || []).length} load{(req.loads || []).length !== 1 ? 's' : ''}
+                            </TableCell>
+                            <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
+                              {fmtCents(req.invoiceTotalCents)}
+                            </TableCell>
+                            <TableCell sx={{ color: '#10b981', fontWeight: 700, borderColor: 'rgba(255,255,255,0.06)' }}>
+                              {fmtCents(req.advanceCents)}
+                            </TableCell>
+                            <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                              <StatusChip status={req.status} />
+                            </TableCell>
+                            <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                              <Tooltip title="View details">
+                                <IconButton size="small" sx={{ color: '#9ca3af' }} onClick={e => { e.stopPropagation(); openDetail(req); }}>
+                                  <InfoOutlinedIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {requests.map(req => (
-                        <TableRow
-                          key={req._id}
-                          hover
-                          sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}
-                          onClick={() => openDetail(req)}
-                        >
-                          <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
-                            {fmtDate(req.createdAt)}
-                          </TableCell>
-                          <TableCell sx={{ color: '#9ca3af', borderColor: 'rgba(255,255,255,0.06)' }}>
-                            {(req.loads || []).length} load{(req.loads || []).length !== 1 ? 's' : ''}
-                          </TableCell>
-                          <TableCell sx={{ color: '#e5e7eb', borderColor: 'rgba(255,255,255,0.06)' }}>
-                            {fmtCents(req.invoiceTotalCents)}
-                          </TableCell>
-                          <TableCell sx={{ color: '#10b981', fontWeight: 700, borderColor: 'rgba(255,255,255,0.06)' }}>
-                            {fmtCents(req.advanceCents)}
-                          </TableCell>
-                          <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                      </TableBody>
+                    </Table>
+                  </Box>
+
+                  {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+                  <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                    {requests.map(req => (
+                      <Box
+                        key={req._id}
+                        onClick={() => openDetail(req)}
+                        sx={{
+                          p: 2, mb: 1.5, borderRadius: 2, cursor: 'pointer',
+                          bgcolor: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, mb: 1 }}>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={700} sx={{ color: '#e5e7eb' }}>
+                              {fmtDate(req.createdAt)}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                              {(req.loads || []).length} load{(req.loads || []).length !== 1 ? 's' : ''}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
                             <StatusChip status={req.status} />
-                          </TableCell>
-                          <TableCell sx={{ borderColor: 'rgba(255,255,255,0.06)' }}>
                             <Tooltip title="View details">
                               <IconButton size="small" sx={{ color: '#9ca3af' }} onClick={e => { e.stopPropagation(); openDetail(req); }}>
                                 <InfoOutlinedIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Box>
+                          </Box>
+                        </Box>
+                        <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)', mb: 1 }} />
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block' }}>Invoice Total</Typography>
+                            <Typography variant="body2" fontWeight={700} sx={{ color: '#e5e7eb' }}>{fmtCents(req.invoiceTotalCents)}</Typography>
+                          </Box>
+                          <Box sx={{ textAlign: 'right', minWidth: 0 }}>
+                            <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block' }}>Advance ({ADVANCE_PCT}%)</Typography>
+                            <Typography variant="body2" fontWeight={700} sx={{ color: '#10b981' }}>{fmtCents(req.advanceCents)}</Typography>
+                          </Box>
+                        </Box>
+                      </Box>
+                    ))}
+                  </Box>
+                </>
               )
           }
         </CardContent>

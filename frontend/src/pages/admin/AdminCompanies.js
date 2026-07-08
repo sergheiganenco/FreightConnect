@@ -3,7 +3,8 @@ import React, { useEffect, useState, useRef } from "react";
 import {
   Box, Paper, Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, CircularProgress, IconButton,
-  Tooltip, Dialog, DialogTitle, DialogContent, Grid, Chip, TextField, InputAdornment
+  Tooltip, Dialog, DialogTitle, DialogContent, Grid, Chip, TextField,
+  InputAdornment, Stack
 } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -128,7 +129,8 @@ export default function AdminCompanies() {
           </Box>
         ) : (
           <>
-            <TableContainer>
+            {/* Desktop / tablet: full table (md and up) */}
+            <TableContainer sx={{ display: { xs: 'none', md: 'block' } }}>
               <Table>
                 <TableHead>
                   <TableRow>
@@ -213,6 +215,70 @@ export default function AdminCompanies() {
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+            <Box sx={{ display: { xs: 'block', md: 'none' }, p: 1.5 }}>
+              {companies.length === 0 ? (
+                <Typography align="center" sx={{ color: T.primary, py: 4 }}>No companies found.</Typography>
+              ) : (
+                companies.map((company, idx) => (
+                  <Paper
+                    key={company._id || idx}
+                    elevation={0}
+                    sx={{ p: 2, mb: 1.5, borderRadius: 3, background: surface.glass, border: `1px solid ${surface.glassBorder}` }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: T.primary, fontWeight: 800, wordBreak: 'break-word' }}>{company.name}</Typography>
+                        <Typography sx={{ color: brand.softIndigo, fontSize: '0.82em' }}>
+                          DOT #{company.dotNumber || "—"} · {company.type || "—"}
+                        </Typography>
+                        <Typography sx={{ color: brand.softIndigo, fontSize: '0.82em' }}>
+                          Fleet: {company.fleetSize || "—"}
+                        </Typography>
+                      </Box>
+                      <Tooltip title="View Details">
+                        <IconButton
+                          onClick={() => openModal(company)}
+                          sx={{
+                            color: T.primary,
+                            bgcolor: brand.pink,
+                            borderRadius: "50%",
+                            p: 1.1,
+                            flexShrink: 0,
+                            boxShadow: "0 2px 8px 0 #c959aa33",
+                            "&:hover": {
+                              bgcolor: "#fa37ad",
+                              color: T.primary,
+                              boxShadow: "0 2px 12px 0 #ff6cf033"
+                            },
+                            transition: "all 0.2s"
+                          }}
+                        >
+                          <InfoOutlinedIcon sx={{ fontSize: 24, fontWeight: 900 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.5, flexWrap: 'wrap' }}>
+                      <Chip
+                        label={company.status?.toUpperCase() || "ACTIVE"}
+                        size="small"
+                        sx={{
+                          bgcolor: company.status === "suspended" ? semantic.error : brand.indigo,
+                          color: T.primary,
+                          fontWeight: 700,
+                          px: 1.5
+                        }}
+                      />
+                      <Typography sx={{ color: brand.softIndigo, fontSize: '0.82em' }}>
+                        Joined {company.createdAt ? new Date(company.createdAt).toLocaleDateString() : "—"}
+                      </Typography>
+                    </Stack>
+                  </Paper>
+                ))
+              )}
+            </Box>
+
             <TablePagination
               component="div"
               count={total}
