@@ -224,6 +224,8 @@ export default function ShipperDashboard() {
         component="main"
         sx={{
           flex: 1,
+          minWidth: 0,        // let this flex item shrink to the viewport…
+          overflowX: 'hidden', // …and clip stray wide content so the PAGE never scrolls sideways; inner scrollers still scroll
           pt: 11,
           ml: { md: `${drawerW}px` },
           px: { xs: 2, md: 4 },

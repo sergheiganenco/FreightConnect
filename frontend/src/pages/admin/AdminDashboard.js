@@ -214,6 +214,8 @@ export default function AdminDashboard() {
         component="main"
         sx={{
           flex: 1,
+          minWidth: 0,        // let this flex item shrink to the viewport…
+          overflowX: "hidden", // …and clip stray wide content (e.g. scrollable Tabs) so the PAGE never scrolls sideways; inner scrollers still scroll
           pt: 11, // space below AppBar
           ml: { md: `${drawerW}px` }, // push content next to drawer
           px: { xs: 2, md: 4 },

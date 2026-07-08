@@ -241,6 +241,8 @@ export default function CarrierDashboard() {
           component="main"
           sx={{
             flex: 1,
+            minWidth: 0,        // let this flex item shrink to the viewport…
+            overflowX: "hidden", // …and clip stray wide content so the PAGE never scrolls sideways; inner scrollers still scroll
             pt: 11, // space below AppBar
             ml: { md: `${drawerW}px` }, // push content next to drawer
             px: { xs: 2, md: 4 },
