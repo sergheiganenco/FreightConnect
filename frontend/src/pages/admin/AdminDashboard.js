@@ -51,6 +51,13 @@ export default function AdminDashboard() {
     if (!mdUp) setCollapsed(false);
   }, [mdUp]);
 
+  // Close the mobile drawer AFTER navigation settles. Closing it inside the nav
+  // click handler (same commit as navigate) interrupts the temporary Drawer's
+  // exit transition and leaves it visually stuck open — the "tap twice" bug.
+  useEffect(() => {
+    if (!mdUp) setDrawerOpen(false);
+  }, [location.pathname, mdUp]);
+
   // Section highlight logic
   const path = location.pathname;
   let currentSection = "overview";
@@ -83,7 +90,9 @@ export default function AdminDashboard() {
     else if (key === "review-queue") navigate("/dashboard/admin/review-queue");
     else if (key === "factoring") navigate("/dashboard/admin/factoring");
     else if (key === "profile") navigate("/dashboard/admin/profile");
-    if (!mdUp) setDrawerOpen(false);
+    // Drawer closes via the location-change effect above on route change. Also
+    // close when tapping the current section (no route change → effect won't fire).
+    if (!mdUp && key === currentSection) setDrawerOpen(false);
   };
 
   return (

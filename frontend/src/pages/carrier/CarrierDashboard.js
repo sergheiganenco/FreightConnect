@@ -82,6 +82,13 @@ export default function CarrierDashboard() {
     if (!mdUp) setCollapsed(false);
   }, [mdUp]);
 
+  // Close the mobile drawer AFTER navigation settles. Closing it in the nav click
+  // handler (same commit as navigate) interrupts the temporary Drawer's exit
+  // transition and leaves it visually stuck open — the "tap twice" bug.
+  useEffect(() => {
+    if (!mdUp) setDrawerOpen(false);
+  }, [location.pathname, mdUp]);
+
   // Helper for nav: which section is active (for SideNav highlighting)
   const path = location.pathname;
   let currentSection = 'loads';
@@ -222,7 +229,9 @@ export default function CarrierDashboard() {
               else if (key === "chat") navigate("/dashboard/carrier/chat");
               else if (key === "verification") navigate("/dashboard/carrier/verification");
               else if (key === "profile") navigate("/dashboard/carrier/profile");
-              if (!mdUp) setDrawerOpen(false);
+              // Drawer closes via the location-change effect on route change; also
+              // close when tapping the current section (no route change).
+              if (!mdUp && key === currentSection) setDrawerOpen(false);
             }}
           />
         </Drawer>

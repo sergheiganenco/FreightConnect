@@ -91,6 +91,13 @@ export default function ShipperDashboard() {
     return () => document.body.classList.remove('dashboard-page');
   }, [mdUp]);
 
+  // Close the mobile drawer AFTER navigation settles. Closing it in the nav click
+  // handler (same commit as navigate) interrupts the temporary Drawer's exit
+  // transition and leaves it visually stuck open — the "tap twice" bug.
+  useEffect(() => {
+    if (!mdUp) setDrawerOpen(false);
+  }, [location.pathname, mdUp]);
+
   const path = location.pathname;
   const currentSection = sectionFromPath(path);
 
@@ -205,7 +212,9 @@ export default function ShipperDashboard() {
             else if (key === 'verification') navigate('/dashboard/shipper/verification');
             else if (key === 'chat') navigate('/dashboard/shipper/chat');
             else if (key === 'profile') navigate('/dashboard/shipper/profile');
-            if (!mdUp) setDrawerOpen(false);
+            // Drawer closes via the location-change effect on route change; also
+            // close when tapping the current section (no route change).
+            if (!mdUp && key === currentSection) setDrawerOpen(false);
           }}
         />
       </Drawer>
