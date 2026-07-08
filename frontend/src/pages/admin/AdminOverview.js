@@ -124,14 +124,14 @@ export default function AdminOverview() {
         <>
           <Grid container spacing={3} mb={3}>
             {cards.map((card, idx) => (
-              <Grid key={card.label} item xs={12} sm={6} md={4} lg={2.4}>
+              <Grid key={card.label} item xs={6} sm={6} md={4} lg={2.4}>
                 <Card
                   sx={{
                     background: card.color,
                     color: "#fff",
                     boxShadow: "0 6px 40px #1e034320",
                     borderRadius: 5,
-                    minHeight: 130,
+                    minHeight: { xs: 104, sm: 130 },
                   }}
                   elevation={0}
                 >
@@ -140,12 +140,12 @@ export default function AdminOverview() {
                     onClick={card.onClick}
                     sx={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center" }}
                   >
-                    <CardContent sx={{ textAlign: "center", py: 3 }}>
-                      {card.icon}
-                      <Typography fontSize={32} fontWeight={900} color="#fff" mt={1}>
+                    <CardContent sx={{ textAlign: "center", py: { xs: 2, sm: 3 } }}>
+                      {React.cloneElement(card.icon, { sx: { ...card.icon.props.sx, fontSize: { xs: 30, sm: 40 } } })}
+                      <Typography fontSize={{ xs: 24, sm: 32 }} fontWeight={900} color="#fff" mt={1}>
                         {card.value}
                       </Typography>
-                      <Typography fontSize={17} fontWeight={700} color="#fff" letterSpacing={0.7}>
+                      <Typography fontSize={{ xs: 13, sm: 17 }} fontWeight={700} color="#fff" letterSpacing={0.7}>
                         {card.label}
                       </Typography>
                     </CardContent>
@@ -154,7 +154,7 @@ export default function AdminOverview() {
               </Grid>
             ))}
           </Grid>
-          <Stack direction="row" spacing={2} mb={3} justifyContent="center">
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mb={3} justifyContent="center" flexWrap="wrap" useFlexGap>
             <Button
               size="large"
               sx={{
