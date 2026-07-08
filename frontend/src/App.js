@@ -8,7 +8,7 @@ import ChatProvider from './components/chat/ChatProvider';
 import ErrorBoundary from './components/ErrorBoundary';
 import TosGuardProvider from './components/TosGuardProvider';
 import NotFound from './pages/NotFound';
-import { RoleRoute } from './components/PrivateRoute';
+import PrivateRoute, { RoleRoute } from './components/PrivateRoute';
 
 /* marketing + auth pages (eager — first paint, no auth gate) */
 import Home from './pages/Home';
@@ -16,6 +16,7 @@ import About from './pages/About';
 import Features from './pages/Features';
 import Contact from './pages/Contact';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -113,6 +114,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
+          {/* Forced first-login / self-service password change (token required) */}
+          <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
 
           {/* Protected Shipper Dashboards */}
           <Route path="/dashboard/shipper" element={<RoleRoute role="shipper"><ChatProvider><ShipperDashboard /></ChatProvider></RoleRoute>}>

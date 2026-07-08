@@ -291,6 +291,9 @@ const UserSchema = new mongoose.Schema({
   // ── Email Verification & Password Reset ──────────────────────────
   emailVerificationToken: { type: String, default: null, select: false },
   emailVerified: { type: Boolean, default: false },
+  // Set true for admin-created accounts (temporary password) — forces the user
+  // to set their own password on first login before they can use the app.
+  mustChangePassword: { type: Boolean, default: false },
   passwordResetToken: { type: String, default: null, select: false },
   passwordResetExpires: { type: Date, default: null, select: false },
 

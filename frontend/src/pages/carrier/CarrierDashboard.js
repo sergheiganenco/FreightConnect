@@ -125,7 +125,7 @@ export default function CarrierDashboard() {
         >
           <Toolbar>
             {!mdUp && (
-              <IconButton onClick={() => setDrawerOpen(true)} sx={{ mr: 1 }}>
+              <IconButton onClick={() => setDrawerOpen((o) => !o)} aria-label="Toggle navigation" sx={{ mr: 1 }}>
                 <MenuIcon />
               </IconButton>
             )}

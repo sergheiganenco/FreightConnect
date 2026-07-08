@@ -247,6 +247,39 @@ router.post('/reset-password', authLimiter, resetPasswordValidation, validate, a
 });
 
 // ----------------------
+// Change password (authenticated) — used for the forced first-login change and
+// self-service changes. Clears mustChangePassword on success.
+// ----------------------
+const changePasswordValidation = [
+  body('currentPassword').notEmpty().withMessage('Current password is required'),
+  body('newPassword').isLength({ min: 8 }).withMessage('New password must be at least 8 characters'),
+];
+
+router.post('/change-password', auth, changePasswordValidation, validate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user.userId).select('+password');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) return res.status(400).json({ error: 'Current password is incorrect' });
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'New password must be different from the current password' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.mustChangePassword = false;
+    await user.save();
+
+    return res.json({ success: true, message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('[ChangePassword] Error:', err.message);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ----------------------
 // 2) Login Route
 // ----------------------
 const loginValidation = [
@@ -314,6 +347,7 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
         role: user.role,
         companyRole: user.companyRole || 'owner',
         emailVerified: user.emailVerified !== false,
+        mustChangePassword: user.mustChangePassword === true,
       },
     });
   } catch (error) {

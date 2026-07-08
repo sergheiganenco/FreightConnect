@@ -151,7 +151,8 @@ export default function AdminUsers() {
           <Box p={8} display="flex" justifyContent="center"><CircularProgress /></Box>
         ) : (
           <>
-            <TableContainer>
+            {/* Desktop / tablet: full table (md and up) */}
+            <TableContainer sx={{ display: { xs: 'none', md: 'block' } }}>
               <Table>
                 <TableHead>
                   <TableRow>
@@ -209,6 +210,57 @@ export default function AdminUsers() {
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {/* Phone: stacked cards (below md) so nothing overflows the screen */}
+            <Box sx={{ display: { xs: 'block', md: 'none' }, p: 1.5 }}>
+              {users.length === 0 ? (
+                <Typography align="center" sx={{ color: T.muted, py: 4 }}>No users found.</Typography>
+              ) : users.map(user => (
+                <Paper
+                  key={user._id}
+                  elevation={0}
+                  sx={{ p: 2, mb: 1.5, borderRadius: 3, background: surface.glass, border: `1px solid ${surface.glassBorder}` }}
+                >
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: T.primary, fontWeight: 800, wordBreak: 'break-word' }}>{user.name}</Typography>
+                      <Typography sx={{ color: T.muted, fontSize: '0.85em', wordBreak: 'break-all' }}>{user.email}</Typography>
+                      {user.companyName && (
+                        <Typography sx={{ color: T.muted, fontSize: '0.8em' }}>{user.companyName}</Typography>
+                      )}
+                    </Box>
+                    <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                      <Tooltip title="Edit User">
+                        <IconButton size="small" onClick={() => handleEdit(user)} sx={{ color: brand.pink }}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title={user.status === "suspended" ? "Reactivate" : "Suspend"}>
+                        <IconButton size="small" onClick={() => handleToggleStatus(user)} sx={{ color: ST.accepted }}>
+                          {user.status === "suspended" ? <RestoreIcon fontSize="small" /> : <BlockIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                  </Stack>
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                    <Chip
+                      label={user.role} size="small"
+                      sx={{
+                        fontWeight: 700,
+                        bgcolor: user.role === "admin" ? tint(brand.pink, 0.13) : user.role === "carrier" ? tint(brand.primary, 0.13) : tint('#1e88e5', 0.13),
+                        color:   user.role === "admin" ? brand.pink : user.role === "carrier" ? ST.accepted : "#64b5f6",
+                      }}
+                    />
+                    <Chip
+                      label={user.status === "suspended" ? "Suspended" : "Active"}
+                      color={user.status === "suspended" ? "error" : "success"}
+                      size="small" sx={{ fontWeight: 700 }}
+                    />
+                  </Stack>
+                </Paper>
+              ))}
+            </Box>
+
             <TablePagination
               component="div" count={total} page={page}
               onPageChange={(_, newPage) => setPage(newPage)}

@@ -48,6 +48,7 @@ export default function Navbar() {
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     localStorage.removeItem('companyRole');
+    localStorage.removeItem('mustChangePassword');
     navigate('/home');
   };
 

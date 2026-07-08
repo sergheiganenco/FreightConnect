@@ -48,6 +48,14 @@ export default function Login() {
       // from dispatcher/driver logins). Defaults to owner for solo accounts.
       localStorage.setItem('companyRole', user.companyRole || 'owner');
 
+      // Admin-created accounts get a temporary password — force a change first.
+      if (user.mustChangePassword) {
+        localStorage.setItem('mustChangePassword', '1');
+        navigate('/change-password');
+        return;
+      }
+      localStorage.removeItem('mustChangePassword');
+
       if (user.role === 'admin') {
         navigate('/dashboard/admin');
       } else if (user.role === 'carrier') {

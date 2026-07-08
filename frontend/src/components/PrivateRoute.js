@@ -18,6 +18,10 @@ export function RoleRoute({ children, role }) {
   const userRole = localStorage.getItem('role');
 
   if (!token) return <Navigate to="/" replace />;
+  // Admin-created accounts must set their own password before using the app.
+  if (localStorage.getItem('mustChangePassword') === '1') {
+    return <Navigate to="/change-password" replace />;
+  }
   if (userRole !== role) {
     // Redirect to the user's correct dashboard instead of showing a blank/error page
     const dashboardMap = { carrier: '/dashboard/carrier', admin: '/dashboard/admin' };

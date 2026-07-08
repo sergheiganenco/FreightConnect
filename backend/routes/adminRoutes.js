@@ -161,7 +161,8 @@ router.post('/users', auth, ADMIN_ONLY, async (req, res) => {
     if (existing) return res.status(409).json({ error: 'Email already in use' });
 
     const hashed = await bcrypt.hash(password, 10);
-    const userData = { name, email, password: hashed, role };
+    // Admin sets a temporary password; force the user to change it on first login.
+    const userData = { name, email, password: hashed, role, mustChangePassword: true };
 
     if (companyName && role !== 'admin') {
       const normalized = companyNormalize(companyName);

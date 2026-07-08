@@ -100,9 +100,9 @@ export default function AdminDashboard() {
         <Toolbar>
           {!mdUp && (
             <IconButton
-              onClick={() => setDrawerOpen(true)}
+              onClick={() => setDrawerOpen((o) => !o)}
               sx={{ mr: 1 }}
-              aria-label="Open navigation"
+              aria-label="Toggle navigation"
               edge="start"
             >
               <MenuIcon />
