@@ -1,5 +1,5 @@
 import React, { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import Navbar from './components/Navbar';
 import Footer from './components/FooterFull';
@@ -93,10 +93,20 @@ function CarrierVerificationPage() {
   return <CarrierVerification onComplete={() => navigate('/dashboard/carrier/loads')} />;
 }
 
+// The marketing Navbar/Footer must NOT render inside the authenticated dashboards
+// — those have their own fixed AppBar. Rendering both stacked a second
+// (absolute-positioned) top bar that scrolled away and dropped the marketing
+// footer under the app. Gate the chrome off for /dashboard routes.
+function MarketingChrome({ children }) {
+  const { pathname } = useLocation();
+  if (pathname.startsWith('/dashboard')) return null;
+  return children;
+}
+
 function App() {
   return (
     <Router>
-      <Navbar />
+      <MarketingChrome><Navbar /></MarketingChrome>
       <OfflineDetector />
       <Box component="main" id="main-content">
         <Suspense fallback={<RouteFallback />}>
@@ -190,7 +200,7 @@ function App() {
         </Routes>
         </Suspense>
       </Box>
-      <Footer />
+      <MarketingChrome><Footer /></MarketingChrome>
     </Router>
   );
 }

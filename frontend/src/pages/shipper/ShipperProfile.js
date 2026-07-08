@@ -120,7 +120,7 @@ export default function ShipperProfile() {
     <Box sx={{ py: 5, px: 2, minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
       <Paper
         sx={{
-          minWidth: { xs: "97vw", sm: 420 }, maxWidth: 520,
+          width: "100%", maxWidth: 520,
           mx: "auto", py: 4, px: { xs: 2, sm: 5 },
           borderRadius: 6,
           boxShadow: "0 8px 40px 0 #1e034330",
