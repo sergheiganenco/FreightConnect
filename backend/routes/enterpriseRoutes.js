@@ -9,6 +9,7 @@ const ApiKey = require('../models/ApiKey');
 const Webhook = require('../models/Webhook');
 const Load = require('../models/Load');
 const webhookDelivery = require('../services/webhookDelivery');
+const loadParser = require('../services/loadParserService');
 
 // All enterprise routes require authentication (API key or JWT)
 router.use(apiKeyAuth);
@@ -461,6 +462,137 @@ router.post(
       });
     } catch (err) {
       console.error('[enterprise/loads/bulk] Error:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+/**
+ * POST /api/enterprise/loads/parse — Parse free-text load offers into structured loads.
+ *
+ * Turns a forwarded broker/shipper email, a pasted load list, or an OCR'd rate
+ * sheet into structured load objects. Review-first by default: it returns the
+ * parsed loads for confirmation and does NOT publish them. Pass `create: true`
+ * to also publish the loads that have all required fields (origin, destination,
+ * rate, equipment) — loads missing any are returned in `skipped` for manual
+ * completion, never silently dropped.
+ *
+ * Uses Claude when ANTHROPIC_API_KEY is configured; otherwise a deterministic
+ * heuristic parser (works with no key). Requires 'loads:write'.
+ */
+router.post(
+  '/loads/parse',
+  requirePermission('loads:write'),
+  [
+    body('text').isString().trim().notEmpty().withMessage('text is required')
+      .isLength({ max: 20000 }).withMessage('text must be 20000 characters or fewer'),
+    body('create').optional().isBoolean().withMessage('create must be a boolean'),
+    body('engine').optional().isIn(['auto', 'heuristic', 'llm'])
+      .withMessage('engine must be auto, heuristic, or llm'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { text, create = false, engine = 'auto' } = req.body;
+
+      let result;
+      try {
+        result = await loadParser.parseLoads(text, { engine });
+      } catch (parseErr) {
+        // Only reachable when engine === 'llm' was explicitly demanded and failed.
+        return res.status(502).json({ error: 'AI parser failed', reason: parseErr.message });
+      }
+
+      // Review-only (default): return what we found, publish nothing.
+      if (!create) {
+        return res.json({
+          success: true,
+          data: {
+            source: result.source,
+            model: result.model,
+            loads: result.loads,
+            warnings: result.warnings,
+            counts: { parsed: result.loads.length },
+          },
+        });
+      }
+
+      // create=true → publish complete loads.
+      if (req.user.role !== 'shipper' && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only shippers and admins can create loads' });
+      }
+
+      const posterId = req.user.companyOwnerId || req.user.userId;
+      const created = [];
+      const skipped = [];
+
+      for (const l of result.loads) {
+        // Require the fields Load create enforces.
+        const missing = [];
+        if (!l.origin) missing.push('origin');
+        if (!l.destination) missing.push('destination');
+        if (l.rate == null) missing.push('rate');
+        if (!l.equipmentType) missing.push('equipmentType');
+        if (missing.length) {
+          skipped.push({ title: l.title, reason: `missing ${missing.join(', ')}`, load: l });
+          continue;
+        }
+
+        // Dedup on (poster, externalRef) when the source provided a ref.
+        if (l.externalRef) {
+          const dup = await Load.findOne({ postedBy: posterId, externalRef: l.externalRef }).select('_id');
+          if (dup) {
+            skipped.push({ title: l.title, reason: `duplicate of load ${dup._id} (externalRef ${l.externalRef})` });
+            continue;
+          }
+        }
+
+        try {
+          const load = await Load.create({
+            title: l.title,
+            origin: l.origin,
+            destination: l.destination,
+            rate: l.rate,
+            equipmentType: l.equipmentType,
+            loadWeight: l.loadWeight || undefined,
+            commodityType: l.commodityType || undefined,
+            source: 'email',
+            externalRef: l.externalRef || undefined,
+            postedBy: posterId,
+            status: 'open',
+          });
+          created.push({ id: load._id, title: load.title });
+
+          webhookDelivery.deliver('load.created', {
+            loadId: load._id,
+            title: load.title,
+            origin: load.origin,
+            destination: load.destination,
+            rate: load.rate,
+            equipmentType: load.equipmentType,
+          }).catch(() => {});
+        } catch (loadErr) {
+          skipped.push({ title: l.title, reason: loadErr.message });
+        }
+      }
+
+      res.status(created.length > 0 ? 201 : 200).json({
+        success: created.length > 0,
+        data: {
+          source: result.source,
+          model: result.model,
+          warnings: result.warnings,
+          created,
+          skipped,
+          counts: {
+            parsed: result.loads.length,
+            created: created.length,
+            skipped: skipped.length,
+          },
+        },
+      });
+    } catch (err) {
+      console.error('[enterprise/loads/parse] Error:', err.message);
       res.status(500).json({ error: 'Server error' });
     }
   }

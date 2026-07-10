@@ -112,6 +112,10 @@ const LoadSchema = new mongoose.Schema({
   autoDispatchedAt:      { type: Date, default: null },
   autoDispatchScore:     { type: Number, default: null },
 
+  // ── Provenance (how the load entered the platform) ────────────────────────
+  source:      { type: String, enum: ['app', 'partner_api', 'edi', 'email'], default: 'app' },
+  externalRef: { type: String, default: null }, // the partner/source's own load id (for dedup)
+
   // ── Auto-generated document paths ─────────────────────────────────────────
   // Paths are relative to backend static serving (e.g. /documents/uploads/xxx.pdf)
   documents: {
@@ -292,6 +296,8 @@ LoadSchema.index({ status: 1, equipmentType: 1 });
 LoadSchema.index({ 'pickupTimeWindow.start': 1 });
 LoadSchema.index({ originLat: 1, originLng: 1 });
 LoadSchema.index({ destinationLat: 1, destinationLng: 1 });
+// Dedup partner/EDI/email-ingested loads per poster+external id (sparse: app loads have none).
+LoadSchema.index({ postedBy: 1, externalRef: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Load', LoadSchema);
 
