@@ -197,6 +197,13 @@ const UserSchema = new mongoose.Schema({
       autoLiability: { amount: Number, policyNumber: String, expiry: Date, underwriter: String },
       lastChecked: Date,
       status: { type: String, enum: ['valid', 'expiring', 'lapsed', 'unknown'], default: 'unknown' },
+      // Where the coverage data came from: FMCSA financial-responsibility record
+      // (on-file, no expiry) vs a COI vendor (real-time, with expiry).
+      source: { type: String, enum: ['fmcsa', 'vendor', 'manual', null], default: null },
+      // Whether the on-file BIPD meets the federal minimum (49 CFR §387) for the
+      // carrier, and what that required minimum was.
+      meetsFederalMinimum: { type: Boolean, default: null },
+      requiredMinimum: { type: Number, default: null },
     },
     identityVerified: { type: Boolean, default: false },
     documentsOnFile: [{

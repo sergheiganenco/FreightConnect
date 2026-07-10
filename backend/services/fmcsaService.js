@@ -33,6 +33,52 @@ async function fetchWithRetry(url, retries = 3) {
   }
 }
 
+// Interpret a 'Y'/'N'-style flag. Returns true/false, or null when absent so the
+// caller can tell "not on file" (N) apart from "unknown" (field missing).
+function flagYN(v) {
+  if (v === true || v === false) return v;
+  const s = (v ?? '').toString().trim().toLowerCase();
+  if (s === '') return null;
+  if (s === 'y' || s === 'yes' || s === '1' || s === 'true') return true;
+  if (s === 'n' || s === 'no' || s === '0' || s === 'false') return false;
+  return null;
+}
+
+// Parse an FMCSA insurance amount to whole dollars. QCMobile reports BIPD amounts
+// in THOUSANDS (e.g. "750" ⇒ $750,000); some records already give full dollars.
+// A 'Y'/'N' flag is not an amount → null.
+function parseInsuranceAmount(v) {
+  if (v == null) return null;
+  const s = v.toString().trim();
+  if (/^[yn]$/i.test(s)) return null; // it's a flag, not a number
+  const n = Number(s.replace(/[^0-9.]/g, ''));
+  if (!isFinite(n) || n <= 0) return null;
+  return n < 100000 ? Math.round(n * 1000) : Math.round(n);
+}
+
+// Extract the insurance-on-file view from the raw QCMobile carrier record.
+// FMCSA reports whether BIPD (auto liability) and cargo insurance are ON FILE and
+// the amounts/requirements — NOT policy expiry (that lives in the L&I system / a
+// COI vendor). All fields default to null ("unknown") when the record omits them,
+// so a missing feed never looks like "no coverage".
+function extractInsuranceOnFile(c) {
+  const bipdOnFileFlag = flagYN(c.bipdInsuranceOnFile);
+  const bipdAmount = parseInsuranceAmount(c.bipdInsuranceOnFile);
+  return {
+    // BIPD == auto/public liability
+    bipdOnFile: bipdAmount != null ? true : bipdOnFileFlag,
+    bipdOnFileAmount: bipdAmount, // whole dollars, or null when only a Y/N flag is given
+    bipdRequired: flagYN(c.bipdInsuranceRequired),
+    bipdRequiredAmount: parseInsuranceAmount(c.bipdRequiredAmount),
+    cargoOnFile: flagYN(c.cargoInsuranceOnFile),
+    cargoRequired: flagYN(c.cargoInsuranceRequired),
+    bondOnFile: flagYN(c.bondInsuranceOnFile),
+    // true only when the record actually carried any insurance field
+    hasData: [c.bipdInsuranceOnFile, c.bipdInsuranceRequired, c.cargoInsuranceOnFile]
+      .some((v) => v != null && v !== ''),
+  };
+}
+
 // Normalize FMCSA carrier response into a flat object.
 // The real QCMobile API nests the carrier under content.carrier and returns
 // allowedToOperate as 'Y'/'N', statusCode as 'A'/'I', safetyRating as a letter
@@ -57,6 +103,8 @@ function normalizeCarrierData(raw) {
     dotNumber: c.dotNumber || c.dot_number || null,
     mcNumber: c.mcNumber || c.mc_mx_ff_number || c.docketNumber || null,
     phone: c.telephone || c.phone || null,
+    // Real insurance-on-file signal (BIPD/cargo). null fields ⇒ unknown.
+    insuranceOnFile: extractInsuranceOnFile(c),
   };
 }
 
@@ -157,8 +205,36 @@ async function runFullVerification(user, mcNumber, dotNumber) {
     user.verification.status = isAuthorized ? 'verified' : 'rejected';
     if (isAuthorized) user.verification.verifiedAt = new Date();
 
+    // ── Real insurance verification (FMCSA insurance-on-file) ──────────────────
+    // Populate verification.insurance from the federal record so the trust score,
+    // canAcceptLoads gate, and insuranceMonitor operate on real data. Kept
+    // separate from the authority verdict (a required-fail is surfaced, not a
+    // hard block — authority is the legal gate). Best-effort; never fails the run.
+    try {
+      const insuranceService = require('./insuranceService');
+      const hazmat = Array.isArray(user.carrierEndorsements)
+        && user.carrierEndorsements.includes('hazmat');
+      const result = await insuranceService.verifyInsurance(fmcsaData, { hazmat });
+      user.verification.insurance = {
+        cargoLiability: result.cargoLiability || {},
+        autoLiability: result.autoLiability || {},
+        status: result.status,
+        source: result.source,
+        meetsFederalMinimum: result.meetsFederalMinimum,
+        requiredMinimum: result.requiredMinimum,
+        lastChecked: result.lastChecked,
+      };
+    } catch (insErr) {
+      console.error('[FMCSA] insurance evaluation failed (non-fatal):', insErr.message);
+    }
+
     await user.save();
-    return { success: true, data: fmcsaData, authorized: isAuthorized };
+    return {
+      success: true,
+      data: fmcsaData,
+      authorized: isAuthorized,
+      insurance: user.verification.insurance,
+    };
   } catch (err) {
     console.error('FMCSA verification error:', err.message);
     // Network failure → set to pending for retry
@@ -172,4 +248,7 @@ async function runFullVerification(user, mcNumber, dotNumber) {
   }
 }
 
-module.exports = { lookupByMC, lookupByDOT, verifyAuthority, isUnsatisfactory, runFullVerification };
+module.exports = {
+  lookupByMC, lookupByDOT, verifyAuthority, isUnsatisfactory, runFullVerification,
+  normalizeCarrierData, extractInsuranceOnFile,
+};

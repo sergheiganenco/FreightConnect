@@ -25,20 +25,60 @@ export default function CarrierVerification({ onComplete }) {
   const [lookupMsg, setLookupMsg] = useState('');
   const [uploads, setUploads] = useState({}); // { docType: 'done' | 'uploading' | 'error' }
   const [uploadError, setUploadError] = useState('');
+  const [result, setResult] = useState(null); // verification.status/fmcsaData/insurance
+
+  // Poll the async FMCSA + insurance verification result for a few seconds.
+  const pollStatus = async () => {
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, i === 0 ? 1500 : 2500));
+      try {
+        const { data } = await api.get('/verification/carrier/status');
+        if (data && data.status && data.status !== 'pending') {
+          setResult(data);
+          return;
+        }
+      } catch { /* keep polling */ }
+    }
+  };
 
   // Step 1 — FMCSA lookup
   const handleLookup = async () => {
     if (!mcNumber && !dotNumber) return;
     setLookupStatus('loading');
     setLookupMsg('');
+    setResult(null);
     try {
       const { data } = await api.post('/verification/carrier/start', { mcNumber, dotNumber });
       setLookupStatus('success');
       setLookupMsg(data.message);
+      pollStatus();
     } catch (err) {
       setLookupStatus('error');
       setLookupMsg(err.response?.data?.error || 'Verification failed. Please try again.');
     }
+  };
+
+  // Render the insurance-on-file verdict (from the real FMCSA financial record).
+  const renderInsurance = (ins) => {
+    if (!ins || !ins.status || ins.status === 'unknown') {
+      return {
+        color: '#fbbf24', label: 'Insurance not on FMCSA file',
+        detail: 'No insurance-on-file data in the federal record — upload your Certificate of Insurance below.',
+      };
+    }
+    const amt = ins.autoLiability?.amount;
+    if (ins.status === 'valid' && ins.meetsFederalMinimum) {
+      return {
+        color: '#34d399', label: 'Insurance verified — meets federal minimum',
+        detail: `${amt ? `Auto liability $${amt.toLocaleString()} on file. ` : 'Coverage on file. '}` +
+          `${ins.requiredMinimum ? `Federal minimum $${ins.requiredMinimum.toLocaleString()}. ` : ''}Source: FMCSA.`,
+      };
+    }
+    return {
+      color: '#ef4444', label: 'Insurance below federal minimum',
+      detail: `${amt ? `On file: $${amt.toLocaleString()}. ` : ''}` +
+        `${ins.requiredMinimum ? `Required: $${ins.requiredMinimum.toLocaleString()}. ` : ''}Update your coverage to accept loads.`,
+    };
   };
 
   // Step 2 — document upload
@@ -113,6 +153,50 @@ export default function CarrierVerification({ onComplete }) {
             <Alert severity={lookupStatus === 'success' ? 'success' : 'error'} sx={{ mt: 2 }}>
               {lookupMsg}
             </Alert>
+          )}
+
+          {/* Live FMCSA authority + real insurance-on-file result */}
+          {lookupStatus === 'success' && (
+            <Box sx={{ mt: 2, p: 2, borderRadius: 2, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)' }}>
+              {!result ? (
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                  <CircularProgress size={18} />
+                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                    Checking FMCSA authority and insurance on file…
+                  </Typography>
+                </Stack>
+              ) : (
+                <Stack spacing={1.5}>
+                  {/* Authority */}
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <CheckCircleIcon sx={{ fontSize: 18, color: result.status === 'verified' ? '#34d399' : '#ef4444' }} />
+                    <Typography variant="body2" fontWeight={700} sx={{ color: '#fff' }}>
+                      {result.status === 'verified' ? 'Operating authority active' : `Authority: ${result.status}`}
+                    </Typography>
+                    {result.fmcsaData?.legalName && (
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+                        · {result.fmcsaData.legalName}
+                      </Typography>
+                    )}
+                  </Stack>
+                  {/* Insurance */}
+                  {(() => {
+                    const ins = renderInsurance(result.insurance);
+                    return (
+                      <Box>
+                        <Stack direction="row" alignItems="center" spacing={1}>
+                          <VerifiedIcon sx={{ fontSize: 18, color: ins.color }} />
+                          <Typography variant="body2" fontWeight={700} sx={{ color: ins.color }}>{ins.label}</Typography>
+                        </Stack>
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)', display: 'block', ml: 3.25 }}>
+                          {ins.detail}
+                        </Typography>
+                      </Box>
+                    );
+                  })()}
+                </Stack>
+              )}
+            </Box>
           )}
 
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3, gap: 2 }}>
