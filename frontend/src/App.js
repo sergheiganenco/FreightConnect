@@ -28,6 +28,7 @@ const CarrierScorecard = lazy(() => import('./components/CarrierScorecard'));
 const ChatPage = lazy(() => import('./components/chat/ChatPage'));
 const ShipperDashboard = lazy(() => import('./pages/shipper/ShipperDashboard'));
 const ShipperPostLoad = lazy(() => import('./pages/shipper/ShipperPostLoad'));
+const ShipperImportLoads = lazy(() => import('./pages/shipper/ShipperImportLoads'));
 const ShipperDocuments = lazy(() => import('./pages/shipper/ShipperDocuments'));
 const ShipperLoadBoardSection = lazy(() => import('./features/shipperDashboard/sections/ShipperLoadBoardSection'));
 const ShipperProfile = lazy(() => import('./pages/shipper/ShipperProfile'));
@@ -131,6 +132,7 @@ function App() {
           <Route path="/dashboard/shipper" element={<RoleRoute role="shipper"><ChatProvider><ShipperDashboard /></ChatProvider></RoleRoute>}>
             <Route path="loads" element={<ShipperLoadBoardSection />} />
             <Route path="post-load" element={<ShipperPostLoad />} />
+            <Route path="import-loads" element={<ShipperImportLoads />} />
             <Route path="documents" element={<ShipperDocuments />} />
             <Route path="analytics" element={<ShipperAnalytics />} />
             <Route path="payments" element={<ShipperPayments />} />

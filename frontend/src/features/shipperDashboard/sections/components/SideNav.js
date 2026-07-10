@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Tooltip, Badge, Collapse } from "@mui/material";
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import AddBoxIcon from '@mui/icons-material/AddBox';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import DescriptionIcon from '@mui/icons-material/Description';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import BarChartIcon from '@mui/icons-material/BarChart';
@@ -37,6 +38,7 @@ function ChatNavItem() {
 const coreItems = [
   { key: "loads",     label: "Loads",     icon: <LocalShippingIcon fontSize="medium" /> },
   { key: "post-load", label: "Post Load", icon: <AddBoxIcon fontSize="medium" /> },
+  { key: "import-loads", label: "Import from Email", icon: <AutoFixHighIcon fontSize="medium" /> },
   { key: "chat",      label: "Messages",  icon: <ChatNavItem /> },
   { key: "payments",  label: "Payments",  icon: <AccountBalanceWalletIcon fontSize="medium" /> },
   { key: "documents", label: "Documents", icon: <DescriptionIcon fontSize="medium" /> },

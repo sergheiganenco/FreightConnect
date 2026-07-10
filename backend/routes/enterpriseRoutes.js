@@ -430,6 +430,9 @@ router.post(
             pickupTimeWindow: loadData.pickupTimeWindow,
             deliveryTimeWindow: loadData.deliveryTimeWindow,
             paymentTerms: loadData.paymentTerms,
+            // Provenance (e.g. loads imported from a parsed email keep source:'email').
+            source: loadData.source || undefined,
+            externalRef: loadData.externalRef || undefined,
             postedBy: req.user.userId,
             status: 'open',
           });

@@ -30,6 +30,7 @@ import api from '../../services/api';
 
 // Utility to highlight nav based on route:
 const sectionFromPath = (pathname) => {
+  if (pathname.includes('/import-loads')) return 'import-loads';
   if (pathname.includes('/post-load')) return 'post-load';
   if (pathname.includes('/contracts')) return 'contracts';
   if (pathname.includes('/appointments')) return 'appointments';
@@ -199,6 +200,7 @@ export default function ShipperDashboard() {
           onSelect={key => {
             if (key === 'loads') navigate('/dashboard/shipper/loads');
             else if (key === 'post-load') navigate('/dashboard/shipper/post-load');
+            else if (key === 'import-loads') navigate('/dashboard/shipper/import-loads');
             else if (key === 'contracts') navigate('/dashboard/shipper/contracts');
             else if (key === 'appointments') navigate('/dashboard/shipper/appointments');
             else if (key === 'documents') navigate('/dashboard/shipper/documents');
