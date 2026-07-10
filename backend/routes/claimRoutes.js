@@ -380,6 +380,153 @@ router.put(
   }
 );
 
+// ── Platform (contingent) cargo coverage — admin only ──────────────────────
+// The platform's own policy that backstops a valid claim when the carrier's
+// insurance can't/won't pay. NOTE: /policy and /:id/coverage are declared BEFORE
+// GET /:id so they aren't swallowed by the :id param.
+const PlatformInsurancePolicy = require('../models/PlatformInsurancePolicy');
+const platformCoverage = require('../services/platformCoverageService');
+const User = require('../models/User');
+const ADMIN_ONLY = (req, res, next) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admins only' });
+  next();
+};
+
+// Resolve the CARRIER party of a claim (its insurance is what the backstop covers).
+async function carrierInsuranceStatusFor(claim) {
+  try {
+    const load = await Load.findById(claim.loadId).select('acceptedBy');
+    const carrierId = load?.acceptedBy;
+    if (!carrierId) return 'unknown';
+    const carrier = await User.findById(carrierId).select('verification.insurance.status');
+    return carrier?.verification?.insurance?.status || 'unknown';
+  } catch { return 'unknown'; }
+}
+
+// GET /api/claims/policy — the active platform cargo policy (admin)
+router.get('/policy', auth, ADMIN_ONLY, async (req, res) => {
+  try {
+    const policy = await PlatformInsurancePolicy.getActive();
+    res.json({ policy });
+  } catch (err) {
+    console.error('[claims] get policy failed:', err.message);
+    res.status(500).json({ error: 'Failed to load platform policy' });
+  }
+});
+
+// PUT /api/claims/policy — set/replace the active platform policy (admin)
+router.put(
+  '/policy',
+  auth, ADMIN_ONLY,
+  [
+    body('insurer').trim().notEmpty(),
+    body('policyNumber').trim().notEmpty(),
+    body('perClaimLimitCents').isInt({ min: 1 }),
+    body('aggregateLimitCents').isInt({ min: 1 }),
+    body('deductibleCents').optional().isInt({ min: 0 }),
+    body('effectiveDate').isISO8601(),
+    body('expiryDate').isISO8601(),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      // One active policy at a time — retire any current active ones.
+      await PlatformInsurancePolicy.updateMany({ isActive: true }, { $set: { isActive: false } });
+      const p = await PlatformInsurancePolicy.create({
+        insurer: req.body.insurer,
+        policyNumber: req.body.policyNumber,
+        perClaimLimitCents: req.body.perClaimLimitCents,
+        aggregateLimitCents: req.body.aggregateLimitCents,
+        deductibleCents: req.body.deductibleCents || 0,
+        effectiveDate: req.body.effectiveDate,
+        expiryDate: req.body.expiryDate,
+        isActive: true,
+        createdBy: req.user.userId,
+        notes: req.body.notes || null,
+      });
+      res.status(201).json({ policy: p });
+    } catch (err) {
+      console.error('[claims] set policy failed:', err.message);
+      res.status(500).json({ error: 'Failed to save platform policy' });
+    }
+  }
+);
+
+// GET /api/claims/:id/coverage — assess platform coverage for a claim (admin)
+router.get('/:id/coverage', auth, ADMIN_ONLY, async (req, res) => {
+  try {
+    const claim = await Claim.findById(req.params.id);
+    if (!claim) return res.status(404).json({ error: 'Claim not found' });
+    const policy = await PlatformInsurancePolicy.getActive();
+    const carrierInsuranceStatus = await carrierInsuranceStatusFor(claim);
+    const assessment = platformCoverage.assess(claim, { policy, carrierInsuranceStatus });
+    res.json({ assessment, platformCoverage: claim.platformCoverage });
+  } catch (err) {
+    console.error('[claims] coverage assess failed:', err.message);
+    res.status(500).json({ error: 'Failed to assess coverage' });
+  }
+});
+
+// POST /api/claims/:id/coverage — admin decision on platform coverage
+// body: { action: 'approve'|'deny'|'pay', reference?, reason? }
+router.post(
+  '/:id/coverage',
+  auth, ADMIN_ONLY,
+  [body('action').isIn(['approve', 'deny', 'pay'])],
+  validate,
+  async (req, res) => {
+    try {
+      const claim = await Claim.findById(req.params.id);
+      if (!claim) return res.status(404).json({ error: 'Claim not found' });
+      const policy = await PlatformInsurancePolicy.getActive();
+      if (!policy && req.body.action !== 'deny') {
+        return res.status(409).json({ error: 'No active platform insurance policy configured' });
+      }
+
+      let coveredAmountCents = 0;
+      let deductibleCents = 0;
+      if (req.body.action !== 'deny') {
+        const carrierInsuranceStatus = await carrierInsuranceStatusFor(claim);
+        const a = platformCoverage.assess(claim, { policy, carrierInsuranceStatus });
+        if (!a.eligible) {
+          return res.status(409).json({ error: 'Claim is not eligible for platform coverage', assessment: a });
+        }
+        coveredAmountCents = a.coveredAmountCents;
+        deductibleCents = a.deductibleCents;
+      }
+
+      platformCoverage.applyDecision(claim, policy, {
+        action: req.body.action,
+        coveredAmountCents,
+        deductibleCents,
+        reason: req.body.reason,
+        reference: req.body.reference,
+        adminId: req.user.userId,
+      });
+
+      if (policy) await policy.save();
+      await claim.save();
+
+      // Tell the claimant the platform stepped in.
+      const link = claimsLink(claim.claimantRole);
+      notifyUserSafe(claim.claimant.toString(), {
+        type: 'claim:resolved',
+        title: `Platform coverage ${claim.platformCoverage.status}`,
+        body: claim.platformCoverage.status === 'denied'
+          ? 'Platform cargo coverage was not approved for your claim.'
+          : `Platform cargo coverage ${claim.platformCoverage.status}: $${((coveredAmountCents || 0) / 100).toLocaleString()}.`,
+        link,
+        metadata: { claimId: claim._id, platformCoverage: claim.platformCoverage.status },
+      });
+
+      res.json({ claim });
+    } catch (err) {
+      console.error('[claims] coverage decision failed:', err.message);
+      res.status(500).json({ error: 'Failed to record coverage decision' });
+    }
+  }
+);
+
 // ────────────────────────────────────────────────────────────────────────────
 // GET /api/claims/:id — single claim (admin OR either party)
 // Kept LAST so segment routes above aren't swallowed by :id.

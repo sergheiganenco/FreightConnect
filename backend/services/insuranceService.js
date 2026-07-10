@@ -93,20 +93,125 @@ function evaluateFmcsa(carrierData, opts = {}) {
   };
 }
 
+const axios = require('axios');
+
+const EXPIRY_WARNING_DAYS = 30;
+
+// First defined value among candidate keys (handles vendor schema differences).
+function pick(obj, ...keys) {
+  if (!obj) return undefined;
+  for (const k of keys) {
+    const v = obj[k];
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+function parseDate(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function parseAmount(v) {
+  if (v == null) return null;
+  const n = Number(String(v).replace(/[^0-9.]/g, ''));
+  return isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+
 /**
- * COI-vendor provider seam. A paid vendor (Highway / RMIS / MyCarrierPortal)
- * returns real-time coverage with policy numbers, underwriters, and EXPIRY dates
- * — which then feed insuranceMonitor's expiry logic. Not callable without creds;
- * fails safe by returning null so the FMCSA baseline is used instead.
+ * Map a COI-vendor response to one coverage policy { amount, expiry, underwriter,
+ * policyNumber }. Vendors (Highway, RMIS, MyCarrierPortal) differ in field names,
+ * so this checks common aliases; tune to your vendor's actual schema.
  */
-async function getVendorInsurance(/* carrierData */) {
+function mapPolicy(node) {
+  if (!node) return {};
+  return {
+    amount: parseAmount(pick(node, 'limit', 'amount', 'coverageLimit', 'limitAmount')),
+    expiry: parseDate(pick(node, 'expirationDate', 'expiry', 'expiresAt', 'expiration', 'endDate', 'cancellationDate')),
+    underwriter: pick(node, 'insurer', 'underwriter', 'insurerName', 'company', 'carrierName') || null,
+    policyNumber: pick(node, 'policyNumber', 'policyNo', 'policy', 'number') || null,
+  };
+}
+
+/**
+ * Derive verification.insurance status from real policy expiry + amounts:
+ *  - lapsed:   required BIPD missing/expired/below minimum
+ *  - expiring: valid but earliest expiry within EXPIRY_WARNING_DAYS
+ *  - valid:    on file, in force, meets minimum
+ */
+function statusFromPolicies({ autoLiability, cargoLiability }, requiredMinimum, cargoRequired) {
+  const now = new Date();
+  const bipdOk = autoLiability.amount != null && autoLiability.amount >= requiredMinimum;
+  const bipdInForce = autoLiability.expiry ? autoLiability.expiry > now : bipdOk;
+  const cargoInForce = cargoLiability.expiry ? cargoLiability.expiry > now : (cargoLiability.amount != null);
+
+  if (!bipdOk || !bipdInForce || (cargoRequired && !cargoInForce)) return 'lapsed';
+
+  const expiries = [autoLiability.expiry, cargoLiability.expiry].filter(Boolean).map((d) => d.getTime());
+  if (expiries.length) {
+    const soonest = new Date(Math.min(...expiries));
+    const warnAt = new Date(now.getTime() + EXPIRY_WARNING_DAYS * 86400000);
+    if (soonest <= warnAt) return 'expiring';
+  }
+  return 'valid';
+}
+
+/**
+ * COI-vendor provider. A paid vendor (Highway / RMIS / MyCarrierPortal) returns
+ * real-time coverage with policy numbers, underwriters, and EXPIRY dates — which
+ * then feed insuranceMonitor's expiry logic (auto-suspend on lapse). Fails safe:
+ * returns null on missing config or any error so the FMCSA baseline is used.
+ *
+ * Config:
+ *   INSURANCE_PROVIDER=vendor
+ *   INSURANCE_VENDOR_API_KEY=...           (bearer token)
+ *   INSURANCE_VENDOR_URL=https://api.vendor.com  (base; {dot} is appended)
+ *   INSURANCE_VENDOR_PATH=/carriers/{dot}/insurance  (optional override; {dot}/{mc} substituted)
+ */
+async function getVendorInsurance(carrierData, opts = {}) {
   const key = process.env.INSURANCE_VENDOR_API_KEY;
-  if (!key) return null; // not configured → fall back to FMCSA
-  // Intentionally not implemented until a vendor account exists. When wiring one:
-  //   const res = await axios.get(`${process.env.INSURANCE_VENDOR_URL}/carriers/${dot}`,
-  //     { headers: { Authorization: `Bearer ${key}` } });
-  //   return mapVendorResponseToInsuranceSubdoc(res.data); // include real expiry dates
-  return null;
+  const base = process.env.INSURANCE_VENDOR_URL;
+  if (!key || !base) return null; // not configured → fall back to FMCSA
+
+  const dot = carrierData?.dotNumber;
+  const mc = carrierData?.mcNumber;
+  if (!dot && !mc) return null;
+
+  const pathTpl = process.env.INSURANCE_VENDOR_PATH || '/carriers/{dot}/insurance';
+  const path = pathTpl.replace('{dot}', encodeURIComponent(dot || '')).replace('{mc}', encodeURIComponent(mc || ''));
+  const url = base.replace(/\/$/, '') + path;
+
+  const res = await axios.get(url, {
+    timeout: 10000,
+    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+  });
+
+  // Locate the insurance node across common response shapes.
+  const body = res.data || {};
+  const insNode = body.insurance || body.coverages || body.data?.insurance || body;
+  const autoNode = pick(insNode, 'autoLiability', 'bipd', 'auto', 'publicLiability');
+  const cargoNode = pick(insNode, 'cargo', 'cargoLiability', 'motorTruckCargo');
+  if (!autoNode && !cargoNode) return null; // nothing usable → fall back
+
+  const requiredMinimum = requiredBipdMinimum(opts);
+  const autoLiability = mapPolicy(autoNode);
+  const cargoLiability = mapPolicy(cargoNode);
+  const cargoRequired = !!pick(insNode, 'cargoRequired');
+  const status = statusFromPolicies({ autoLiability, cargoLiability }, requiredMinimum, cargoRequired);
+
+  return {
+    status,
+    source: 'vendor',
+    autoLiability,
+    cargoLiability,
+    meetsFederalMinimum: status !== 'lapsed',
+    requiredMinimum,
+    reasons: status === 'lapsed'
+      ? ['Vendor COI shows expired or insufficient coverage.']
+      : [],
+    lastChecked: new Date(),
+  };
 }
 
 /**
@@ -130,6 +235,9 @@ async function verifyInsurance(carrierData, opts = {}) {
 module.exports = {
   verifyInsurance,
   evaluateFmcsa,
+  getVendorInsurance,
+  mapPolicy,
+  statusFromPolicies,
   requiredBipdMinimum,
   MIN_BIPD_GENERAL,
   MIN_BIPD_HAZMAT,

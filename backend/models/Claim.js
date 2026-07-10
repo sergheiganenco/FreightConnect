@@ -48,6 +48,20 @@ const ClaimSchema = new mongoose.Schema({
   resolvedAt:         { type: Date },
   resolvedBy:         { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
+  // ── Platform (contingent) cargo coverage ──────────────────────────────────
+  // When the respondent carrier's insurance can't/won't cover a valid claim, the
+  // platform's own contingent cargo policy can step in. Tracked here per claim.
+  platformCoverage: {
+    status:            { type: String, enum: ['none', 'requested', 'approved', 'paid', 'denied'], default: 'none' },
+    policyId:          { type: mongoose.Schema.Types.ObjectId, ref: 'PlatformInsurancePolicy', default: null },
+    coveredAmountCents:{ type: Number, default: null }, // platform payout, INTEGER CENTS
+    deductibleCents:   { type: Number, default: null },
+    reason:            { type: String, default: null }, // why the platform stepped in
+    reference:         { type: String, default: null }, // insurer claim / payout reference
+    decidedBy:         { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    decidedAt:         { type: Date, default: null },
+  },
+
   // ── Thread ────────────────────────────────────────────────────────────────
   notes: [NoteSchema],
 

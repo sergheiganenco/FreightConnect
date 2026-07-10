@@ -81,3 +81,41 @@ describe('Insurance evaluation vs federal minimums', () => {
     expect(r.meetsFederalMinimum).toBe(true);
   });
 });
+
+describe('COI vendor adapter', () => {
+  const days = (n) => new Date(Date.now() + n * 86400000);
+
+  test('mapPolicy reads coverage across vendor field aliases', () => {
+    const p = insuranceService.mapPolicy({ limit: '1000000', expirationDate: '2030-06-01', insurer: 'Acme Ins', policyNumber: 'PN-1' });
+    expect(p.amount).toBe(1000000);
+    expect(p.expiry).toBeInstanceOf(Date);
+    expect(p.underwriter).toBe('Acme Ins');
+    expect(p.policyNumber).toBe('PN-1');
+  });
+
+  test('statusFromPolicies derives valid / expiring / lapsed from real expiry + amount', () => {
+    const s = (auto, cargo, req = false) =>
+      insuranceService.statusFromPolicies({ autoLiability: auto, cargoLiability: cargo }, 750000, req);
+    expect(s({ amount: 1000000, expiry: days(120) }, {})).toBe('valid');
+    expect(s({ amount: 1000000, expiry: days(10) }, {})).toBe('expiring');   // within 30 days
+    expect(s({ amount: 1000000, expiry: days(-1) }, {})).toBe('lapsed');     // expired
+    expect(s({ amount: 500000, expiry: days(120) }, {})).toBe('lapsed');     // below $750k
+    expect(s({ amount: 1000000, expiry: days(120) }, {}, true)).toBe('lapsed'); // cargo required, missing
+  });
+
+  test('getVendorInsurance returns null when the vendor is not configured (safe fallback)', async () => {
+    const saved = { p: process.env.INSURANCE_VENDOR_API_KEY, u: process.env.INSURANCE_VENDOR_URL };
+    delete process.env.INSURANCE_VENDOR_API_KEY;
+    delete process.env.INSURANCE_VENDOR_URL;
+    const r = await insuranceService.getVendorInsurance(mk({ dotNumber: '123' }), {});
+    expect(r).toBeNull();
+    if (saved.p) process.env.INSURANCE_VENDOR_API_KEY = saved.p;
+    if (saved.u) process.env.INSURANCE_VENDOR_URL = saved.u;
+  });
+
+  test('verifyInsurance uses the FMCSA baseline when no vendor is configured', async () => {
+    const r = await insuranceService.verifyInsurance(mk({ bipdInsuranceOnFile: '1000' }), {});
+    expect(r.source).toBe('fmcsa');
+    expect(r.status).toBe('valid');
+  });
+});
