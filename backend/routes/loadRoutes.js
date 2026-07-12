@@ -419,7 +419,12 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
           verificationStatus: 'suspended',
         });
       }
-      if (!sv?.paymentMethodVerified) {
+      // Pilot switch: the payment-method requirement depends on Stripe being wired.
+      // Set REQUIRE_SHIPPER_PAYMENT_METHOD=false to let shippers post while payments
+      // are dormant (pilot/testing). Default (unset) keeps the requirement ON. A
+      // suspended account is always blocked regardless of this flag.
+      const requirePaymentMethod = process.env.REQUIRE_SHIPPER_PAYMENT_METHOD !== 'false';
+      if (requirePaymentMethod && !sv?.paymentMethodVerified) {
         return res.status(403).json({
           error: 'Add a payment method before posting loads. Go to Settings → Verification to add a card or bank account.',
           verificationStatus: sv?.status || 'unverified',
