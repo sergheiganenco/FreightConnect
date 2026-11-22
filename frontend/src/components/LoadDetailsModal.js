@@ -80,7 +80,7 @@ const TRUCK_ICON = new L.Icon({
   popupAnchor: [0, -30],
 });
 
-export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted }) {
+export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted, notice, noticeFocus }) {
   const [loadState, setLoadState] = useState(load);
   const [route, setRoute] = useState([]);
   const [distance, setDistance] = useState(null);
@@ -110,6 +110,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [showBidForm, setShowBidForm] = useState(false); // carrier form toggle
   const [counterInput, setCounterInput] = useState({}); // {[bidId]: amount}
   const [accepting, setAccepting] = useState(false);     // accept request in flight
+  const noticeTargetRef = useRef(null);                  // panel to scroll to when a notice is passed in
   const bidSectionRef = useRef(null);                    // scroll target for "Place Bid"
 
   // ── Multi-stop state ────────────────────────────────────────────
@@ -645,6 +646,12 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
     ? `${fmt(loadState.deliveryTimeWindow?.start || loadState.deliveryStart)} → ${fmt(loadState.deliveryTimeWindow?.end || loadState.deliveryEnd)}`
     : 'TBD';
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(() => noticeTargetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   const pendingBids = bids.filter((b) => ['pending', 'countered'].includes(b.status));
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -665,15 +672,17 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         '& strong': { color: T.strong },
       }}>
 
+        {notice && <Alert severity="warning" sx={{ mb: 2 }}>{notice}</Alert>}
+
         {/* Header */}
-        <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-          <Box>
+        <Box display="flex" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1} mb={2}>
+          <Box sx={{ minWidth: 0 }}>
             <Typography variant="h5" fontWeight={800} letterSpacing={0.5}>{loadState.title || 'Load Details'}</Typography>
             <Typography variant="body2" sx={{ color: T.secondary, mt: 0.5 }}>
               {loadState.origin} → {loadState.destination}
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
             {loadState.delayAlertSentAt && loadState.status === 'in-transit' && (
               <Chip
                 label="Running Late"
@@ -1485,11 +1494,15 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         )}
 
         {/* ── Pickup handshake (anti-impersonation) ── */}
-        <PickupHandshakePanel load={loadState} userRole={userRole} />
+        <Box ref={noticeFocus === 'pickup' ? noticeTargetRef : undefined}>
+          <PickupHandshakePanel load={loadState} userRole={userRole} />
+        </Box>
 
         {/* ── Photo record at pickup / delivery ── */}
-        {['accepted', 'in-transit', 'delivered'].includes(loadState.status) && ['carrier', 'shipper', 'admin'].includes(userRole) && (
-          <LoadEvidencePanel loadId={loadState._id} userRole={userRole} />
+        {(['accepted', 'in-transit', 'delivered'].includes(loadState.status) || (loadState.status === 'open' && userRole !== 'carrier')) && ['carrier', 'shipper', 'admin'].includes(userRole) && (
+          <Box ref={noticeFocus === 'photos' ? noticeTargetRef : undefined}>
+            <LoadEvidencePanel loadId={loadState._id} userRole={userRole} status={loadState.status} />
+          </Box>
         )}
 
         {/* ── Exceptions section ── */}

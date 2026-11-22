@@ -35,6 +35,8 @@ export default function CarrierMyLoads({ embedded = false }) {
   const [sigPad, setSigPad] = useState({ open: false, loadId: null });
   // Load that cannot start yet because its pickup handshake is required but unverified
   const [blocked, setBlocked] = useState(null);
+  // Blocking explanation shown inside the modal (and on the page): { text, focus: 'photos' | 'pickup' }
+  const [notice, setNotice] = useState(null);
 
   /* ── fetch loads once ─────────────────────────────────────── */
   const fetchLoads = useCallback(async () => {
@@ -81,6 +83,7 @@ export default function CarrierMyLoads({ embedded = false }) {
 
   /* ── apply a status change (the actual PUT) ───────────────── */
   const applyStatus = async (id, newStatus) => {
+    setError(null);
     try {
       const token = localStorage.getItem('token');
       await api.put(
@@ -95,6 +98,7 @@ export default function CarrierMyLoads({ embedded = false }) {
             : l
         )
       );
+      setNotice(null);
       setSnack(true);
     } catch (err) {
       setError(err?.response?.data?.error || 'Failed to update status.');
@@ -114,7 +118,9 @@ export default function CarrierMyLoads({ embedded = false }) {
       if (stages.includes('pickup') && req.pickup && !has('pickup', ['cargo', 'seal'])) need.push('at least one pickup photo of the freight or the seal');
       if (stages.includes('delivery') && req.delivery && !has('delivery')) need.push('at least one delivery photo');
       if (!need.length) return false;
-      setError(`The shipper requires ${need.join(' and ')} before this can continue. Open the load and add the photo(s) under "Photo record".`);
+      const text = `The shipper requires ${need.join(' and ')} before this can continue. Add the photo(s) under "Photo record".`;
+      setError(text);
+      setNotice({ text, focus: 'photos' });
       setSelected(load);
       return true;
     } catch (err) {
@@ -125,12 +131,13 @@ export default function CarrierMyLoads({ embedded = false }) {
   /* ── update status on dropdown change ─────────────────────── */
   // Transitioning to in-transit = pickup: capture a BOL e-signature first.
   const updateStatus = async (id, newStatus) => {
+    setError(null);
+    setNotice(null);
     if (newStatus === 'in-transit') {
       const load = loads.find((l) => l._id === id);
       const pv = load?.pickupVerification;
       // Required handshake not yet verified: the server would refuse, so explain instead of asking for a signature.
       if (pv?.required && !pv.verifiedAt) {
-        setError(null);
         setBlocked(load);
         return;
       }
@@ -206,7 +213,11 @@ export default function CarrierMyLoads({ embedded = false }) {
           severity="warning"
           sx={{ mb: 3 }}
           onClose={() => setBlocked(null)}
-          action={<Button color="inherit" size="small" onClick={() => { setSelected(blocked); setBlocked(null); }}>Show my code</Button>}
+          action={<Button color="inherit" size="small" onClick={() => {
+            setNotice({ text: "Pickup verification is required. Show your pickup code to the dock; it must be verified before you can start this load.", focus: 'pickup' });
+            setSelected(blocked);
+            setBlocked(null);
+          }}>Show my code</Button>}
         >
           {blocked.origin} → {blocked.destination} can't start yet: pickup verification is required and has not been done.
           Show your pickup code to the dock. The dock or shipper must verify it before you can start this load.
@@ -340,7 +351,9 @@ export default function CarrierMyLoads({ embedded = false }) {
         <LoadDetailsModal
           load={selected}
           userRole="carrier"
-          onClose={() => setSelected(null)}
+          notice={notice?.text}
+          noticeFocus={notice?.focus}
+          onClose={() => { setSelected(null); setNotice(null); }}
           onLoadAccepted={() => {
             // The accepted load may not be in this list yet (e.g. a return-load suggestion) — refetch.
             fetchLoads();

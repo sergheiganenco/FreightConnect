@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   TextField, Button, Grid, Typography, Box, Paper, Snackbar, Alert, Select, MenuItem,
-  FormControl, InputLabel, FormControlLabel, Switch, Checkbox, Divider, Chip, IconButton,
+  FormControl, FormHelperText, InputLabel, FormControlLabel, Switch, Checkbox, Divider, Chip, IconButton,
   CircularProgress, Collapse, Tooltip, Stepper, Step, StepLabel,
 } from "@mui/material";
 import Autocomplete from "@mui/material/Autocomplete";
@@ -117,6 +117,9 @@ export default function ShipperPostLoad() {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [activeStep, setActiveStep] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false); // sync guard: state updates are async
+  const paymentRef = useRef(null);
   const [uploadNames, setUploadNames] = useState({
     cargoPhotos: [],
     rateConfirmationUpload: [],
@@ -323,6 +326,7 @@ export default function ShipperPostLoad() {
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     if (!validateFields()) {
       // Check overweight specifically for a targeted error message
       const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
@@ -335,8 +339,13 @@ export default function ShipperPostLoad() {
         ? "This load exceeds the weight limit. Please acknowledge the overweight permit requirement before posting."
         : "Please fill all required fields correctly.");
       setOpenSnackbar(true);
+      if (!newLoad.paymentTerms) {
+        setTimeout(() => paymentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
+      }
       return;
     }
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const token = localStorage.getItem("token");
 
@@ -391,8 +400,24 @@ export default function ShipperPostLoad() {
       clearDraft();
       navigate("/dashboard/shipper/loads");
     } catch (err) {
-      setError("Failed to post load. Please check all fields and try again.");
+      const d = err.response?.data;
+      const msg = d?.error
+        || (Array.isArray(d?.errors) && d.errors.map((x) => x.msg).filter(Boolean).join(' '))
+        || "Failed to post load. Please check all fields and try again.";
+      // Server names the bad city: return to the step with that field and mark it.
+      const lower = msg.toLowerCase();
+      const bad = {};
+      if (lower.includes('pickup') || lower.includes('origin')) bad.origin = true;
+      if (lower.includes('delivery') || lower.includes('destination')) bad.destination = true;
+      if (Object.keys(bad).length) {
+        setFieldErrors((fe) => ({ ...fe, ...bad }));
+        setActiveStep(1);
+      }
+      setError(msg);
       setOpenSnackbar(true);
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -931,6 +956,7 @@ export default function ShipperPostLoad() {
               freeSolo
               options={cities}
               getOptionLabel={opt => (typeof opt === "string" ? opt : opt.label)}
+              defaultValue={newLoad.origin}
               onInputChange={(_, val) => handleChange("origin", val)}
               renderInput={params =>
                 <TextField {...params} label="Pickup City" required error={fieldErrors.origin} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />
@@ -1012,6 +1038,7 @@ export default function ShipperPostLoad() {
               freeSolo
               options={cities}
               getOptionLabel={opt => (typeof opt === "string" ? opt : opt.label)}
+              defaultValue={newLoad.destination}
               onInputChange={(_, val) => handleChange("destination", val)}
               renderInput={params =>
                 <TextField {...params} label="Delivery City" required error={fieldErrors.destination} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />
@@ -1230,10 +1257,9 @@ export default function ShipperPostLoad() {
             </FormControl>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <FormControl fullWidth error={fieldErrors.paymentTerms}>
+            <FormControl fullWidth error={fieldErrors.paymentTerms} ref={paymentRef}>
               <InputLabel required>Payment Terms</InputLabel>
               <Select
-                required
                 value={newLoad.paymentTerms}
                 label="Payment Terms"
                 onChange={e => handleChange("paymentTerms", e.target.value)}
@@ -1243,6 +1269,7 @@ export default function ShipperPostLoad() {
                   <MenuItem value={t} key={t}>{t}</MenuItem>
                 ))}
               </Select>
+              {fieldErrors.paymentTerms && <FormHelperText>Select payment terms</FormHelperText>}
             </FormControl>
           </Grid>
 
@@ -1546,6 +1573,7 @@ export default function ShipperPostLoad() {
           <Box sx={{ flex: 1 }} />
           {activeStep < STEP_LABELS.length - 1 ? (
             <Button
+              key="next"
               type="button"
               variant="contained"
               onClick={handleNext}
@@ -1569,9 +1597,12 @@ export default function ShipperPostLoad() {
             </Button>
           ) : (
             <Button
+              key="post"
               variant="contained"
               color="primary"
               type="submit"
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : null}
               sx={{
                 fontWeight: 900,
                 borderRadius: 3.2,
@@ -1589,7 +1620,7 @@ export default function ShipperPostLoad() {
                 }
               }}
             >
-              Post Load
+              {submitting ? 'Posting…' : 'Post Load'}
             </Button>
           )}
         </Box>

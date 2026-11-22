@@ -9,8 +9,9 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Dialog, FormControl, InputLabel, LinearProgress,
-  MenuItem, Select, Stack, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText,
+  DialogTitle, FormControl, FormControlLabel, FormHelperText, InputLabel, LinearProgress,
+  MenuItem, Select, Stack, Switch, TextField, Tooltip, Typography,
 } from '@mui/material';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import api from '../../services/api';
@@ -29,7 +30,7 @@ const getPosition = () => new Promise((resolve) => {
   );
 });
 
-export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }) {
+export default function LoadEvidencePanel({ loadId, userRole, status, readOnly = false }) {
   const [data, setData] = useState(null);          // { required, canAdd, items }
   const [urls, setUrls] = useState({});            // evidenceId -> object URL
   const [err, setErr] = useState(null);
@@ -37,6 +38,8 @@ export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ stage: null, kind: 'cargo', sealNumber: '', note: '' });
   const [viewing, setViewing] = useState(null);
+  const [confirmRemove, setConfirmRemove] = useState(null); // item awaiting confirmation
+  const [reqBusy, setReqBusy] = useState(false);
   const fileRef = useRef(null);
   const made = useRef([]);                         // object URLs to revoke on unmount
 
@@ -67,6 +70,8 @@ export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }
   if (!data) return <Alert severity="warning" sx={{ my: 1 }}>{err}</Alert>;
 
   const isCarrier = userRole === 'carrier' && !readOnly;
+  const booked = status === 'accepted' || status === 'in-transit';
+  const canSetRequired = !readOnly && (userRole === 'shipper' || userRole === 'admin') && (status === 'open' || status === 'accepted');
 
   const upload = async (file) => {
     if (!file) return;
@@ -88,6 +93,14 @@ export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }
     } catch (e) { setMsg({ severity: 'error', text: errMsg(e, 'Upload failed') }); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
+  const setRequired = async (stage, value) => {
+    setReqBusy(true); setMsg(null);
+    try {
+      const { data: res } = await api.put(`/loads/${loadId}/evidence-required`, { [stage]: value });
+      setData((d) => ({ ...d, required: { ...d.required, ...res.data } }));
+    } catch (e) { setMsg({ severity: 'error', text: errMsg(e, 'Could not change the photo requirement') }); }
+    finally { setReqBusy(false); }
+  };
   const remove = async (it) => {
     setBusy(true); setMsg(null);
     try { await api.delete(`/loads/${loadId}/evidence/${it._id}`); await load(); }
@@ -98,15 +111,33 @@ export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }
   return (
     <Box mb={2} p={2} sx={{ borderRadius: 2, border: `1px solid ${surface.glassBorder}`, bgcolor: surface.glassLight }}>
       <Typography variant="subtitle2" fontWeight={700} gutterBottom>Photo record</Typography>
+      {canSetRequired && (
+        <Box mb={1.5}>
+          {STAGES.map(({ key, label }) => {
+            const on = !!data.required[key];
+            return (
+              <FormControlLabel key={key} sx={{ display: 'flex' }}
+                label={`Require ${key} photos`}
+                control={<Switch size="small" checked={on} disabled={reqBusy || (userRole === 'shipper' && booked && on)}
+                  inputProps={{ 'aria-label': `${label} required` }} onChange={(e) => setRequired(key, e.target.checked)} />} />
+            );
+          })}
+          {userRole === 'shipper' && booked && (data.required.pickup || data.required.delivery) && (
+            <FormHelperText>Can't be turned off after the load is booked</FormHelperText>
+          )}
+        </Box>
+      )}
       {STAGES.map(({ key, label, where }) => {
         const items = data.items.filter((i) => i.stage === key);
         return (
           <Box key={key} mb={1.5}>
-            <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
+            <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" mb={0.5}>
               <Typography variant="body2" fontWeight={700}>{label}</Typography>
               {data.required[key] && <Chip size="small" label="Required by shipper" sx={{ color: semantic.warning, fontSize: '0.65rem' }} />}
               {isCarrier && data.canAdd[key] && form.stage !== key && (
-                <Button size="small" startIcon={<PhotoCameraIcon />} onClick={() => setForm((f) => ({ ...f, stage: key }))}>Add photo</Button>
+                <Button variant="outlined" startIcon={<PhotoCameraIcon />}
+                  sx={{ minHeight: 44, px: 2, whiteSpace: 'nowrap', color: T.primary, borderColor: surface.glassBorder }}
+                  onClick={() => setForm((f) => ({ ...f, stage: key }))}>Add photo</Button>
               )}
             </Stack>
 
@@ -149,7 +180,8 @@ export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }
                     </Box>
                     <Typography variant="caption" display="block" fontWeight={700}>{it.kind}{it.sealNumber ? ` - seal ${it.sealNumber}` : ''}</Typography>
                     <Typography variant="caption" display="block" sx={{ color: T.secondary }}>
-                      {new Date(it.uploadedAt).toLocaleString()}{it.uploadedByName ? ` by ${it.uploadedByName}` : ''}
+                      {new Date(it.uploadedAt).toLocaleString()}{it.uploadedByName ? ` by ${it.uploadedByName}` : ''}{it.uploadedByCompany ? ` (${it.uploadedByCompany})` : ''}
+                      {it.archived ? ' - earlier booking' : ''}
                     </Typography>
                     <Typography variant="caption" display="block" sx={{ color: far ? semantic.warning : T.secondary, fontWeight: far ? 700 : 400 }}>
                       {it.facilityDistanceMiles == null ? 'Location not provided' : `${it.facilityDistanceMiles.toFixed(1)} mi from ${where} location`}
@@ -159,7 +191,7 @@ export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }
                       <Typography variant="caption" sx={{ fontFamily: 'monospace', color: T.secondary }}>{(it.sha256 || '').slice(0, 12)}</Typography>
                     </Tooltip>
                     {isCarrier && it.deletable && (
-                      <Button size="small" color="error" disabled={busy} onClick={() => remove(it)} sx={{ display: 'block' }}>Remove</Button>
+                      <Button size="small" color="error" disabled={busy} onClick={() => setConfirmRemove(it)} sx={{ display: 'block' }}>Remove</Button>
                     )}
                   </Box>
                 );
@@ -169,6 +201,16 @@ export default function LoadEvidencePanel({ loadId, userRole, readOnly = false }
         );
       })}
       {msg && <Alert severity={msg.severity} sx={{ mt: 1 }}>{msg.text}</Alert>}
+      <Dialog open={!!confirmRemove} onClose={() => setConfirmRemove(null)}>
+        <DialogTitle>Remove this photo?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>This permanently deletes the photo from the record and cannot be undone.</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRemove(null)}>Keep</Button>
+          <Button color="error" variant="contained" onClick={() => { const it = confirmRemove; setConfirmRemove(null); remove(it); }}>Remove</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={!!viewing} onClose={() => setViewing(null)} maxWidth="lg">
         {viewing && <img src={viewing} alt="Evidence" style={{ maxWidth: '100%', maxHeight: '90vh' }} />}
       </Dialog>
