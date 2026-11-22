@@ -5,8 +5,9 @@
  * speed is an assumption. Every `detail` carries the numbers used so UI/notification
  * text can say so honestly. Conservative by design: it only raises a flag from fresh
  * GPS evidence, or from the absence of ANY location very close to the pickup time.
- * `pickupStart`/`pickupEnd` must be the AGREED (booked) window; `lastLocation.authenticated` marks a fix
- * from the booked carrier's own session (required for late_certain).
+ * `pickupStart`/`pickupEnd` must be the AGREED (booked) window. `lastLocation` is the latest fix of ANY kind (live
+ * map, at_risk prompt); `lastAuthenticatedLocation` is the latest fix proven to come from the booked carrier and is
+ * the ONLY input that can produce late_certain, so a later bearer-token ping can neither forge nor mask it.
  */
 const { haversineMiles } = require('../utils/geo');
 
@@ -35,7 +36,7 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const minutes = (ms) => Math.round(ms / MIN);
 
 function evaluatePickupRisk({
-  now = new Date(), pickupStart, pickupEnd, origin, lastLocation = null,
+  now = new Date(), pickupStart, pickupEnd, origin, lastLocation = null, lastAuthenticatedLocation = null,
   arrivedAtPickup = false, carrierConfirmation = null, status = 'accepted',
 } = {}) {
   const nowMs = validDate(now);
@@ -64,6 +65,40 @@ function evaluatePickupRisk({
   if (carrierConfirmation === 'cannot_make_it') return { level: 'at_risk', reason: 'carrier_declined', detail };
   if (startMs - nowMs > WATCH_WINDOW_MS) return { level: 'on_track', reason: 'outside_watch_window', detail: null };
 
+  // Straight-line distance, drive-time estimates and the detail block for one fix.
+  const measure = (lat, lng, ageMs) => {
+    const straight = haversineMiles(lat, lng, oLat, oLng);
+    const road = straight * ROAD_FACTOR;
+    const normalMs = (road / NORMAL_MPH) * 60 * MIN;
+    const fastMs = (road / FAST_MPH) * 60 * MIN;
+    return {
+      straight, normalMs, fastMs,
+      d: {
+        ...detail,
+        distanceBasis: 'estimated from straight-line distance x ' + ROAD_FACTOR,
+        distanceMilesStraight: Math.round(straight * 10) / 10,
+        distanceMilesRoadEstimate: Math.round(road * 10) / 10,
+        assumedMph: NORMAL_MPH,
+        driveMinutesEstimate: minutes(normalMs),
+        locationAgeMinutes: minutes(ageMs),
+      },
+    };
+  };
+
+  // late_certain: a position-based verdict from the last AUTHENTICATED fix only, and only while it is fresh.
+  const aAt = validDate(lastAuthenticatedLocation && lastAuthenticatedLocation.updatedAt);
+  const aLat = num(lastAuthenticatedLocation && lastAuthenticatedLocation.lat);
+  const aLng = num(lastAuthenticatedLocation && lastAuthenticatedLocation.lng);
+  if (aAt != null && aLat != null && aLng != null && nowMs - aAt <= FRESH_LOCATION_MS) {
+    const m = measure(aLat, aLng, nowMs - aAt);
+    if (m.straight >= NEAR_PICKUP_MILES && m.fastMs > remainingMs) {
+      return {
+        level: 'late_certain', reason: 'cannot_arrive_in_time',
+        detail: { ...m.d, fastestMph: FAST_MPH, minutesLateAtLeast: Math.max(1, minutes(m.fastMs - remainingMs)), minutesLateEstimate: Math.max(1, minutes(m.normalMs - remainingMs)) },
+      };
+    }
+  }
+
   const locAt = validDate(lastLocation && lastLocation.updatedAt);
   const lLat = num(lastLocation && lastLocation.lat);
   const lLng = num(lastLocation && lastLocation.lng);
@@ -71,28 +106,8 @@ function evaluatePickupRisk({
   const ageMs = hasLoc ? nowMs - locAt : null;
 
   if (hasLoc && ageMs <= FRESH_LOCATION_MS) {
-    const straight = haversineMiles(lLat, lLng, oLat, oLng);
-    const road = straight * ROAD_FACTOR;
-    const normalMs = (road / NORMAL_MPH) * 60 * MIN;
-    const fastMs = (road / FAST_MPH) * 60 * MIN;
-    const d = {
-      ...detail,
-      distanceBasis: 'estimated from straight-line distance x ' + ROAD_FACTOR,
-      distanceMilesStraight: Math.round(straight * 10) / 10,
-      distanceMilesRoadEstimate: Math.round(road * 10) / 10,
-      assumedMph: NORMAL_MPH,
-      driveMinutesEstimate: minutes(normalMs),
-      locationAgeMinutes: minutes(ageMs),
-    };
+    const { straight, normalMs, fastMs, d } = measure(lLat, lLng, ageMs);
     if (straight < NEAR_PICKUP_MILES) return { level: 'on_track', reason: 'near_pickup', detail: d };
-    // late_certain is a position-based verdict: only a fix authenticated as the booked carrier may produce it.
-    // A bearer-link-token fix still drives the live map and this at_risk prompt, nothing stronger.
-    if (fastMs > remainingMs && lastLocation.authenticated === true) {
-      return {
-        level: 'late_certain', reason: 'cannot_arrive_in_time',
-        detail: { ...d, fastestMph: FAST_MPH, minutesLateAtLeast: Math.max(1, minutes(fastMs - remainingMs)), minutesLateEstimate: Math.max(1, minutes(normalMs - remainingMs)) },
-      };
-    }
     if (normalMs > remainingMs - MARGIN_MS || fastMs > remainingMs) {
       return { level: 'at_risk', reason: 'drive_time_exceeds_time_remaining', detail: { ...d, minutesLateEstimate: Math.max(0, minutes(normalMs - remainingMs)) } };
     }

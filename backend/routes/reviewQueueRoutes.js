@@ -41,7 +41,7 @@ router.get('/', auth, adminOnly, async (req, res) => {
     if (status && ['pending', 'approved', 'dismissed'].includes(status)) {
       filter.status = status;
     }
-    if (type && ['carrier_suspension', 'fraud_flag', 'other'].includes(type)) {
+    if (type && ['carrier_suspension', 'fraud_flag', 'pickup_no_show', 'other'].includes(type)) {
       filter.type = type;
     }
 
@@ -110,7 +110,8 @@ router.get('/:id', auth, adminOnly, async (req, res) => {
 
 /**
  * PUT /:id/approve — admin confirms the recommended action.
- * For 'carrier_suspension': suspend the subject user.
+ * For 'carrier_suspension': suspend the subject user. Other types (e.g. 'pickup_no_show') have no automatic
+ * action: approving only records the decision; any trust-score consequence is applied separately by a person.
  */
 router.put('/:id/approve', auth, adminOnly, async (req, res) => {
   try {

@@ -24,6 +24,7 @@ const mongoose = require('mongoose');
 const VehicleMapEntrySchema = new mongoose.Schema({
   vehicleId: { type: String, required: true },   // provider-side vehicle identifier
   driverId:  { type: String, default: null },    // carrier-side driver reference (optional)
+  truckId:   { type: String, default: null },    // carrier-side fleet truck (User.fleet[].truckId), matched to Load.assignedTruckId
   note:      { type: String, default: '' },
 }, { _id: false });
 

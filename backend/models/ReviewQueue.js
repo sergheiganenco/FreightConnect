@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const ReviewQueueSchema = new mongoose.Schema({
-  type:      { type: String, required: true, enum: ['carrier_suspension', 'fraud_flag', 'other'], index: true },
+  type:      { type: String, required: true, enum: ['carrier_suspension', 'fraud_flag', 'pickup_no_show', 'other'], index: true },
   subjectUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   severity:  { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'high' },
   status:    { type: String, enum: ['pending', 'approved', 'dismissed'], default: 'pending', index: true },

@@ -71,7 +71,8 @@ async function notifyProposal(load, charge, { reproposed }) {
   await notifyUserSafe(load.postedBy, {
     type: 'detention_proposed',
     title: reproposed ? 'Detention Charge Updated' : 'Detention Charge Proposed',
-    body: `Detention charge of $${dollars} ${reproposed ? 're-proposed' : 'proposed'} on "${load.title}" — review the dwell evidence and approve or reject.`,
+    body: `Detention charge of $${dollars} ${reproposed ? 're-proposed' : 'proposed'} on "${load.title}" — review the dwell evidence and approve or reject.`
+      + (charge.locationVerified ? '' : ' The arrival or departure position was not verified (link-token fix or manual check-in): check it carefully; it will not be collected automatically.'),
     link: '/dashboard/shipper/loads',
     metadata: { loadId: String(load._id), chargeId: String(charge._id), amountCents: charge.amountCents, evidenceHash: charge.evidenceHash },
   });
@@ -86,8 +87,9 @@ async function notifyProposal(load, charge, { reproposed }) {
   }
 }
 
-function buildDescription(evidence, stopType, detentionMinutes) {
-  return `Detention at ${evidence.facilityName || stopType} — ${detentionMinutes} min over free time`;
+function buildDescription(evidence, stopType, detentionMinutes, locationVerified) {
+  return `Detention at ${evidence.facilityName || stopType} — ${detentionMinutes} min over free time`
+    + (locationVerified ? '' : ' [needs review: location not verified]');
 }
 
 /**
@@ -130,6 +132,9 @@ async function syncDetentionCharge(dwellEvent) {
     source:             'auto',
   };
   const newHash = computeEvidenceHash(dwellEvent._id, feeCents, evidence);
+  // Only an authenticated geofence arrival AND departure counts as verified; link-token fixes, manual check-ins
+  // and pre-existing (null) events do not.
+  const locationVerified = dwellEvent.arrivalAuthenticated === true && dwellEvent.departureAuthenticated === true;
 
   const existing = load.accessorialCharges.find(
     (c) => c.source === 'system_detention' && String(c.dwellEventId) === String(dwellEvent._id)
@@ -164,7 +169,8 @@ async function syncDetentionCharge(dwellEvent) {
         type: 'detention',
         source: 'system_detention',
         dwellEventId: dwellEvent._id,
-        description: buildDescription(evidence, dwellEvent.stopType, detentionMinutes),
+        description: buildDescription(evidence, dwellEvent.stopType, detentionMinutes, locationVerified),
+        locationVerified,
         amountCents: feeCents,
         status: 'pending',
         requestedAt: new Date(),
@@ -199,7 +205,8 @@ async function syncDetentionCharge(dwellEvent) {
   //    its hash differs (material change). ───────────────────────────────────
   existing.status = 'pending';
   existing.amountCents = feeCents;
-  existing.description = buildDescription(evidence, dwellEvent.stopType, detentionMinutes);
+  existing.description = buildDescription(evidence, dwellEvent.stopType, detentionMinutes, locationVerified);
+  existing.locationVerified = locationVerified;
   existing.evidence = evidence;
   existing.evidenceHash = newHash;
   existing.proposedAt = new Date();

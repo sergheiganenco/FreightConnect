@@ -172,6 +172,15 @@ const LoadSchema = new mongoose.Schema({
     // connection; false for bearer-link-token ingest (OwnTracks/OsmAnd). Penalties/late_certain need true.
     authenticated: { type: Boolean, default: false },
     updatedAt: { type: Date, default: null },
+    // The latest fix that WAS authenticated as the booked carrier. Written only by authenticated pings (never by
+    // bearer-token ingest), so a later unauthenticated ping cannot overwrite it. Cleared with carrierLocation.
+    lastAuthenticated: {
+      latitude:  Number,
+      longitude: Number,
+      speed:     Number,
+      source:    { type: String, enum: ['browser', 'mobile_app', 'eld', 'api', 'owntracks', 'traccar'] },
+      updatedAt: Date,
+    },
   },
 
   // ── Multi-Stop Loads ──────────────────────────────────────────────────────
@@ -255,6 +264,9 @@ const LoadSchema = new mongoose.Schema({
     // amount comes only from the DwellEvent's server-computed fee (provenance lock).
     source:       { type: String, enum: ['carrier','system_detention'], default: 'carrier' },
     dwellEventId: { type: mongoose.Schema.Types.ObjectId, ref: 'DwellEvent', default: null },
+    // false = the dwell's arrival or departure position was not authenticated (link-token fix or manual check-in).
+    // Such a charge still goes to the shipper for approval but is NEVER auto-collected off-session.
+    locationVerified: { type: Boolean, default: null },
     proposedAt:   { type: Date, default: null },
     // Frozen evidence snapshot shown to the shipper at proposal time.
     evidence: {

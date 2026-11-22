@@ -6,6 +6,9 @@ const ORIGIN = { lat: 41.8781, lng: -87.6298 };
 // 0.5 degrees of latitude ~ 34.5 straight-line mi -> 43.2 road mi -> 57.6 min at 45 mph, 43.2 min at 60 mph
 const loc = (ageMin, dLat = 0.5, authenticated = true) => ({ lat: ORIGIN.lat - dLat, lng: ORIGIN.lng, updatedAt: at(-ageMin), authenticated });
 
+// A fix marked authenticated doubles as the last AUTHENTICATED fix (the only input that can yield late_certain).
+const run = (o) => evaluatePickupRisk({ ...o, lastAuthenticatedLocation: o.lastLocation && o.lastLocation.authenticated === true ? o.lastLocation : null });
+
 const base = { now: NOW, origin: ORIGIN, pickupStart: at(60), pickupEnd: at(180), lastLocation: null, arrivedAtPickup: false, carrierConfirmation: null };
 
 const cases = [
@@ -45,13 +48,13 @@ const cases = [
 describe('evaluatePickupRisk', () => {
   test.each(cases)('%s', (...args) => {
     const [, over, level, reason] = args;
-    const r = evaluatePickupRisk({ ...base, ...over });
+    const r = run({ ...base, ...over });
     expect(r.level).toBe(level);
     if (reason) expect(r.reason).toBe(reason);
   });
 
   test('detail carries the numbers and honest basis', () => {
-    const r = evaluatePickupRisk({ ...base, lastLocation: loc(5), pickupStart: at(30), pickupEnd: at(40) });
+    const r = run({ ...base, lastLocation: loc(5), pickupStart: at(30), pickupEnd: at(40) });
     expect(r.detail.distanceBasis).toMatch(/estimated from straight-line/);
     expect(r.detail).toMatchObject({ assumedMph: 45, fastestMph: 60, minutesRemaining: 40, marginMinutes: 30 });
     expect(r.detail.distanceMilesStraight).toBeCloseTo(34.5, 0);
@@ -69,3 +72,22 @@ describe('evaluatePickupRisk', () => {
     expect(evaluatePickupRisk({ ...base, pickupStart: at(13 * 60), pickupEnd: at(14 * 60) }).detail).toBeNull();
   });
 });
+
+describe('late_certain uses the last authenticated fix only', () => {
+  const late = { pickupStart: at(30), pickupEnd: at(40) };
+  test('a later unauthenticated ping near the pickup does not mask a fresh authenticated far fix', () => {
+    const r = evaluatePickupRisk({ ...base, ...late, lastLocation: loc(1, 0.001, false), lastAuthenticatedLocation: loc(10, 0.5, true) });
+    expect(r.level).toBe('late_certain');
+    expect(r.detail.distanceMilesStraight).toBeCloseTo(34.5, 0); // numbers come from the authenticated fix
+  });
+  test('a later unauthenticated far ping cannot forge late_certain (no authenticated fix at all)', () => {
+    expect(evaluatePickupRisk({ ...base, ...late, lastLocation: loc(1, 0.5, false), lastAuthenticatedLocation: null }).level).toBe('at_risk');
+  });
+  test('a stale authenticated fix (older than 30 min) gives no late_certain', () => {
+    expect(evaluatePickupRisk({ ...base, ...late, lastLocation: loc(1, 0.5, false), lastAuthenticatedLocation: loc(45, 0.5, true) }).level).toBe('at_risk');
+  });
+  test('an authenticated fix inside 1 mile of the pickup never yields late_certain', () => {
+    expect(evaluatePickupRisk({ ...base, ...late, lastLocation: loc(1, 0.001, true), lastAuthenticatedLocation: loc(1, 0.001, true) }).level).toBe('on_track');
+  });
+});
+

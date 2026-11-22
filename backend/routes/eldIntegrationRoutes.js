@@ -28,7 +28,7 @@ const auth    = require('../middlewares/authMiddleware');
 const EldConnection  = require('../models/EldConnection');
 const { getProvider } = require('../services/eld');
 const trackingService = require('../services/trackingService');
-const Load            = require('../models/Load');
+const { resolveVehicleLoad } = require('../services/eldLoadResolver');
 
 const VALID_PROVIDERS = ['motive', 'samsara', 'geotab'];
 
@@ -53,46 +53,6 @@ function sanitizeConnection(conn) {
   delete obj.webhookSecret;
   delete obj.__v;
   return obj;
-}
-
-/**
- * Resolve an inbound telematics location to a specific Load for a carrier.
- *
- * Mapping: loc.vehicleId → connection.vehicleMap entry (vehicleId → driverId),
- * then find that carrier's active load (in-transit preferred, then accepted).
- * Returns the Load _id or null if no resolution is possible.
- */
-async function resolveLoadId(connection, loc) {
-  if (!loc || loc.vehicleId == null) return null;
-
-  // Confirm this vehicle is known to the connection's vehicleMap.
-  const mapEntry = Array.isArray(connection.vehicleMap)
-    ? connection.vehicleMap.find((m) => String(m.vehicleId) === String(loc.vehicleId))
-    : null;
-  if (!mapEntry) return null; // unknown vehicle — skip rather than guess
-
-  // Find the carrier's currently-moving load. Prefer in-transit; fall back to accepted.
-  const load = await Load.findOne({
-    acceptedBy: connection.carrier,
-    status: { $in: ['in-transit', 'accepted'] },
-  })
-    .sort({ status: 1, updatedAt: -1 }) // 'accepted' < 'in-transit' alpha; updatedAt tiebreak
-    .select('_id status')
-    .lean();
-
-  // Prefer an explicitly in-transit load if multiple exist.
-  if (!load) return null;
-  if (load.status === 'in-transit') return load._id;
-
-  // If the first hit was 'accepted', double-check there isn't an in-transit one.
-  const inTransit = await Load.findOne({
-    acceptedBy: connection.carrier,
-    status: 'in-transit',
-  })
-    .select('_id')
-    .lean();
-
-  return (inTransit && inTransit._id) || load._id;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,7 +88,7 @@ router.post('/connect', auth, CARRIER_ONLY, async (req, res) => {
     if (Array.isArray(vehicleMap)) {
       set.vehicleMap = vehicleMap
         .filter((v) => v && v.vehicleId != null)
-        .map((v) => ({ vehicleId: String(v.vehicleId), driverId: v.driverId ?? null, note: v.note ?? '' }));
+        .map((v) => ({ vehicleId: String(v.vehicleId), driverId: v.driverId ?? null, truckId: v.truckId ?? null, note: v.note ?? '' }));
     }
     if (typeof apiToken === 'string' && apiToken.length) set.apiToken = apiToken;
     if (typeof webhookSecret === 'string' && webhookSecret.length) set.webhookSecret = webhookSecret;
@@ -339,18 +299,18 @@ router.post('/webhook/:provider', async (req, res) => {
     for (const loc of locs) {
       try {
         if (loc == null || loc.latitude == null || loc.longitude == null) continue;
-        const loadId = await resolveLoadId(connection, loc);
-        if (!loadId) continue;
+        const hit = await resolveVehicleLoad(connection, loc.vehicleId);
+        if (!hit) continue;
 
         const result = await trackingService.recordLocation({
-          loadId,
+          loadId: hit.loadId,
           latitude: loc.latitude,
           longitude: loc.longitude,
           speed: loc.speed ?? null,
           heading: loc.heading ?? null,
           accuracy: null,
           source: 'eld',
-          authenticated: true, // connection.carrier owns the resolved load (resolveLoadId)
+          authenticated: hit.authenticated, // the vehicle is tied to this load by the connection's vehicleMap
         });
         if (result && result.ok) processed += 1;
       } catch (locErr) {

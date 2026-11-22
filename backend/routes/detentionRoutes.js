@@ -71,6 +71,8 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
       facilityName: facilityName || (stopType === 'pickup' ? load.pickupFacilityName : load.deliveryFacilityName) || '',
       facilityAddress: facilityAddress || (stopType === 'pickup' ? load.pickupAddress : load.deliveryAddress) || '',
       arrivedAt: new Date(),
+      arrivalAuthenticated: false, // manual: authenticated person, self-reported position
+      arrivalManualBy: req.user.userId,
       freeMinutes: rates.freeMinutes,
       detentionRateCents: rates.rateCentsPerHour,
       contractId: load.contractId || null,
@@ -129,6 +131,8 @@ router.patch('/depart/:eventId', auth, async (req, res) => {
     if (event.departedAt) return res.status(409).json({ error: 'Already departed' });
 
     event.departedAt = new Date();
+    event.departureAuthenticated = false; // manual: authenticated person, self-reported position
+    event.departureManualBy = req.user.userId;
     if (req.body.notes) event.notes = req.body.notes;
     await event.save();
 

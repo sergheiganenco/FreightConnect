@@ -21,7 +21,7 @@ module.exports = (io) => {
   const { checkLoadEligibility } = require('../services/loadEligibility');
   const { carrierOpenVisibleConditions, carrierCanSeeLoad } = require('../services/loadVisibility');
   const { haversineMiles, boundingBox, round } = require('../utils/geo');
-  const { refreshLoad, messages: pickupRiskMessages } = require('../jobs/pickupRiskMonitor');
+  const { refreshLoad, messages: pickupRiskMessages, noShowSnapshot, fileNoShowReview } = require('../jobs/pickupRiskMonitor');
   const { estimateEconomics } = require('../utils/loadEconomics');
   const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
 
@@ -1316,7 +1316,12 @@ router.get('/recommended/:loadId', auth, async (req, res) => {
   }
 });
 
-const { MIN_EDIT_LEAD_MS, PROPOSAL_TTL_MS } = require('../services/pickupRiskService').CONSTANTS;
+const { MIN_EDIT_LEAD_MS, PROPOSAL_TTL_MS, FALLBACK_WINDOW_MS } = require('../services/pickupRiskService').CONSTANTS;
+
+// Window bounds must be strict ISO-8601 date-times WITH a zone (no "2026-13-45", "tomorrow" or zone-less local times);
+// the handlers persist the parsed Date, never the raw string that was validated.
+const isoWindowDate = (f) => body(f).isISO8601({ strict: true, strictSeparator: true }).matches(/T.*(Z|[+-]\d{2}(:?\d{2})?)$/i)
+  .withMessage(`${f} must be an ISO-8601 date-time with a timezone, e.g. 2026-06-01T14:00:00Z`);
 
 // Only the load's shipper company or an admin may change its time windows —
 // windows feed detention billing and on-time scorecards, so this must be locked down.
@@ -1331,12 +1336,10 @@ function assertWindowEditor(load, req) {
 // (pickupWindowChange, status pending) until the booked carrier accepts it; a lenient change (start and end both
 // not earlier) applies immediately and becomes the new agreed window; re-sending the agreed window withdraws a
 // pending proposal. Loads that are not booked-and-awaiting-pickup keep the old direct-edit behaviour.
-router.put('/:id/pickup-window', auth, async (req, res) => {
+router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('end'), validate, async (req, res) => {
   try {
-    const { start, end } = req.body;
-    if (!start || !end) return res.status(400).json({ error: 'start and end are required' });
-    const ns = new Date(start).getTime(), ne = new Date(end).getTime();
-    if (!Number.isFinite(ns) || !Number.isFinite(ne) || ne < ns) return res.status(400).json({ error: 'start and end must be valid dates with end not before start' });
+    const ns = new Date(req.body.start).getTime(), ne = new Date(req.body.end).getTime();
+    if (ne < ns) return res.status(400).json({ error: 'end must not be before start' });
 
     const load = await Load.findById(req.params.id);
     if (!load) return res.status(404).json({ error: 'Load not found' });
@@ -1349,8 +1352,10 @@ router.put('/:id/pickup-window', auth, async (req, res) => {
     const oldW = load.pickupTimeWindow || {};
     const booked = load.status === 'accepted' && load.acceptedBy;
     const agreed = booked && load.bookedWindow && load.bookedWindow.start ? load.bookedWindow : oldW; // legacy bookings: current window
-    const as = new Date(agreed.start).getTime(), ae = new Date(agreed.end).getTime();
-    const moved = ns !== as || ne !== ae;
+    const as = new Date(agreed.start).getTime(), aeRaw = new Date(agreed.end).getTime();
+    // Latest agreed arrival exactly as the risk evaluator computes it: window end, else start + fallback.
+    const ae = Number.isFinite(aeRaw) && aeRaw >= as ? aeRaw : as + FALLBACK_WINDOW_MS;
+    const moved = ns !== as || ne !== aeRaw;
     const fmtW = () => `${new Date(ns).toUTCString().replace(' GMT', '')} UTC - ${new Date(ne).toUTCString().replace(' GMT', '')} UTC`;
 
     if (booked) {
@@ -1363,7 +1368,9 @@ router.put('/:id/pickup-window', auth, async (req, res) => {
       if (moved && ns < nowMs + MIN_EDIT_LEAD_MS) return res.status(400).json({ error: 'The new pickup window must start at least 2 hours from now' });
     }
 
-    if (booked && moved && (ns < as || ne < ae)) {
+    // Fail closed: lenient (no consent needed) only when every agreed bound is known and the new window is not earlier.
+    const lenient = Number.isFinite(as) && Number.isFinite(ae) && ns >= as && ne >= ae;
+    if (booked && moved && !lenient) {
       load.pickupWindowChange = { proposedStart: new Date(ns), proposedEnd: new Date(ne), proposedAt: new Date(), proposedBy: req.user.userId, status: 'pending' };
       await load.save();
       await notifyUserSafe(load.acceptedBy, {
@@ -1376,9 +1383,9 @@ router.put('/:id/pickup-window', auth, async (req, res) => {
       return res.json({ ...load.toObject(), windowChangeProposed: true, message: 'Proposed. The agreed pickup window stays in force until the carrier accepts.' });
     }
 
-    load.pickupTimeWindow = { ...oldW, start, end };
+    load.pickupTimeWindow = { ...oldW, start: new Date(ns), end: new Date(ne) };
     if (booked) {
-      load.bookedWindow = { start, end };
+      load.bookedWindow = { start: new Date(ns), end: new Date(ne) };
       load.pickupWindowChange = undefined; // a lenient change (or re-sending the agreed window) supersedes/withdraws a pending proposal
     }
     // New pickup time on a booked load = a new risk question. Alerts already sent and an "on my way"
@@ -1406,12 +1413,10 @@ router.put('/:id/pickup-window', auth, async (req, res) => {
 });
 
 // PUT /api/loads/:id/delivery-window   { start, end }
-router.put('/:id/delivery-window', auth, async (req, res) => {
+router.put('/:id/delivery-window', auth, isoWindowDate('start'), isoWindowDate('end'), validate, async (req, res) => {
   try {
-    const { start, end } = req.body;
-    if (!start || !end) {
-      return res.status(400).json({ error: 'start and end are required' });
-    }
+    const ns = new Date(req.body.start).getTime(), ne = new Date(req.body.end).getTime();
+    if (ne < ns) return res.status(400).json({ error: 'end must not be before start' });
 
     const load = await Load.findById(req.params.id);
     if (!load) return res.status(404).json({ error: 'Load not found' });
@@ -1421,15 +1426,18 @@ router.put('/:id/delivery-window', auth, async (req, res) => {
     // trust score are judged on: it cannot be tightened (earlier start or end) or edited after delivery.
     if (load.acceptedBy) {
       const o = load.deliveryTimeWindow || {};
-      const ns = new Date(start).getTime(), ne = new Date(end).getTime();
-      if (!Number.isFinite(ns) || !Number.isFinite(ne) || ne < ns) return res.status(400).json({ error: 'start and end must be valid dates with end not before start' });
+      const os = new Date(o.start).getTime(), oe = new Date(o.end).getTime();
       const closed = ['delivered', 'disputed', 'resolved', 'cancelled'].includes(load.status);
-      if (closed || ns < new Date(o.start).getTime() || ne < new Date(o.end).getTime()) {
+      // Fail closed: a comparison against a missing bound is false, so "not earlier" cannot be shown without both.
+      if (!Number.isFinite(os) || !Number.isFinite(oe)) {
+        return res.status(409).json({ error: 'This booked load has no complete delivery window on file, so a delivery deadline cannot be set after booking without the carrier. Delivery windows have no propose/accept flow yet: ask support, or cancel and re-post.' });
+      }
+      if (closed || ns < os || ne < oe) {
         return res.status(409).json({ error: 'The delivery window of a booked load cannot be made earlier, or changed after delivery. It may only be extended.' });
       }
     }
 
-    load.deliveryTimeWindow = { ...(load.deliveryTimeWindow || {}), start, end };
+    load.deliveryTimeWindow = { ...(load.deliveryTimeWindow || {}), start: new Date(ns), end: new Date(ne) };
     await load.save();
 
     res.json(load);
@@ -1773,15 +1781,14 @@ router.post('/voice-command', auth, async (req, res) => {
   // ========================================================================
   //  PICKUP NO-SHOW PREDICTION — carrier response + shipper release
   //  Risk state is written by jobs/pickupRiskMonitor. Nothing here cancels or
-  //  penalizes automatically: the carrier answers, the shipper decides.
+  //  penalizes automatically: the carrier answers, the shipper decides, and a
+  //  suspected no-show goes to an admin (ReviewQueue) — never to the trust score.
   // ========================================================================
   const RELEASE_LABEL = {
     no_show: 'predicted no-show (truck never arrived at pickup)',
     late_certain: 'predicted lateness (truck cannot reach pickup in time)',
     carrier_declined: 'the carrier saying it cannot make the pickup',
   };
-  const GPS_EVIDENCE_LEAD_MS = 30 * 60 * 1000;
-  const GPS_EVIDENCE_MILES = 5; // a no-show only carries the standard penalty if the last GPS fix put the truck at least this far from pickup
 
   // POST /api/loads/:id/pickup-confirm  { status: 'on_my_way' | 'cannot_make_it' }  — booked carrier company only
   router.post('/:id/pickup-confirm', auth, param('id').isMongoId(), body('status').isIn(['on_my_way', 'cannot_make_it']), validate, async (req, res) => {
@@ -1901,17 +1908,8 @@ router.post('/voice-command', auth, async (req, res) => {
       if (!allowed) return res.status(409).json({ error: 'Release is not allowed: the pickup risk does not support this reason right now', level: level || null });
 
       const carrierId = load.acceptedBy;
-      const loc = load.carrierLocation;
-      const gpsMiles = loc?.updatedAt && Number.isFinite(load.originLat) && loc.latitude != null
-        ? haversineMiles(loc.latitude, loc.longitude, load.originLat, load.originLng) : null; // distance only; coordinates never leave the server
-      // Penalty evidence must be (a) authenticated as the booked carrier (not a link-token fix) and (b) taken at or
-      // after 30 min before the latest allowed arrival: a fix from hours earlier proves nothing about the deadline.
-      const latestAt = load.pickupRisk?.detail?.latestArrivalAt ? new Date(load.pickupRisk.detail.latestArrivalAt).getTime() : NaN;
-      const gpsCurrent = loc?.authenticated === true && Number.isFinite(latestAt) && new Date(loc.updatedAt).getTime() >= latestAt - GPS_EVIDENCE_LEAD_MS;
-      const gpsAway = gpsMiles != null && gpsMiles >= GPS_EVIDENCE_MILES && gpsCurrent;
-      const gpsEvidence = gpsMiles != null
-        ? `The last location we received (${new Date(loc.updatedAt).toUTCString().replace(' GMT', '')} UTC) was about ${Math.round(gpsMiles)} miles from the pickup.`
-        : 'No location was received from the truck.';
+      // Snapshot BEFORE the release: un-booking clears the location, window and booking the evidence is read from.
+      const snapshot = reason === 'no_show' ? await noShowSnapshot(load._id, { releasedByRole: req.user.role }) : null;
       const lateMin = load.pickupRisk?.detail?.minutesLateEstimate;
       const label = reason === 'late_certain' && lateMin ? `${RELEASE_LABEL[reason]}, est. ${lateMin} min late` : RELEASE_LABEL[reason];
       const userId = req.user.userId;
@@ -1923,22 +1921,21 @@ router.post('/voice-command', auth, async (req, res) => {
       await cancelLoadCascade(load._id);
       const escrowRefunded = await reopenAfterCarrierDrop(load, userId, `Released to standby carriers by ${req.user.role} after ${label}`, `released_to_standby:${reason}`);
 
-      // Existing carrier-cancel penalty (-5), applied only to a GPS-evidenced no-show. Predicted lateness and
-      // a carrier's own "can't make it" carry no automatic penalty. Never silent: the carrier is told below.
-      let trustScorePenalty = 0;
-      if (reason === 'no_show' && gpsAway) {
-        trustScorePenalty = -5;
-        require('../services/trustScoreService').adjustScore(carrierId, 'carrier_pickup_no_show', -5, load._id).catch(() => {});
+      // No automatic trust score change, whatever the reason: a person decides. A suspected no-show is filed for
+      // admin review with the evidence summary (times and distances only, never coordinates).
+      let reviewFiled = false;
+      if (snapshot) {
+        try { await fileNoShowReview(snapshot, carrierId); reviewFiled = true; } catch (e) { console.error('[release-to-standby] review item failed:', e.message); }
       }
-      const CONTEST = `To contest this, email support@freightconnect.com (or use the Contact page) and quote load ${load._id}. Disputes cannot be filed on a load that is open again.`;
+      const CONTEST = `To respond or contest this, email support@freightconnect.com (or use the Contact page) and quote load ${load._id}. Disputes cannot be filed on a load that is open again.`;
       await notifyUserSafe(carrierId, {
         type: 'pickup:released',
         title: 'Load released by the shipper',
-        body: `The shipper released "${load.title}" after ${label}. ` + (trustScorePenalty
-          ? `Your trust score was reduced by 5 points because GPS showed the truck away from the pickup. ${gpsEvidence} ${CONTEST}`
-          : reason === 'no_show' ? `No trust score change was made: there was not enough location evidence that the truck was away from pickup. ${gpsEvidence} ${CONTEST}` : `No trust score change was made. ${CONTEST}`),
+        body: `The shipper released "${load.title}" after ${label}. No automatic change was made to your trust score.`
+          + (reviewFiled ? ' Because the shipper reported a suspected no-show, this case may be reviewed by FreightConnect staff.' : '')
+          + ` ${CONTEST}`,
         link: '/dashboard/carrier/my-loads',
-        metadata: { loadId: String(load._id), reason, trustScorePenalty },
+        metadata: { loadId: String(load._id), reason },
       });
       try {
         await require('../models/Message').create({ channelType: 'load_thread', channelId: `load_${load._id}`, sender: null, messageType: 'system', readBy: [],
@@ -1946,7 +1943,7 @@ router.post('/voice-command', auth, async (req, res) => {
       } catch { /* non-critical */ }
       const standbyNotified = await require('../services/standbyService').notifyStandby(load);
 
-      res.json({ message: 'Load released and re-posted.', loadStatus: 'open', reason, standbyNotified, trustScorePenalty, escrowRefunded });
+      res.json({ message: 'Load released and re-posted.', loadStatus: 'open', reason, standbyNotified, reviewFiled, escrowRefunded });
     } catch (err) {
       console.error('[release-to-standby] failed:', err.message);
       res.status(500).json({ error: 'Server error' });
@@ -2498,7 +2495,8 @@ router.post('/voice-command', auth, async (req, res) => {
       // then approval settles via Path A (accrual) exactly as today.
       const collectionEnabled = process.env.ENABLE_ACCESSORIAL_COLLECTION === 'true';
       let collect = null;
-      if (collectionEnabled && charge.source === 'system_detention') {
+      // A charge whose dwell position was not authenticated (link-token fix / manual check-in) is never auto-collected.
+      if (collectionEnabled && charge.source === 'system_detention' && charge.locationVerified !== false) {
         try {
           const escrow = require('../services/escrowService');
           collect = await escrow.collectAccessorialFromShipper(load._id, charge._id);

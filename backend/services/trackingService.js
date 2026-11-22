@@ -177,8 +177,14 @@ async function recordLocation({
       authenticated: authenticated === true,
       updatedAt: now,
     };
-    // Use a targeted update (no full-doc validation, mirrors app.js behavior).
-    await Load.updateOne({ _id: load._id }, { $set: { carrierLocation: liveLocation } });
+    // Targeted update (no full-doc validation). Field-by-field, NEVER the whole carrierLocation object: that would
+    // wipe carrierLocation.lastAuthenticated. lastAuthenticated is written only by an authenticated ping, so a
+    // later bearer-token ping moves the live map point but cannot overwrite the evidence.
+    const $set = Object.fromEntries(Object.entries(liveLocation).map(([k, v]) => [`carrierLocation.${k}`, v]));
+    if (authenticated === true) {
+      $set['carrierLocation.lastAuthenticated'] = { latitude: lat, longitude: lng, speed: safeSpeed, source: liveSource, updatedAt: now };
+    }
+    await Load.updateOne({ _id: load._id }, { $set });
 
     // ── 5. Append durable breadcrumb (non-fatal on failure) ───────────────────
     if (storeBreadcrumb) {
@@ -207,7 +213,7 @@ async function recordLocation({
     if (load.acceptedBy) {
       try {
         const { checkGeofence } = require('./geofenceService');
-        await checkGeofence(load.acceptedBy, lat, lng, { loadId: load._id });
+        await checkGeofence(load.acceptedBy, lat, lng, { loadId: load._id, authenticated: authenticated === true });
       } catch (geoErr) {
         // Non-fatal — dwell tracking is secondary to location updates.
         if (geoErr && geoErr.message !== 'Cannot read properties of undefined') {

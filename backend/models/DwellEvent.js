@@ -46,6 +46,15 @@ const DwellEventSchema = new Schema({
   departedAt: { type: Date, default: null }, // driver leaves facility
 
   // ── Calculated detention ──────────────────────────────────────────────────
+  // ── Provenance of the arrival / departure position ───────────────────────
+  // true = the geofence fix was authenticated as the booked carrier; false = bearer link-token fix OR a manual
+  // check-in/out (authenticated person, but the position is self-reported); null = recorded before this existed.
+  // Detention from anything but true/true is never auto-collected (see detentionBillingService).
+  arrivalAuthenticated:   { type: Boolean, default: null },
+  departureAuthenticated: { type: Boolean, default: null },
+  arrivalManualBy:   { type: ObjectId, ref: 'User', default: null },
+  departureManualBy: { type: ObjectId, ref: 'User', default: null },
+
   dwellMinutes:        { type: Number, default: 0 },  // total minutes on-site
   freeMinutes:         { type: Number, default: 120 }, // default 2 hours
   detentionMinutes:    { type: Number, default: 0 },   // max(0, dwell - free)

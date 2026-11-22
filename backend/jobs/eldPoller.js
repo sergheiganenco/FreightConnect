@@ -16,47 +16,14 @@
  *   - services/eld/index.js        → getProvider(name)
  *   - services/trackingService.js  → recordLocation(...)
  *   - models/EldConnection.js
- *   - models/Load.js
  */
 
 const cron = require('node-cron');
 
 const EldConnection   = require('../models/EldConnection');
-const Load            = require('../models/Load');
+const { resolveVehicleLoad } = require('../services/eldLoadResolver');
 const { getProvider } = require('../services/eld');
 const trackingService = require('../services/trackingService');
-
-/**
- * Resolve a polled telematics location to a specific Load for the connection's
- * carrier. Mirrors the webhook resolver: vehicleId must be known in the
- * connection's vehicleMap, then map to the carrier's active load.
- */
-async function resolveLoadId(connection, loc) {
-  if (!loc || loc.vehicleId == null) return null;
-
-  const mapEntry = Array.isArray(connection.vehicleMap)
-    ? connection.vehicleMap.find((m) => String(m.vehicleId) === String(loc.vehicleId))
-    : null;
-  if (!mapEntry) return null;
-
-  // Prefer an in-transit load; fall back to accepted.
-  const inTransit = await Load.findOne({
-    acceptedBy: connection.carrier,
-    status: 'in-transit',
-  })
-    .select('_id')
-    .lean();
-  if (inTransit) return inTransit._id;
-
-  const accepted = await Load.findOne({
-    acceptedBy: connection.carrier,
-    status: 'accepted',
-  })
-    .select('_id')
-    .lean();
-
-  return accepted ? accepted._id : null;
-}
 
 /**
  * runEldPoll — one polling pass over all active EldConnections.
@@ -95,18 +62,18 @@ async function runEldPoll() {
       for (const loc of locs) {
         try {
           if (loc == null || loc.latitude == null || loc.longitude == null) continue;
-          const loadId = await resolveLoadId(connection, loc);
-          if (!loadId) continue;
+          const hit = await resolveVehicleLoad(connection, loc.vehicleId);
+          if (!hit) continue;
 
           const result = await trackingService.recordLocation({
-            loadId,
+            loadId: hit.loadId,
             latitude: loc.latitude,
             longitude: loc.longitude,
             speed: loc.speed ?? null,
             heading: loc.heading ?? null,
             accuracy: null,
             source: 'eld',
-            authenticated: true, // connection.carrier owns the resolved load (resolveLoadId)
+            authenticated: hit.authenticated, // the vehicle is tied to this load by the connection's vehicleMap
           });
           if (result && result.ok) totalRecorded += 1;
         } catch (locErr) {

@@ -149,9 +149,9 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
           <DialogContentText component="div">
             <p>This cancels the current carrier's booking and re-posts the load.{' '}
               {standby == null ? 'Standby carriers will be notified.' : `${standby} standby carrier(s) will be notified; they still have to book it themselves.`}</p>
-            <p>The current carrier is told why, including the last location we received, and how to contest it. {releaseReason === 'no_show'
-              ? 'A 5-point trust score penalty WILL be applied to the carrier because the last GPS location of the truck was at least 5 miles from the pickup. If the last location was closer than that, or none was received, NO penalty will be applied.'
-              : 'No trust score penalty will be applied to the carrier for this release.'} Any escrow hold is released.</p>
+            <p>The carrier is notified that the load was released and why, and how to respond. {releaseReason === 'no_show'
+              ? 'A suspected no-show is sent to FreightConnect staff for review.'
+              : ''} Any escrow hold is released.</p>
             <p>{v?.lines[0]}</p>
           </DialogContentText>
         </DialogContent>

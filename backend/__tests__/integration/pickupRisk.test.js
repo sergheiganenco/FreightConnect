@@ -16,6 +16,8 @@ const DwellEvent = require('../../models/DwellEvent');
 const Appointment = require('../../models/Appointment');
 const Payment = require('../../models/Payment');
 const PreferredCarrier = require('../../models/PreferredCarrier');
+const ReviewQueue = require('../../models/ReviewQueue');
+const TrackingEvent = require('../../models/TrackingEvent');
 const { runPickupRiskCheck, _applyEvaluation } = require('../../jobs/pickupRiskMonitor');
 
 const io = { to: () => ({ emit: () => {} }), emit: () => {} };
@@ -41,6 +43,11 @@ const verifiedCarrier = (o = {}) => createTestUser({
   fleet: [{ truckId: 'T1', status: 'Available' }],
   ...o,
 });
+// A carrierLocation as the tracking service writes it: an authenticated ping also fills lastAuthenticated.
+const gps = (l, dLat, updatedAt, authenticated, dLng = 0) => {
+  const latitude = l.originLat - dLat, longitude = l.originLng + dLng, source = authenticated ? 'mobile_app' : 'owntracks';
+  return { latitude, longitude, updatedAt, source, authenticated, ...(authenticated ? { lastAuthenticated: { latitude, longitude, updatedAt, source } } : {}) };
+};
 const notes = (userId, type) => Notification.find({ userId, ...(type ? { type } : {}) }).lean();
 const bookedLoad = async (shipper, carrier, over = {}) => {
   const load = await createTestLoad(shipper._id, { pickupTimeWindow: { start: at(60), end: at(180) }, ...over });
@@ -278,7 +285,7 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     await request(app).put(`/api/bids/${wb._id}/accept`).set(bearer(shipper)).expect(200);
     // GPS: truck is ~40 miles from pickup, authenticated fix taken 20 min before the latest arrival (-180)
     await Load.updateOne({ _id: load._id }, { $set: {
-      carrierLocation: { latitude: load.originLat - 0.58, longitude: load.originLng, updatedAt: at(-200), source: 'mobile_app', authenticated: true },
+      carrierLocation: gps(load, 0.58, at(-200), true),
       'evidence': [{ stage: 'pickup', file: 'x.jpg', kind: 'cargo' }],
     } });
     await Appointment.create({ load: load._id, shipper: shipper._id, carrier: winner._id, pickup: { status: 'pending' } });
@@ -299,9 +306,10 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     expect((await Load.findById(load._id)).status).toBe('accepted');
   });
 
-  test('no_show with GPS evidence: real cancel cascade, re-opened, standby notified, standard -5 penalty, carrier told', async () => {
+  test('no_show: real cancel cascade, re-opened, standby notified, NO trust score change, review item filed, carrier told', async () => {
     const res = await release(load._id, bearer(shipper), 'no_show').expect(200);
-    expect(res.body).toMatchObject({ loadStatus: 'open', standbyNotified: 2, trustScorePenalty: -5, escrowRefunded: true });
+    expect(res.body).toMatchObject({ loadStatus: 'open', standbyNotified: 2, reviewFiled: true, escrowRefunded: true });
+    expect(res.body).not.toHaveProperty('trustScorePenalty');
     const fresh = await Load.findById(load._id).select('+pickupVerification.code +evidence');
     expect(fresh.status).toBe('open');
     expect(fresh.acceptedBy).toBeNull();
@@ -311,8 +319,25 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     expect((await Payment.findOne({ loadId: load._id })).status).toBe('cancelled');
     expect(await Bid.countDocuments({ loadId: load._id, status: { $in: ['pending', 'countered', 'accepted'] } })).toBe(0);
     expect(await Bid.countDocuments({ loadId: load._id, 'standby.rank': { $ne: null } })).toBe(0);
-    await new Promise((r) => setTimeout(r, 100)); // adjustScore is fire-and-forget
-    expect((await User.findById(winner._id)).trustScore.score).toBe(45);
+    await new Promise((r) => setTimeout(r, 100));
+    const w = await User.findById(winner._id);
+    expect(w.trustScore.score).toBe(50);                                           // never an automatic penalty
+    expect((w.trustScore.history || []).some((h) => /pickup_no_show/.test(h.reason))).toBe(false);
+    // a person decides: one pending review item with the evidence summary (times and distances only)
+    const items = await ReviewQueue.find({ type: 'pickup_no_show' }).lean();
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ status: 'pending', recommendedAction: 'manual_review' });
+    expect(String(items[0].subjectUser)).toBe(String(winner._id));
+    const d = items[0].details;
+    expect(d).toMatchObject({ loadId: String(load._id), releasedByRole: 'shipper', arrivalSignalsFound: false, carrierConfirmation: null });
+    expect(d.carrierCompany).toBeTruthy();
+    expect(d.shipperCompany).toBeTruthy();
+    expect(new Date(d.agreedWindow.start).getTime()).toBe(at(-240).getTime());
+    expect(d.lastAuthenticatedFix).toMatchObject({ source: 'mobile_app' });
+    expect(d.lastAuthenticatedFix.distanceMiles).toBeGreaterThan(39);
+    expect(d.lastAuthenticatedFix.distanceMiles).toBeLessThan(41);
+    expect(d.lastFix).toMatchObject({ authenticated: true });
+    expect(JSON.stringify(items[0])).not.toMatch(/latitude|longitude|"lat"|"lng"/i);   // no coordinates
     // notifications: standby carriers only (not the outsider, not the winner), winner told with the reason
     expect(await notes(s1._id, 'load:standby_available')).toHaveLength(1);
     expect(await notes(s2._id, 'load:standby_available')).toHaveLength(1);
@@ -320,13 +345,11 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     expect(await notes(winner._id, 'load:standby_available')).toHaveLength(0);
     const told = await notes(winner._id, 'pickup:released');
     expect(told).toHaveLength(1);
-    expect(told[0].body).toMatch(/predicted no-show.*reduced by 5 points/);
-    expect(told[0].body).toMatch(/about 40 miles from the pickup/);
+    expect(told[0].body).toMatch(/predicted no-show/);
+    expect(told[0].body).toMatch(/No automatic change was made to your trust score/);
+    expect(told[0].body).toMatch(/may be reviewed/);
     expect(told[0].body).toMatch(/support@freightconnect\.com.*quote load/);
-    expect(told[0].body).not.toMatch(/-?\d+\.\d{3,}/); // distances only, no coordinates
-    const h = (await User.findById(winner._id)).trustScore.history.at(-1);
-    expect(h.reason).toBe('carrier_pickup_no_show');
-    expect(String(h.loadId)).toBe(String(load._id));
+    expect(told[0].body).not.toMatch(/-?\d+\.\d{3,}/); // no coordinates
     expect((await Appointment.findOne({ load: load._id })).pickup.status).toBe('cancelled'); // cascade
     // audit trail names the reason
     const StatusHistory = require('../../models/StatusHistory');
@@ -347,24 +370,27 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     await get(bearer(await createTestUser({ role: 'shipper' }))).expect(403);
   });
 
-  test('no_show without GPS evidence carries no automatic penalty', async () => {
+  test('no_show with no location at all: no penalty, review item says no fix was received', async () => {
     await Load.updateOne({ _id: load._id }, { $unset: { carrierLocation: 1 } });
-    const res = await release(load._id, bearer(shipper), 'no_show').expect(200);
-    expect(res.body.trustScorePenalty).toBe(0);
+    await release(load._id, bearer(shipper), 'no_show').expect(200);
     await new Promise((r) => setTimeout(r, 100));
     expect((await User.findById(winner._id)).trustScore.score).toBe(50);
-    expect((await notes(winner._id, 'pickup:released'))[0].body).toMatch(/No trust score change/);
+    const item = await ReviewQueue.findOne({ type: 'pickup_no_show' }).lean();
+    expect(item.details).toMatchObject({ lastAuthenticatedFix: null, lastFix: null });
+    expect((await notes(winner._id, 'pickup:released'))[0].body).toMatch(/No automatic change was made to your trust score/);
   });
 
   test('late_certain release: no penalty, records estimated lateness; carrier_declined release allowed', async () => {
     // pickup in 30 min, truck fresh and ~58 mi away -> cannot make it even at 60 mph
     await Load.updateOne({ _id: load._id }, { $set: {
       pickupTimeWindow: { start: at(10), end: at(30) }, bookedWindow: { start: at(10), end: at(30) },
-      carrierLocation: { latitude: load.originLat - 0.9, longitude: load.originLng, updatedAt: new Date(), source: 'mobile_app', authenticated: true },
+      carrierLocation: gps(load, 0.9, new Date(), true),
     } });
     await release(load._id, bearer(shipper), 'no_show').expect(409);
-    const res = await release(load._id, bearer(shipper), 'late_certain').expect(200);
-    expect(res.body.trustScorePenalty).toBe(0);
+    await release(load._id, bearer(shipper), 'late_certain').expect(200);
+    await new Promise((r) => setTimeout(r, 100));
+    expect((await User.findById(winner._id)).trustScore.score).toBe(50);
+    expect(await ReviewQueue.countDocuments({ type: 'pickup_no_show' })).toBe(0); // only a suspected no-show is reviewed
     const StatusHistory = require('../../models/StatusHistory');
     const hist = await StatusHistory.find({ entityType: 'load', entityId: load._id }).lean();
     expect(hist.some((h) => /predicted lateness.*est\. \d+ min late/.test(h.reason || ''))).toBe(true);
@@ -374,8 +400,9 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     await Load.updateOne({ _id: load._id }, { $set: { pickupTimeWindow: { start: at(300), end: at(400) }, bookedWindow: { start: at(300), end: at(400) } }, $unset: { carrierLocation: 1 } });
     await request(app).post(`/api/loads/${load._id}/pickup-confirm`).set(bearer(winner)).send({ status: 'cannot_make_it' }).expect(200);
     const admin = await createTestUser({ role: 'admin' });
-    const res = await release(load._id, bearer(admin), 'carrier_declined').expect(200);
-    expect(res.body.trustScorePenalty).toBe(0);
+    await release(load._id, bearer(admin), 'carrier_declined').expect(200);
+    await new Promise((r) => setTimeout(r, 100));
+    expect((await User.findById(winner._id)).trustScore.score).toBe(50);
     expect((await Load.findById(load._id)).status).toBe('open');
   });
 
@@ -448,7 +475,7 @@ describe('pickup window changed after an alert; arrival bound to the booking', (
     expect(await notes(carrier._id, 'pickup:window_changed')).toHaveLength(1);
 
     // new, EARLIER window: only a proposal until the carrier accepts; then with a fresh authenticated fix ~58 miles away: NEW alert
-    await Load.updateOne({ _id: load._id }, { $set: { carrierLocation: { latitude: load.originLat - 3, longitude: load.originLng, updatedAt: NOW, source: 'mobile_app', authenticated: true } } });
+    await Load.updateOne({ _id: load._id }, { $set: { carrierLocation: gps(load, 3, NOW, true) } });
     await move(at(130), at(150)).expect(200); // start must be >= 2h out
     await request(app).post(`/api/loads/${load._id}/pickup-window-response`).set(bearer(carrier)).send({ accept: true }).expect(200);
     await runPickupRiskCheck(NOW);
@@ -596,47 +623,36 @@ describe('the agreed pickup window cannot be changed unilaterally', () => {
   });
 });
 
-describe('penalty evidence and arrival evidence', () => {
+describe('release evidence (no automatic penalty) and arrival evidence', () => {
   let app, shipper, carrier, load;
   const release = (reason) => request(app).post(`/api/loads/${load._id}/release-to-standby`).set(bearer(shipper)).send({ reason });
   const score = async () => { await new Promise((r) => setTimeout(r, 100)); return (await User.findById(carrier._id)).trustScore.score; };
-  const fix = (updatedAt, authenticated) => Load.updateOne({ _id: load._id }, { $set: { carrierLocation: { latitude: load.originLat - 0.58, longitude: load.originLng, updatedAt, source: authenticated ? 'mobile_app' : 'owntracks', authenticated } } });
+  const fix = (updatedAt, authenticated) => Load.updateOne({ _id: load._id }, { $set: { carrierLocation: gps(load, 0.58, updatedAt, authenticated) } });
   beforeEach(async () => {
     app = buildApp();
     shipper = await createTestUser({ role: 'shipper' });
     carrier = await verifiedCarrier({ trustScore: { score: 50 } });
     load = await bookedLoad(shipper, carrier, { pickupTimeWindow: { start: at(-240), end: at(-180) } }); // latest arrival 3h ago
+    await Load.updateOne({ _id: load._id }, { $set: { bookedAt: at(-600) } }); // booked well before the evidence below
   });
 
-  test('authenticated far fix taken near the deadline: penalty applies', async () => {
-    await fix(at(-200), true);
-    expect((await release('no_show').expect(200)).body.trustScorePenalty).toBe(-5);
-    expect(await score()).toBe(45);
-  });
-
-  test('authenticated far fix just inside the 30 min lead: penalty applies', async () => {
-    await fix(at(-209), true);
-    expect((await release('no_show').expect(200)).body.trustScorePenalty).toBe(-5);
-    expect(await score()).toBe(45);
-  });
-
-  test('authenticated far fix just outside the 30 min lead: no penalty', async () => {
-    await fix(at(-211), true);
-    expect((await release('no_show').expect(200)).body.trustScorePenalty).toBe(0);
-    expect(await score()).toBe(50);
-  });
-
-  test('authenticated far fix from 5 hours before the deadline: released, no penalty', async () => {
-    await fix(at(-480), true);
-    expect((await release('no_show').expect(200)).body.trustScorePenalty).toBe(0);
-    expect(await score()).toBe(50);
-  });
-
-  test('token-ingested (unauthenticated) far fix: released, no penalty', async () => {
-    await fix(at(-200), false);
+  test.each([[200, true], [209, true], [211, true], [480, true], [200, false]])('no_show release with a far fix %i min before now (authenticated=%s): never a trust score change', async (min, auth) => {
+    await fix(at(-min), auth);
     const res = await release('no_show').expect(200);
-    expect(res.body.trustScorePenalty).toBe(0);
+    expect(res.body).not.toHaveProperty('trustScorePenalty');
     expect(await score()).toBe(50);
+    const d = (await ReviewQueue.findOne({ type: 'pickup_no_show' }).lean()).details;
+    expect(d.lastFix).toMatchObject({ authenticated: auth });
+    expect(d.lastAuthenticatedFix === null).toBe(!auth); // only an authenticated ping fills lastAuthenticated
+  });
+
+  test('an unauthenticated later ping never overwrites the authenticated evidence in the review item', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { carrierLocation: { ...gps(load, 0.58, at(-200), true), ...gps(load, 0.02, at(-100), false), lastAuthenticated: gps(load, 0.58, at(-200), true).lastAuthenticated } } });
+    await release('no_show').expect(200);
+    const d = (await ReviewQueue.findOne({ type: 'pickup_no_show' }).lean()).details;
+    expect(d.lastAuthenticatedFix.distanceMiles).toBeGreaterThan(39);
+    expect(d.lastFix).toMatchObject({ authenticated: false, source: 'owntracks' });
+    expect(d.lastFix.distanceMiles).toBeLessThan(2);
   });
 
   test('token-ingested far fix never produces late_certain', async () => {
@@ -650,33 +666,99 @@ describe('penalty evidence and arrival evidence', () => {
     expect((await Load.findById(load._id)).pickupRisk.level).toBe('late_certain');
   });
 
-  const arrivalCases = {
-    'a verified pickup code': () => ({ 'pickupVerification.verifiedAt': new Date(), 'pickupVerification.verifiedBy': 'dock_link' }),
-    'a pickup signature': () => ({ 'pickupSignature.signedAt': new Date(), 'pickupSignature.signedByRole': 'carrier' }),
-    'a nearby live pickup photo from the booked carrier': () => ({ evidence: [{ stage: 'pickup', file: 'x.jpg', companyId: carrier._id, facilityDistanceMiles: 0.4 }] }),
-  };
-  test.each(Object.keys(arrivalCases))('%s counts as arrived: never a no_show, release refused', async (name) => {
-    await fix(at(-200), true);
-    await Load.updateOne({ _id: load._id }, { $set: arrivalCases[name]() });
-    await runPickupRiskCheck(NOW);
+  test('late_certain still holds after a LATER token ping near the pickup moved the live point', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { pickupTimeWindow: { start: at(10), end: at(20) }, bookedWindow: { start: at(10), end: at(20) } } });
+    await fix(at(-5), true);
+    const near = gps(load, 0.001, new Date(), false);
+    await Load.updateOne({ _id: load._id }, { $set: { 'carrierLocation.latitude': near.latitude, 'carrierLocation.authenticated': false, 'carrierLocation.source': 'owntracks', 'carrierLocation.updatedAt': near.updatedAt } });
+    await runPickupRiskCheck(new Date());
     const fresh = await Load.findById(load._id);
-    expect(fresh.pickupRisk.level).toBe('on_track');
-    expect(fresh.pickupRisk.reason).toBe('arrived');
+    expect(fresh.carrierLocation.lastAuthenticated.latitude).toBeCloseTo(load.originLat - 0.58, 5); // untouched
+    expect(fresh.pickupRisk.level).toBe('late_certain');
+  });
+
+  // An authenticated breadcrumb of this booking near the origin (the corroboration for signatures and photos).
+  const crumb = (min, { dLat = 0.002, authenticated = true } = {}) => TrackingEvent.create({ load: load._id, carrier: carrier._id, latitude: load.originLat - dLat, longitude: load.originLng, source: 'mobile_app', authenticated, recordedAt: at(min) });
+  const photo = (uploadedAt, over = {}) => ({ evidence: [{ stage: 'pickup', file: 'x.jpg', companyId: carrier._id, facilityDistanceMiles: 0.4, uploadedAt, ...over }] });
+  const sign = (signedAt) => ({ 'pickupSignature.signedAt': signedAt, 'pickupSignature.signedByRole': 'carrier' });
+  const verified = () => ({ 'pickupVerification.verifiedAt': new Date(), 'pickupVerification.verifiedBy': 'dock_link' });
+  const levelAfter = async () => { await runPickupRiskCheck(NOW); return (await Load.findById(load._id)).pickupRisk; };
+
+  test('a verified pickup code alone counts as arrived: never a no_show, release refused', async () => {
+    await fix(at(-200), true);
+    await Load.updateOne({ _id: load._id }, { $set: verified() });
+    const r = await levelAfter();
+    expect(r.level).toBe('on_track');
+    expect(r.reason).toBe('arrived');
     await release('no_show').expect(409);
     expect((await Load.findById(load._id)).status).toBe('accepted');
     expect(await score()).toBe(50);
   });
 
+  test('a pickup signature or nearby photo alone (carrier\'s own app) is NOT arrival', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { ...sign(at(-200)), ...photo(at(-200)) } });
+    expect((await levelAfter()).level).toBe('no_show');
+  });
+
+  test('a signature or photo corroborated by an authenticated fix within 1 mile and 30 min counts as arrived', async () => {
+    await crumb(-195);
+    await Load.updateOne({ _id: load._id }, { $set: sign(at(-200)) });
+    expect((await levelAfter()).reason).toBe('arrived');
+    await Load.updateOne({ _id: load._id }, { $unset: { 'pickupSignature.signedAt': 1 }, $set: photo(at(-200)) });
+    await Load.updateOne({ _id: load._id }, { $set: { 'pickupRisk.level': 'no_show' } });
+    expect((await levelAfter()).reason).toBe('arrived');
+  });
+
+  test('a signature/photo with a verified code counts even without a fix', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { ...sign(at(-200)), ...verified() } });
+    expect((await levelAfter()).reason).toBe('arrived');
+  });
+
+  test.each([
+    ['an unauthenticated fix', () => crumb(-200, { authenticated: false })],
+    ['an authenticated fix 5 miles away', () => crumb(-200, { dLat: 0.08 })],
+    ['an authenticated fix more than 30 min from the signature', () => crumb(-150)],
+  ])('%s does not corroborate a signature or photo', async (name, make) => {
+    await make();
+    await Load.updateOne({ _id: load._id }, { $set: { ...sign(at(-200)), ...photo(at(-200)) } });
+    expect((await levelAfter()).level).toBe('no_show');
+  });
+
+  test('a fix from before this booking does not corroborate', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { bookedAt: at(-100) } });
+    await crumb(-110); // 11 min before the signature, but before this booking began
+    await Load.updateOne({ _id: load._id }, { $set: sign(at(-99)) });
+    expect((await levelAfter()).level).toBe('no_show');
+  });
+
   test('a far, archived, or other-company pickup photo does not count as arrival', async () => {
     const other = await verifiedCarrier();
+    await crumb(-200);
     await Load.updateOne({ _id: load._id }, { $set: { evidence: [
-      { stage: 'pickup', file: 'a.jpg', companyId: carrier._id, facilityDistanceMiles: 3 },
-      { stage: 'pickup', file: 'b.jpg', companyId: carrier._id, facilityDistanceMiles: 0.2, archived: true },
-      { stage: 'pickup', file: 'c.jpg', companyId: other._id, facilityDistanceMiles: 0.2 },
-      { stage: 'delivery', file: 'd.jpg', companyId: carrier._id, facilityDistanceMiles: 0.2 },
+      { stage: 'pickup', file: 'a.jpg', companyId: carrier._id, facilityDistanceMiles: 3, uploadedAt: at(-200) },
+      { stage: 'pickup', file: 'b.jpg', companyId: carrier._id, facilityDistanceMiles: 0.2, archived: true, uploadedAt: at(-200) },
+      { stage: 'pickup', file: 'c.jpg', companyId: other._id, facilityDistanceMiles: 0.2, uploadedAt: at(-200) },
+      { stage: 'delivery', file: 'd.jpg', companyId: carrier._id, facilityDistanceMiles: 0.2, uploadedAt: at(-200) },
     ] } });
+    expect((await levelAfter()).level).toBe('no_show');
+  });
+
+  test('the review item records which arrival signals existed and how trustworthy they were', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { ...sign(at(-200)), ...photo(at(-200)) } });
     await runPickupRiskCheck(NOW);
-    expect((await Load.findById(load._id)).pickupRisk.level).toBe('no_show');
+    await release('no_show').expect(200);
+    const d = (await ReviewQueue.findOne({ type: 'pickup_no_show' }).lean()).details;
+    expect(d.arrivalSignalsFound).toBe(false);
+    expect(d.arrivalSignals).toMatchObject({ geofence: null, verifiedCode: false, signature: 'uncorroborated', photo: 'uncorroborated' });
+  });
+
+  test('an unauthenticated geofence check-in still counts as arrival, and the review/evidence says which kind', async () => {
+    const ev = await DwellEvent.create({ load: load._id, carrier: carrier._id, shipper: shipper._id, stopType: 'pickup', bookedAt: (await Load.findById(load._id)).bookedAt, arrivedAt: new Date(), arrivalAuthenticated: false });
+    expect((await levelAfter()).reason).toBe('arrived');
+    const { noShowSnapshot } = require('../../jobs/pickupRiskMonitor');
+    expect((await noShowSnapshot(load._id)).arrivalSignals.geofence).toBe('unauthenticated');
+    await DwellEvent.updateOne({ _id: ev._id }, { $set: { arrivalAuthenticated: true } });
+    expect((await noShowSnapshot(load._id)).arrivalSignals.geofence).toBe('authenticated');
   });
 });
 

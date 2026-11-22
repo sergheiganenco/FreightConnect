@@ -112,9 +112,11 @@ const bookingKey = (d) => (d ? new Date(d).getTime() : 0);
  * @param {string} [opts.loadId] - Scope the check to this one load (must still be
  *   this carrier's and active). A ping belongs to one truck/load; without this,
  *   every active load of the carrier company is checked (legacy behaviour).
+ * @param {boolean} [opts.authenticated] - the fix is proven to come from the booked carrier (not a bearer link
+ *   token). Stored on the DwellEvent as arrivalAuthenticated / departureAuthenticated so detention billing can tell.
  * @returns {Object} { checkedIn: [], checkedOut: [] } - arrays of DwellEvent IDs affected
  */
-async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
+async function checkGeofence(carrierId, latitude, longitude, { loadId, authenticated = false } = {}) {
   if (!carrierId || latitude == null || longitude == null) return { checkedIn: [], checkedOut: [] };
 
   const result = { checkedIn: [], checkedOut: [] };
@@ -164,6 +166,7 @@ async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
             facilityName: cp.facilityName,
             facilityAddress: cp.facilityAddress,
             arrivedAt: new Date(),
+            arrivalAuthenticated: authenticated === true,
           });
 
           result.checkedIn.push(dwellEvent._id);
@@ -209,6 +212,7 @@ async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
         } else if (!within && existingEvent) {
           // ── LEAVE geofence: auto-check-out ───────────────────────────
           existingEvent.departedAt = new Date();
+          existingEvent.departureAuthenticated = authenticated === true;
           await existingEvent.save();
 
           // Recalculate detention
