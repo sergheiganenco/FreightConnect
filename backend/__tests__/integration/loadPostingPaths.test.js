@@ -293,3 +293,88 @@ describe('posting gate always applies to the company', () => {
     expect(r.load.distanceMiles == null).toBe(true);
   });
 });
+
+describe('place and text bounds at the single posting path', () => {
+  const ok = { title: 'T', origin: 'Austin, TX', destination: 'Denver, CO', rate: 100, equipmentType: 'Dry Van', originLat: 30.27, originLng: -97.74, destinationLat: 39.74, destinationLng: -104.99 };
+  const item = { title: 'B', origin: 'Austin, TX', destination: 'Denver, CO', rate: 1000, equipmentType: 'Dry Van', originLat: 30.27, originLng: -97.74, destinationLat: 39.74, destinationLng: -104.99 };
+  const app2 = express();
+  app2.use(express.json());
+  app2.use('/api/loads', require('../../routes/loadRoutes')(mockIo));
+  app2.use('/api/edi', require('../../routes/ediRoutes'));
+  app2.use('/api/enterprise', require('../../routes/enterpriseRoutes'));
+  const status = (code) => ({ ok: false, status: code, json: async () => ({}) });
+  const plain = { title: 'T', origin: 'Austin, TX', destination: 'Denver, CO', rate: 100, equipmentType: 'Dry Van' };
+  let shipper;
+  beforeEach(async () => {
+    fetch.mockReset(); axios.get.mockReset();
+    shipper = await createTestUser({ role: 'shipper', shipperVerification: VERIFIED });
+  });
+
+  test.each([
+    ['over 200 characters', 'x'.repeat(201)],
+    ['a control character', 'Austin\nTX'],
+    ['a NUL character', 'Austin\u0000, TX'],
+  ])('POST /loads rejects an origin with %s', async (_n, origin) => {
+    const res = await request(app2).post('/api/loads').set(bearer(shipper)).send({ ...ok, origin });
+    expect(res.status).toBe(400);
+    expect(await Load.countDocuments({ postedBy: shipper._id })).toBe(0);
+  });
+
+  test('POST /loads rejects an over-long title; exactly 200 characters is accepted', async () => {
+    expect((await request(app2).post('/api/loads').set(bearer(shipper)).send({ ...ok, title: 't'.repeat(201) })).status).toBe(400);
+    expect((await request(app2).post('/api/loads').set(bearer(shipper)).send({ ...ok, title: 't'.repeat(200), origin: 'o'.repeat(200) })).status).toBe(201);
+  });
+
+  test('createPostedLoad rejects non-string, blank and bad places directly', async () => {
+    for (const origin of [123, { a: 1 }, ['Austin, TX'], '   ', true]) {
+      const r = await createPostedLoad({ shipperCompanyId: shipper._id, options: { notify: false }, fields: { ...ok, origin } });
+      expect(r.status).toBe(400);
+    }
+    const r = await createPostedLoad({ shipperCompanyId: shipper._id, options: { notify: false }, fields: { ...ok, destination: 'D'.repeat(201) } });
+    expect(r.status).toBe(400);
+    const notes = await createPostedLoad({ shipperCompanyId: shipper._id, options: { notify: false }, fields: { ...ok, notes: 'n'.repeat(2001) } });
+    expect(notes.status).toBe(400);
+    expect(await Load.countDocuments({ postedBy: shipper._id })).toBe(0);
+  });
+
+  test('EDI create-load rejects an over-long place', async () => {
+    const doc = await EDIDocument.create({
+      direction: 'inbound', type: '204', rawContent: 'x', status: 'parsed', shipper: shipper._id,
+      parsedData: { origin: { city: 'C'.repeat(250), state: 'IL' }, destination: { city: 'Dallas', state: 'TX' }, references: [], totalChargesCents: 250000 },
+    });
+    const res = await request(app2).post(`/api/edi/${doc._id}/create-load`).set(bearer(shipper)).send({});
+    expect(res.status).toBe(400);
+    expect(await Load.countDocuments({ postedBy: shipper._id })).toBe(0);
+  });
+
+  test('bulk reports a bad place per item and still creates the good one', async () => {
+    const res = await request(app2).post('/api/enterprise/loads/bulk').set(bearer(shipper)).send({ loads: [
+      item, { ...item, origin: 'x'.repeat(201) }, { ...item, destination: 'Den\u0007ver' },
+    ] });
+    expect(res.status).toBe(201);
+    expect(res.body.created.map((c) => c.index)).toEqual([0]);
+    expect(res.body.errors.map((e) => e.index)).toEqual([1, 2]);
+  });
+
+  test.each([400, 414, 404])('geocoder HTTP %i is "not found": POST /loads answers 400 with the usual message', async (code) => {
+    fetch.mockResolvedValue(status(code));
+    const res = await request(app2).post('/api/loads').set(bearer(shipper)).send({ ...plain, origin: 'Weird' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/couldn't find the pickup location "Weird"/);
+  });
+
+  test.each([429, 500, 503])('geocoder HTTP %i is an outage: the load posts flagged needsLocation', async (code) => {
+    fetch.mockResolvedValue(status(code));
+    const res = await request(app2).post('/api/loads').set(bearer(shipper)).send(plain);
+    expect(res.status).toBe(201);
+    expect(res.body.needsLocation).toBe(true);
+  });
+
+  test('bulk creation is limited per company (10 requests / 15 min)', async () => {
+    const send = (u) => request(app2).post('/api/enterprise/loads/bulk').set(bearer(u)).send({ loads: [item] });
+    for (let i = 0; i < 10; i++) expect((await send(shipper)).status).toBe(201);
+    expect((await send(shipper)).status).toBe(429);
+    const other = await createTestUser({ role: 'shipper', shipperVerification: VERIFIED });
+    expect((await send(other)).status).toBe(201);
+  });
+});

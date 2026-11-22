@@ -2,11 +2,11 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 
 const LoadSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  origin: { type: String, required: true },
+  title: { type: String, required: true, maxlength: 200 },
+  origin: { type: String, required: true, maxlength: 200 },
   originLat: Number,
   originLng: Number,
-  destination: { type: String, required: true },
+  destination: { type: String, required: true, maxlength: 200 },
   destinationLat: Number,
   destinationLng: Number,
   rate: { type: Number, required: true },
@@ -371,8 +371,12 @@ const LoadSchema = new mongoose.Schema({
   locationProblem: {
     field: { type: String, enum: ['origin', 'destination'] },
     place: String,
+    reason: String,   // 'not_found' | 'unreachable' (geocoder never answered after repeated tries)
     at:    Date,
   },
+  // jobs/loadLocator backoff: failed geocode attempts and the earliest time the next one is allowed.
+  locationAttempts: { type: Number, default: 0 },
+  locationNextAttemptAt: { type: Date, default: null },
   pickupRisk: {
     level:      { type: String, enum: ['not_evaluated', 'on_track', 'at_risk', 'late_certain', 'no_show'] },
     reason:      String,

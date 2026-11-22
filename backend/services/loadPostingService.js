@@ -51,6 +51,10 @@ async function fetchCoords(location) {
       { headers: { 'User-Agent': 'FreightConnect/1.0 (loads@freightconnect.app)' }, signal: ctrl.signal }
     );
     clearTimeout(t);
+    // 429 / 5xx / anything unexpected = outage (retry later). Any other 4xx (400, 404, 414...) means the geocoder refuses
+    // this exact string, so retrying can never help: treat it like "not found".
+    if (resp.status === 429 || resp.status >= 500) return null;
+    if (!resp.ok && resp.status >= 400) return { notFound: true, reason: 'rejected' };
     if (!resp.ok) return null;
     const data = await resp.json();
     // The geocoder answered and found nothing: the place name is wrong. That is different from an outage.
@@ -61,6 +65,36 @@ async function fetchCoords(location) {
     console.warn(`[loads] geocode failed for "${location}" (non-fatal):`, geoErr.message);
     return null; // post the load anyway; coordinates can be filled later
   }
+}
+
+// Free-text caps. No pre-existing length limits anywhere (express-validator on POST /loads only checks non-empty),
+// so these are generous: places/titles 200, short ids/names/phones 200, addresses 300, instructions/notes 2000.
+const MAX_PLACE = 200;
+const TEXT_CAPS = {
+  title: 200, specialInstructions: 2000, notes: 2000, carrierInstructions: 2000,
+  commodityType: 200, commodityCategory: 200, paymentTerms: 200, currency: 10,
+  hazmatClass: 50, hazmatPackingGroup: 50, dangerousGoodsUN: 50,
+  poNumber: 200, shipperReferenceNumber: 200, consigneeReference: 200, externalRef: 200,
+  pickupFacilityName: 200, pickupAddress: 300, pickupContactName: 200, pickupContactPhone: 50,
+  deliveryFacilityName: 200, deliveryAddress: 300, deliveryContactName: 200, deliveryContactPhone: 50,
+  overweightPermitNumber: 200,
+};
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/** Error message for an unacceptable posted field, or null. */
+function badFieldMessage(fields) {
+  for (const [key, label] of [['origin', 'Origin'], ['destination', 'Destination']]) {
+    const v = fields[key];
+    if (typeof v !== 'string' || !v.trim()) return `${label} must be a non-empty text value.`;
+    if (v.length > MAX_PLACE) return `${label} must be ${MAX_PLACE} characters or fewer.`;
+    if (CONTROL_CHARS.test(v)) return `${label} contains invalid characters.`;
+  }
+  for (const [key, max] of Object.entries(TEXT_CAPS)) {
+    const v = fields[key];
+    if (typeof v === 'string' && v.length > max) return `${key} must be ${max} characters or fewer.`;
+  }
+  return null;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -168,6 +202,9 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
     if (!title || !origin || !destination || !rate || !equipmentType) {
       return { status: 400, error: 'Title, origin, destination, rate and equipmentType are required.' };
     }
+
+    const bad = badFieldMessage(fields);
+    if (bad) return { status: 400, error: bad };
 
     // Same strict ISO + end>=start rule as the dedicated window endpoints; checked before any outside call.
     let pickupTimeWindow, deliveryTimeWindow;

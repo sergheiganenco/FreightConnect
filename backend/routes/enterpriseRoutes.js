@@ -12,6 +12,7 @@ const webhookDelivery = require('../services/webhookDelivery');
 const loadParser = require('../services/loadParserService');
 const { createPostedLoad, shipperPostingGate, makeGeocodeBudget } = require('../services/loadPostingService');
 const { getIO } = require('../utils/socket');
+const { makeLimiter } = require('../middlewares/rateLimiter');
 
 // All enterprise routes require authentication (API key or JWT)
 router.use(apiKeyAuth);
@@ -384,12 +385,21 @@ router.post(
 // BULK OPERATIONS
 // ════════════════════════════════════════════════════════════════════════════════
 
+// One request creates up to 100 loads, so cap requests per company (keyed after auth; the per-IP apiLimiter alone allowed
+// 100 requests/min = 10,000 loads/min).
+const bulkCreateLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => String(req.user?.companyOwnerId || req.user?.userId || 'anon'),
+  message: { error: 'Too many bulk load requests, please try again later' },
+}, 'rl:bulk-loads:');
+
 /**
  * POST /api/enterprise/loads/bulk — Bulk create loads (max 100)
  * Requires 'loads:write' permission for API key auth.
  */
 router.post(
   '/loads/bulk',
+  bulkCreateLimiter,
   requirePermission('loads:write'),
   [
     body('loads')
