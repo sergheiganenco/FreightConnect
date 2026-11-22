@@ -21,7 +21,8 @@ const PROPOSAL_TTL_MS = 24 * 60 * 60 * 1000; // same as the backend: a proposal 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const BTN = { minHeight: 44 };
 
-const fmt = (d) => new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' });
+// dateStyle/timeStyle cannot be combined with timeZoneName (toLocaleString throws), so spell the parts out.
+const fmt = (d) => new Date(d).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
 const fmtWin = (w) => (w?.end ? `${fmt(w.start)} to ${fmt(w.end)}` : fmt(w.start));
 const pad = (n) => String(n).padStart(2, '0');
 const toLocalInput = (d) => {
