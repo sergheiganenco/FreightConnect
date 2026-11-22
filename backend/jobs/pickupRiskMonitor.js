@@ -19,10 +19,14 @@ const { notifyUserSafe } = require('../utils/notifyUser');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LOOKAHEAD_MS = 12 * 60 * 60 * 1000;
+const NEAR_PHOTO_MILES = 1;
 const NOTIFY_LEVELS = ['at_risk', 'late_certain', 'no_show'];
-const SELECT = 'title origin pickupFacilityName pickupAddress originLat originLng pickupTimeWindow carrierLocation postedBy acceptedBy assignedDriverName pickupRisk.notified pickupRisk.carrierConfirmation bookedAt';
+const SELECT = 'title origin pickupFacilityName pickupAddress originLat originLng pickupTimeWindow bookedWindow carrierLocation postedBy acceptedBy assignedDriverName pickupRisk.notified pickupRisk.carrierConfirmation bookedAt pickupVerification.verifiedAt pickupSignature.signedAt';
 
 const fmt = (d) => `${new Date(d).toUTCString().replace(' GMT', '')} UTC`;
+// The window the carrier agreed to at booking. pickupTimeWindow is only a fallback for loads booked before
+// bookedWindow existed; a shipper-edited pickupTimeWindow can never judge the carrier.
+const agreedWindow = (l) => (l.bookedWindow && l.bookedWindow.start ? l.bookedWindow : l.pickupTimeWindow) || {};
 const place = (l) => l.pickupFacilityName || l.pickupAddress || l.origin;
 
 /** Plain-language messages for one result. `estimate` wording is mandatory: these are not measurements. */
@@ -34,11 +38,11 @@ function messages(load, r) {
   const est = d.distanceMilesStraight != null
     ? `Last GPS fix was about ${d.distanceMilesStraight} straight-line miles away (estimate: x1.25 road factor at ${d.assumedMph} mph, about ${d.driveMinutesEstimate} min of driving; ${d.minutesRemaining} min remaining).`
     : '';
-  const wantsConfirm = `Pickup at ${where} is due ${fmt(load.pickupTimeWindow.start)}. Confirm you're on the way.`;
+  const wantsConfirm = `Pickup at ${where} is due ${fmt(agreedWindow(load).start)}. Confirm you're on the way.`;
   if (r.reason === 'carrier_declined') {
     return {
       carrier: { type: 'pickup:at_risk', title: 'Pickup: you told the shipper you cannot make it', body: `The shipper was told you can't make pickup at ${where}. They may release the load.` },
-      shipper: { type: 'pickup:carrier_declined', title: 'Carrier cannot make pickup', body: `The carrier says it can't make this pickup at ${where} (due ${fmt(load.pickupTimeWindow.start)}). The booking stays in place until you act; you can release the load to standby carriers.` },
+      shipper: { type: 'pickup:carrier_declined', title: 'Carrier cannot make pickup', body: `The carrier says it can't make this pickup at ${where} (due ${fmt(agreedWindow(load).start)}). The booking stays in place until you act; you can release the load to standby carriers.` },
     };
   }
   if (r.level === 'at_risk') {
@@ -47,7 +51,7 @@ function messages(load, r) {
       shipper: {
         type: 'pickup:at_risk', title: 'Pickup may be missed',
         body: r.reason === 'no_gps'
-          ? `We are not receiving the carrier's location and pickup at ${where} is due ${fmt(load.pickupTimeWindow.start)}. This is not a confirmed problem. ${basis}`.trim()
+          ? `We are not receiving the carrier's location and pickup at ${where} is due ${fmt(agreedWindow(load).start)}. This is not a confirmed problem. ${basis}`.trim()
           : `Pickup at ${where} may be missed. ${est} ${basis}These are estimates, not confirmed delays.`.trim(),
       },
     };
@@ -80,12 +84,13 @@ async function sendNotices(load, r, skip = {}) {
  */
 async function applyEvaluation(load, arrived, now, skip = {}) {
   const loc = load.carrierLocation && load.carrierLocation.updatedAt && load.carrierLocation.latitude != null
-    ? { lat: load.carrierLocation.latitude, lng: load.carrierLocation.longitude, updatedAt: load.carrierLocation.updatedAt }
+    ? { lat: load.carrierLocation.latitude, lng: load.carrierLocation.longitude, updatedAt: load.carrierLocation.updatedAt, authenticated: load.carrierLocation.authenticated === true }
     : null;
+  const win = agreedWindow(load);
   const result = evaluatePickupRisk({
     now,
-    pickupStart: load.pickupTimeWindow && load.pickupTimeWindow.start,
-    pickupEnd: load.pickupTimeWindow && load.pickupTimeWindow.end,
+    pickupStart: win.start,
+    pickupEnd: win.end,
     origin: { lat: load.originLat, lng: load.originLng },
     lastLocation: loc,
     arrivedAtPickup: arrived,
@@ -116,8 +121,24 @@ async function pickupArrivals(loads) {
   // Bind to the CURRENT booking: an arrival from an earlier booking by the same carrier does not count.
   // (Loads booked before bookedAt existed have none: every arrival counts, as before.)
   const booked = new Map(loads.map((l) => [String(l._id), l.bookedAt]));
-  return new Set(events.filter((e) => { const b = booked.get(String(e.load)); return !b || new Date(e.arrivedAt) >= new Date(b); })
-    .map((e) => `${e.load}:${e.carrier}`));
+  const during = (id, at) => { const b = booked.get(String(id)); return !b || new Date(at) >= new Date(b); };
+  const out = new Set(events.filter((e) => during(e.load, e.arrivedAt)).map((e) => `${e.load}:${e.carrier}`));
+  // Other arrival evidence, all of it from THIS booking: a verified pickup code, a pickup signature, or a live
+  // pickup photo from the booked carrier taken within 1 mile of the facility. Any of them means the truck got there.
+  for (const l of loads) {
+    const v = l.pickupVerification && l.pickupVerification.verifiedAt;
+    const sg = l.pickupSignature && l.pickupSignature.signedAt;
+    if ((v && during(l._id, v)) || (sg && during(l._id, sg))) out.add(`${l._id}:${l.acceptedBy}`);
+  }
+  const photos = await Load.find({
+    _id: { $in: loads.map((l) => l._id) },
+    evidence: { $elemMatch: { stage: 'pickup', archived: { $ne: true }, facilityDistanceMiles: { $lte: NEAR_PHOTO_MILES } } },
+  }).select('acceptedBy +evidence').lean(); // evidence is select:false
+  for (const p of photos) {
+    if ((p.evidence || []).some((e) => e.stage === 'pickup' && !e.archived && e.facilityDistanceMiles != null && e.facilityDistanceMiles <= NEAR_PHOTO_MILES
+      && String(e.companyId) === String(p.acceptedBy))) out.add(`${p._id}:${p.acceptedBy}`);
+  }
+  return out;
 }
 
 /** Re-evaluate a single load now (used by the carrier-response route). */
@@ -131,9 +152,13 @@ async function refreshLoad(loadId, skip = {}, now = new Date()) {
 async function runPickupRiskCheck(now = new Date()) {
   const stats = { checked: 0, notified: 0, atRisk: 0, lateCertain: 0, noShow: 0, errors: 0 };
   try {
+    const range = { $gte: new Date(now.getTime() - DAY_MS), $lte: new Date(now.getTime() + LOOKAHEAD_MS) };
     const loads = await Load.find({
       status: 'accepted', acceptedBy: { $ne: null },
-      'pickupTimeWindow.start': { $gte: new Date(now.getTime() - DAY_MS), $lte: new Date(now.getTime() + LOOKAHEAD_MS) },
+      $or: [
+        { 'bookedWindow.start': range },
+        { 'bookedWindow.start': { $exists: false }, 'pickupTimeWindow.start': range }, // booked before bookedWindow existed
+      ],
     }).select(SELECT).lean();
     const arrivals = loads.length ? await pickupArrivals(loads) : new Set();
     for (const load of loads) {
@@ -163,4 +188,4 @@ function start() {
   console.log('[PickupRisk] Scheduled — runs every 5 minutes');
 }
 
-module.exports = { start, runPickupRiskCheck, refreshLoad, messages, NOTIFY_LEVELS, _applyEvaluation: applyEvaluation };
+module.exports = { start, runPickupRiskCheck, refreshLoad, messages, agreedWindow, pickupArrivals, NOTIFY_LEVELS, _applyEvaluation: applyEvaluation };

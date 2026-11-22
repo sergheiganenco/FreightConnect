@@ -4,8 +4,10 @@
  * screen off, at no cost, without a custom iOS build.
  *
  * These ingest endpoints are NOT JWT-authenticated (the tracker apps can't log in).
- * Instead each load has a stateless per-load token (HMAC of the loadId) embedded in
- * the configured URL. Feeds the SAME carrierLocation + socket pipeline the app uses.
+ * Instead each BOOKING has a token (HMAC of loadId + carrier + the booking's random nonce) embedded in
+ * the configured URL; it dies when the load is re-booked or released. Only the booked carrier company can
+ * obtain it. Feeds the SAME carrierLocation + socket pipeline the app uses, but every fix arrives with
+ * authenticated:false (bearer token, not a login), so it never backs a penalty or a late_certain verdict.
  *
  * Mounted at /api/tracking/ingest
  */
@@ -28,25 +30,30 @@ function getTrackingSecret() {
   return secret;
 }
 
-function tokenForLoad(loadId) {
+function tokenForLoad(loadId, carrierId, nonce) {
+  if (!carrierId || !nonce) throw new Error('tracking token needs a booked carrier and booking nonce');
   return crypto
     .createHmac('sha256', getTrackingSecret())
-    .update(String(loadId))
+    .update(`${loadId}:${carrierId}:${nonce}`)
     .digest('hex')
     .slice(0, 24);
 }
 
-function verifyToken(loadId, token) {
+// Verified against the load's CURRENT carrier + nonce, so a link from an earlier booking (or from before
+// nonces existed) fails exactly like any other bad token.
+async function verifyToken(loadId, token) {
   if (!loadId || !token) return false;
-  let expected;
   try {
-    expected = tokenForLoad(loadId);
+    getTrackingSecret(); // no secret configured → reject (fail closed), never accept
+    const load = await Load.findById(loadId).select('acceptedBy +trackingNonce').lean();
+    if (!load || !load.acceptedBy || !load.trackingNonce) return false;
+    const expected = tokenForLoad(load._id, load.acceptedBy, load.trackingNonce);
+    const a = Buffer.from(String(token));
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch (_) {
-    return false; // no secret configured → reject (fail closed), never accept
+    return false;
   }
-  const a = Buffer.from(String(token));
-  const b = Buffer.from(expected);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 // ── Shared: delegate to trackingService (single source of truth) ──────────────
@@ -63,6 +70,7 @@ async function ingestLocation({ loadId, latitude, longitude, speed, heading, acc
     heading: heading != null ? heading : null,
     accuracy: accuracy != null ? accuracy : null,
     source: source || 'external_tracker',
+    authenticated: false, // bearer link token, not a login: never penalty/late_certain evidence
   });
 }
 
@@ -72,7 +80,7 @@ async function ingestLocation({ loadId, latitude, longitude, speed, heading, acc
 router.post('/owntracks', async (req, res) => {
   try {
     const { loadId, token } = req.query;
-    if (!verifyToken(loadId, token)) return res.status(401).json([]);
+    if (!(await verifyToken(loadId, token))) return res.status(401).json([]);
 
     const b = req.body || {};
     if (b._type && b._type !== 'location') return res.json([]); // ignore transition/etc.
@@ -103,7 +111,7 @@ router.get('/osmand', async (req, res) => {
   try {
     const q = req.query;
     const loadId = q.loadId;
-    if (!verifyToken(loadId, q.token)) return res.status(401).send('unauthorized');
+    if (!(await verifyToken(loadId, q.token))) return res.status(401).send('unauthorized');
 
     const lat = Number(q.lat != null ? q.lat : q.latitude);
     const lon = Number(q.lon != null ? q.lon : q.longitude);
@@ -130,22 +138,30 @@ router.get('/osmand', async (req, res) => {
   }
 });
 
-// ── GET /link/:loadId — return the tracker config for a load (carrier/shipper/admin) ──
+// ── GET /link/:loadId — tracker config for a load: the BOOKED carrier company only (owner/dispatcher/driver) ──
+// Shippers and admins never receive it: whoever holds the token can inject positions for the load.
 router.get('/link/:loadId', auth, async (req, res) => {
   try {
-    const load = await Load.findById(req.params.loadId).select('postedBy acceptedBy title');
+    const load = await Load.findById(req.params.loadId).select('acceptedBy status title +trackingNonce');
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    const uid = String(req.user.userId);
-    const allowed =
-      uid === String(load.postedBy) ||
-      uid === String(load.acceptedBy) ||
-      req.user.role === 'admin';
-    if (!allowed) return res.status(403).json({ error: 'Not authorized' });
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
+    if (req.user.role !== 'carrier' || !load.acceptedBy || String(load.acceptedBy) !== companyId) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+    if (!['accepted', 'in-transit'].includes(load.status)) return res.status(409).json({ error: 'Load is not booked' });
+
+    // Loads booked before nonces existed: create it now (atomically; a concurrent caller's value wins).
+    if (!load.trackingNonce) {
+      await Load.updateOne({ _id: load._id, acceptedBy: load.acceptedBy, trackingNonce: { $exists: false } },
+        { $set: { trackingNonce: crypto.randomBytes(16).toString('hex') } });
+      load.trackingNonce = (await Load.findById(load._id).select('+trackingNonce').lean())?.trackingNonce;
+      if (!load.trackingNonce) return res.status(409).json({ error: 'Load is not booked' });
+    }
 
     // Prefer an explicit public base (tunnel / prod URL); fall back to the request host.
     const base = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    const token = tokenForLoad(load._id);
+    const token = tokenForLoad(load._id, load.acceptedBy, load.trackingNonce);
 
     res.json({
       loadId: String(load._id),

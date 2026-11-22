@@ -288,6 +288,7 @@ io.on('connection', (socket) => {
         // but gate consent on the actual person whose device is sending.
         authCarrierId: socket.companyOwnerId,
         consentUserId: socket.userId,
+        authenticated: !!socket.companyOwnerId, // recordLocation 403s unless it matches the load's carrier
       });
     } catch (error) {
       console.error('Error updating carrier location:', error);

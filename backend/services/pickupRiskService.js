@@ -5,6 +5,8 @@
  * speed is an assumption. Every `detail` carries the numbers used so UI/notification
  * text can say so honestly. Conservative by design: it only raises a flag from fresh
  * GPS evidence, or from the absence of ANY location very close to the pickup time.
+ * `pickupStart`/`pickupEnd` must be the AGREED (booked) window; `lastLocation.authenticated` marks a fix
+ * from the booked carrier's own session (required for late_certain).
  */
 const { haversineMiles } = require('../utils/geo');
 
@@ -79,13 +81,15 @@ function evaluatePickupRisk({
       locationAgeMinutes: minutes(ageMs),
     };
     if (straight < NEAR_PICKUP_MILES) return { level: 'on_track', reason: 'near_pickup', detail: d };
-    if (fastMs > remainingMs) {
+    // late_certain is a position-based verdict: only a fix authenticated as the booked carrier may produce it.
+    // A bearer-link-token fix still drives the live map and this at_risk prompt, nothing stronger.
+    if (fastMs > remainingMs && lastLocation.authenticated === true) {
       return {
         level: 'late_certain', reason: 'cannot_arrive_in_time',
         detail: { ...d, fastestMph: FAST_MPH, minutesLateAtLeast: Math.max(1, minutes(fastMs - remainingMs)), minutesLateEstimate: Math.max(1, minutes(normalMs - remainingMs)) },
       };
     }
-    if (normalMs > remainingMs - MARGIN_MS) {
+    if (normalMs > remainingMs - MARGIN_MS || fastMs > remainingMs) {
       return { level: 'at_risk', reason: 'drive_time_exceeds_time_remaining', detail: { ...d, minutesLateEstimate: Math.max(0, minutes(normalMs - remainingMs)) } };
     }
     return { level: 'on_track', reason: 'gps_on_track', detail: d };

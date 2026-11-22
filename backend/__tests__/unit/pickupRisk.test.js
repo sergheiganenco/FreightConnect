@@ -4,7 +4,7 @@ const NOW = new Date('2026-06-10T12:00:00Z');
 const at = (min) => new Date(NOW.getTime() + min * 60000);
 const ORIGIN = { lat: 41.8781, lng: -87.6298 };
 // 0.5 degrees of latitude ~ 34.5 straight-line mi -> 43.2 road mi -> 57.6 min at 45 mph, 43.2 min at 60 mph
-const loc = (ageMin, dLat = 0.5) => ({ lat: ORIGIN.lat - dLat, lng: ORIGIN.lng, updatedAt: at(-ageMin) });
+const loc = (ageMin, dLat = 0.5, authenticated = true) => ({ lat: ORIGIN.lat - dLat, lng: ORIGIN.lng, updatedAt: at(-ageMin), authenticated });
 
 const base = { now: NOW, origin: ORIGIN, pickupStart: at(60), pickupEnd: at(180), lastLocation: null, arrivedAtPickup: false, carrierConfirmation: null };
 
@@ -27,6 +27,9 @@ const cases = [
   ['no GPS, pickup in 3h -> on_track (too early to worry)', { pickupStart: at(180), pickupEnd: at(300) }, 'on_track'],
   ['no GPS + on_my_way -> suppressed', { carrierConfirmation: 'on_my_way' }, 'on_track'],
   ['fresh GPS late + on_my_way -> still late_certain', { lastLocation: loc(5), pickupStart: at(30), pickupEnd: at(40), carrierConfirmation: 'on_my_way' }, 'late_certain'],
+  ['fresh token-ingested (unauthenticated) GPS that cannot arrive -> at_risk, never late_certain', { lastLocation: loc(5, 0.5, false), pickupStart: at(30), pickupEnd: at(40) }, 'at_risk', 'drive_time_exceeds_time_remaining'],
+  ['legacy fix with no authenticated flag -> at_risk, never late_certain', { lastLocation: { ...loc(5), authenticated: undefined }, pickupStart: at(30), pickupEnd: at(40) }, 'at_risk'],
+  ['unauthenticated far-away fix past the window is still no_show (no GPS needed)', { lastLocation: loc(5, 0.5, false), pickupStart: at(-151), pickupEnd: at(-31) }, 'no_show'],
   ['no_show just before grace (30 min after latest) -> not no_show', { pickupStart: at(-150), pickupEnd: at(-30) }, 'at_risk', 'no_gps'],
   ['no_show 31 min after latest -> no_show', { pickupStart: at(-151), pickupEnd: at(-31) }, 'no_show', 'no_arrival_after_window'],
   ['no_show needs no GPS and ignores on_my_way', { pickupStart: at(-151), pickupEnd: at(-31), carrierConfirmation: 'on_my_way', lastLocation: loc(5) }, 'no_show'],

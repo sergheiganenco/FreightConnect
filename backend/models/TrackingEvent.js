@@ -39,6 +39,9 @@ const TrackingEventSchema = new mongoose.Schema(
       default: 'api',
     },
 
+    // true = proven to come from the booked carrier company; false = bearer link token / unproven.
+    authenticated: { type: Boolean, default: false },
+
     recordedAt: { type: Date, default: Date.now, index: true },
   },
   {

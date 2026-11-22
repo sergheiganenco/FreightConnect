@@ -106,6 +106,7 @@ async function runEldPoll() {
             heading: loc.heading ?? null,
             accuracy: null,
             source: 'eld',
+            authenticated: true, // connection.carrier owns the resolved load (resolveLoadId)
           });
           if (result && result.ok) totalRecorded += 1;
         } catch (locErr) {

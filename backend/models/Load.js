@@ -167,7 +167,10 @@ const LoadSchema = new mongoose.Schema({
     speed:     Number,          // km/h (optional, from GPS)
     heading:   Number,          // degrees 0-360 (optional)
     accuracy:  Number,          // meters (optional)
-    source:    { type: String, enum: ['browser', 'mobile_app', 'eld', 'api'], default: 'browser' },
+    source:    { type: String, enum: ['browser', 'mobile_app', 'eld', 'api', 'owntracks', 'traccar'], default: 'browser' },
+    // true only when the fix came from the booked carrier company's own authenticated session or ELD
+    // connection; false for bearer-link-token ingest (OwnTracks/OsmAnd). Penalties/late_certain need true.
+    authenticated: { type: Boolean, default: false },
     updatedAt: { type: Date, default: null },
   },
 
@@ -334,6 +337,21 @@ const LoadSchema = new mongoose.Schema({
   // When the CURRENT booking began (set by the pickupLifecycle hook on every booking path). Binds pickup
   // arrivals to this booking: a DwellEvent from an earlier booking by the same carrier does not count.
   bookedAt: Date,
+  // The pickup window both parties agreed at booking. Risk evaluation, the release gate and the penalty
+  // judge the carrier against THIS, never against a shipper-edited pickupTimeWindow. Set/cleared by the hook.
+  bookedWindow: { start: Date, end: Date },
+  // A shipper's more-demanding window edit on a booked load waits here until the booked carrier accepts it.
+  pickupWindowChange: {
+    proposedStart: Date,
+    proposedEnd:   Date,
+    proposedAt:    Date,
+    proposedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    status:        { type: String, enum: ['pending', 'accepted', 'declined'] },
+    respondedAt:   Date,
+    respondedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  },
+  // Per-booking random nonce bound into the tracker-link token, so a link dies when the load is re-booked.
+  trackingNonce: { type: String, select: false },
   pickupRisk: {
     level:      { type: String, enum: ['not_evaluated', 'on_track', 'at_risk', 'late_certain', 'no_show'] },
     reason:      String,
@@ -363,7 +381,7 @@ LoadSchema.pre('save', function(next) {
 // (status open/cancelled, or acceptedBy:null) clears the code. save() covers the
 // doc-based unassign. `required` is never touched here.
 const PV = 'pickupVerification';
-function pickupLifecycle(update) {
+function pickupLifecycle(update, win) {
   const u = Object.keys(update).some(k => k.startsWith('$')) ? update : { $set: update };
   const set = u.$set || {};
   const booked = set.status === 'accepted' && set.acceptedBy;
@@ -376,8 +394,12 @@ function pickupLifecycle(update) {
   u.$unset.pickupRisk = 1;
   u.$unset.carrierLocation = 1;
   for (const f of ['verifiedAt', 'verifiedBy', 'lockedAt']) u.$unset[`${PV}.${f}`] = 1;
-  if (booked) { set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0'); set.bookedAt = new Date(); }
-  else u.$unset[`${PV}.code`] = 1;
+  u.$unset.pickupWindowChange = 1;
+  if (booked) {
+    set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0'); set.bookedAt = new Date();
+    set.trackingNonce = crypto.randomBytes(16).toString('hex');
+    if (win && win.start) set.bookedWindow = { start: win.start, end: win.end }; else u.$unset.bookedWindow = 1;
+  } else { u.$unset[`${PV}.code`] = 1; u.$unset.trackingNonce = 1; u.$unset.bookedWindow = 1; }
   return u;
 }
 
@@ -401,7 +423,11 @@ for (const op of ['findOneAndUpdate', 'updateOne']) {
     if (set.status === 'open' || set.status === 'cancelled' || set.acceptedBy === null) {
       try { this._archiveId = (await this.model.findOne(this.getFilter()).select('_id').lean())?._id; } catch (_) {}
     }
-    this.setUpdate(pickupLifecycle(upd));
+    let win = null;
+    if (set.status === 'accepted' && set.acceptedBy) {
+      try { win = set.pickupTimeWindow || (await this.model.findOne(this.getFilter()).select('pickupTimeWindow').lean())?.pickupTimeWindow; } catch (_) {}
+    }
+    this.setUpdate(pickupLifecycle(upd, win));
   });
   LoadSchema.post(op, async function (res) {
     if (this._archiveId && res && res.matchedCount !== 0) await archiveEvidence(this._archiveId);
@@ -420,6 +446,9 @@ LoadSchema.pre('save', function (next) {
   if (!this.isNew && this.isModified('acceptedBy') && !this.acceptedBy) {
     this.pickupRisk = undefined;
     this.carrierLocation = undefined;
+    this.bookedWindow = undefined;
+    this.pickupWindowChange = undefined;
+    this.trackingNonce = undefined;
   }
   next();
 });
@@ -436,6 +465,7 @@ LoadSchema.index({ status: 1, equipmentType: 1 });
 LoadSchema.index({ 'pickupTimeWindow.start': 1 });
 // pickupRiskMonitor: accepted loads whose pickup start falls in a time range.
 LoadSchema.index({ status: 1, 'pickupTimeWindow.start': 1 });
+LoadSchema.index({ status: 1, 'bookedWindow.start': 1 });
 LoadSchema.index({ originLat: 1, originLng: 1 });
 LoadSchema.index({ destinationLat: 1, destinationLng: 1 });
 // Dedup partner/EDI/email-ingested loads per poster+external id (sparse: app loads have none).

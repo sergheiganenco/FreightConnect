@@ -1319,22 +1319,51 @@ function assertWindowEditor(load, req) {
 }
 
 // PUT /api/loads/:id/pickup-window  { start, end }
+// Shipper company or admin. On a BOOKED load (status accepted) the carrier is judged against the window both
+// parties agreed (bookedWindow), so: a more demanding change (earlier start or earlier end) is only PROPOSED
+// (pickupWindowChange, status pending) until the booked carrier accepts it; a lenient change (start and end both
+// not earlier) applies immediately and becomes the new agreed window; re-sending the agreed window withdraws a
+// pending proposal. Loads that are not booked-and-awaiting-pickup keep the old direct-edit behaviour.
 router.put('/:id/pickup-window', auth, async (req, res) => {
   try {
     const { start, end } = req.body;
     if (!start || !end) return res.status(400).json({ error: 'start and end are required' });
+    const ns = new Date(start).getTime(), ne = new Date(end).getTime();
+    if (!Number.isFinite(ns) || !Number.isFinite(ne) || ne < ns) return res.status(400).json({ error: 'start and end must be valid dates with end not before start' });
 
     const load = await Load.findById(req.params.id);
     if (!load) return res.status(404).json({ error: 'Load not found' });
     if (!assertWindowEditor(load, req)) return res.status(403).json({ error: 'Forbidden' });
 
     const oldW = load.pickupTimeWindow || {};
-    const moved = new Date(start).getTime() !== new Date(oldW.start).getTime() || new Date(end).getTime() !== new Date(oldW.end).getTime();
+    const booked = load.status === 'accepted' && load.acceptedBy;
+    const agreed = booked && load.bookedWindow && load.bookedWindow.start ? load.bookedWindow : oldW; // legacy bookings: current window
+    const as = new Date(agreed.start).getTime(), ae = new Date(agreed.end).getTime();
+    const moved = ns !== as || ne !== ae;
+    const fmtW = () => `${new Date(ns).toUTCString().replace(' GMT', '')} UTC - ${new Date(ne).toUTCString().replace(' GMT', '')} UTC`;
+
+    if (booked && moved && (ns < as || ne < ae)) {
+      load.pickupWindowChange = { proposedStart: new Date(ns), proposedEnd: new Date(ne), proposedAt: new Date(), proposedBy: req.user.userId, status: 'pending' };
+      await load.save();
+      await notifyUserSafe(load.acceptedBy, {
+        type: 'pickup:window_change_proposed',
+        title: 'Shipper proposed an earlier pickup time',
+        body: `The shipper proposed a new pickup time for "${load.title}": ${fmtW()}. It only applies if you accept it; until then you are held to the agreed window.`,
+        link: '/dashboard/carrier/my-loads',
+        metadata: { loadId: String(load._id) },
+      });
+      return res.json({ ...load.toObject(), windowChangeProposed: true, message: 'Proposed. The agreed pickup window stays in force until the carrier accepts.' });
+    }
+
     load.pickupTimeWindow = { ...oldW, start, end };
+    if (booked) {
+      load.bookedWindow = { start, end };
+      load.pickupWindowChange = undefined; // a lenient change (or re-sending the agreed window) supersedes/withdraws a pending proposal
+    }
     // New pickup time on a booked load = a new risk question. Alerts already sent and an "on my way"
     // given for the OLD time must not suppress the new time, so the whole risk state is cleared (the
     // monitor re-evaluates on its next run and announces afresh).
-    const rebook = moved && load.status === 'accepted' && load.acceptedBy;
+    const rebook = moved && booked;
     if (rebook) load.pickupRisk = undefined;
     await load.save();
 
@@ -1342,7 +1371,7 @@ router.put('/:id/pickup-window', auth, async (req, res) => {
       await notifyUserSafe(load.acceptedBy, {
         type: 'pickup:window_changed',
         title: 'Pickup time changed',
-        body: `The shipper changed the pickup time for "${load.title}" to ${new Date(start).toUTCString().replace(' GMT', '')} UTC - ${new Date(end).toUTCString().replace(' GMT', '')} UTC. Please check you can make it.`,
+        body: `The shipper changed the pickup time for "${load.title}" to ${fmtW()}. Please check you can make it.`,
         link: '/dashboard/carrier/my-loads',
         metadata: { loadId: String(load._id) },
       });
@@ -1366,6 +1395,18 @@ router.put('/:id/delivery-window', auth, async (req, res) => {
     const load = await Load.findById(req.params.id);
     if (!load) return res.status(404).json({ error: 'Load not found' });
     if (!assertWindowEditor(load, req)) return res.status(403).json({ error: 'Forbidden' });
+
+    // Once a carrier holds the load, the delivery window is the standard its on-time stats, delay alerts and
+    // trust score are judged on: it cannot be tightened (earlier start or end) or edited after delivery.
+    if (load.acceptedBy) {
+      const o = load.deliveryTimeWindow || {};
+      const ns = new Date(start).getTime(), ne = new Date(end).getTime();
+      if (!Number.isFinite(ns) || !Number.isFinite(ne) || ne < ns) return res.status(400).json({ error: 'start and end must be valid dates with end not before start' });
+      const closed = ['delivered', 'disputed', 'resolved', 'cancelled'].includes(load.status);
+      if (closed || ns < new Date(o.start).getTime() || ne < new Date(o.end).getTime()) {
+        return res.status(409).json({ error: 'The delivery window of a booked load cannot be made earlier, or changed after delivery. It may only be extended.' });
+      }
+    }
 
     load.deliveryTimeWindow = { ...(load.deliveryTimeWindow || {}), start, end };
     await load.save();
@@ -1718,6 +1759,7 @@ router.post('/voice-command', auth, async (req, res) => {
     late_certain: 'predicted lateness (truck cannot reach pickup in time)',
     carrier_declined: 'the carrier saying it cannot make the pickup',
   };
+  const GPS_EVIDENCE_LEAD_MS = 30 * 60 * 1000;
   const GPS_EVIDENCE_MILES = 5; // a no-show only carries the standard penalty if the last GPS fix put the truck at least this far from pickup
 
   // POST /api/loads/:id/pickup-confirm  { status: 'on_my_way' | 'cannot_make_it' }  — booked carrier company only
@@ -1744,7 +1786,7 @@ router.post('/voice-command', auth, async (req, res) => {
       const out = await refreshLoad(load._id, { carrier: true });
       if (status === 'cannot_make_it' && prev !== 'cannot_make_it' && !(out && out.notified)) {
         // The at-risk level was already announced earlier, so refreshLoad stayed quiet: tell the shipper explicitly.
-        const full = await Load.findById(load._id).select('title origin pickupFacilityName pickupAddress pickupTimeWindow');
+        const full = await Load.findById(load._id).select('title origin pickupFacilityName pickupAddress pickupTimeWindow bookedWindow');
         const m = pickupRiskMessages(full, { level: 'at_risk', reason: 'carrier_declined', detail: {} });
         await notifyUserSafe(load.postedBy, { ...m.shipper, link: '/dashboard/shipper/loads', metadata: { loadId: String(load._id), level: 'at_risk', reason: 'carrier_declined' } });
       }
@@ -1752,6 +1794,47 @@ router.post('/voice-command', auth, async (req, res) => {
       res.json({ success: true, pickupRisk: fresh?.pickupRisk || null });
     } catch (err) {
       console.error('[pickup-confirm] failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // POST /api/loads/:id/pickup-window-response  { accept: boolean } — booked carrier company only (owner/dispatcher/driver)
+  // Accepting makes the shipper's proposed window the new agreed window (and resets pickup risk state); declining
+  // leaves the agreed window untouched. Both sides are notified.
+  router.post('/:id/pickup-window-response', auth, param('id').isMongoId(), body('accept').isBoolean().toBoolean(), validate, async (req, res) => {
+    try {
+      if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Only the booked carrier can respond' });
+      const load = await Load.findById(req.params.id).select('status acceptedBy postedBy title pickupWindowChange');
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+      if (String(load.acceptedBy) !== companyOf(req)) return res.status(403).json({ error: 'Only the booked carrier can respond' });
+      const ch = load.pickupWindowChange;
+      if (load.status !== 'accepted' || ch?.status !== 'pending') return res.status(409).json({ error: 'There is no pending pickup time change for this load' });
+
+      const accept = req.body.accept === true;
+      const now = new Date();
+      const set = { 'pickupWindowChange.status': accept ? 'accepted' : 'declined', 'pickupWindowChange.respondedAt': now, 'pickupWindowChange.respondedBy': req.user.userId };
+      const upd = { $set: set };
+      if (accept) {
+        set['pickupTimeWindow.start'] = ch.proposedStart; set['pickupTimeWindow.end'] = ch.proposedEnd;
+        set.bookedWindow = { start: ch.proposedStart, end: ch.proposedEnd };
+        upd.$unset = { pickupRisk: 1 }; // new agreed time = new risk question (monitor re-evaluates)
+      }
+      const w = await Load.updateOne({ _id: load._id, status: 'accepted', acceptedBy: load.acceptedBy, 'pickupWindowChange.status': 'pending',
+        'pickupWindowChange.proposedStart': ch.proposedStart, 'pickupWindowChange.proposedEnd': ch.proposedEnd }, upd);
+      if (!w.matchedCount) return res.status(409).json({ error: 'The proposal changed or the load is no longer booked to you' });
+      StatusHistory.record('load', load._id, 'accepted', 'accepted', req.user.userId,
+        accept ? 'Carrier accepted the proposed pickup time' : 'Carrier declined the proposed pickup time', { event: 'pickup_window_response', accept }).catch(() => {});
+      const when = `${new Date(ch.proposedStart).toUTCString().replace(' GMT', '')} UTC - ${new Date(ch.proposedEnd).toUTCString().replace(' GMT', '')} UTC`;
+      await notifyUserSafe(load.postedBy, {
+        type: accept ? 'pickup:window_change_accepted' : 'pickup:window_change_declined',
+        title: accept ? 'Carrier accepted the new pickup time' : 'Carrier declined the new pickup time',
+        body: accept ? `The carrier accepted the new pickup time for "${load.title}": ${when}.` : `The carrier declined the proposed pickup time for "${load.title}". The originally agreed window still applies.`,
+        link: '/dashboard/shipper/loads', metadata: { loadId: String(load._id) },
+      });
+      const fresh = await Load.findById(load._id).select('pickupTimeWindow bookedWindow pickupWindowChange').lean();
+      res.json({ success: true, pickupTimeWindow: fresh.pickupTimeWindow, pickupWindowChange: fresh.pickupWindowChange });
+    } catch (err) {
+      console.error('[pickup-window-response] failed:', err.message);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -1784,6 +1867,9 @@ router.post('/voice-command', auth, async (req, res) => {
       const load = await Load.findById(base._id);
       if (!load || load.status !== 'accepted' || !load.acceptedBy) return res.status(409).json({ error: 'Load is no longer awaiting pickup' });
       const { reason } = req.body;
+      if (reason !== 'carrier_declined' && load.pickupWindowChange?.status === 'pending') {
+        return res.status(409).json({ error: 'A pickup time change you proposed is waiting for the carrier. Until it is accepted the carrier is judged on the agreed window; withdraw the proposal (re-send the agreed window) to release on it.' });
+      }
       const level = load.pickupRisk?.level;
       const allowed = reason === 'carrier_declined' ? load.pickupRisk?.carrierConfirmation?.status === 'cannot_make_it' : level === reason;
       if (!allowed) return res.status(409).json({ error: 'Release is not allowed: the pickup risk does not support this reason right now', level: level || null });
@@ -1792,7 +1878,11 @@ router.post('/voice-command', auth, async (req, res) => {
       const loc = load.carrierLocation;
       const gpsMiles = loc?.updatedAt && Number.isFinite(load.originLat) && loc.latitude != null
         ? haversineMiles(loc.latitude, loc.longitude, load.originLat, load.originLng) : null; // distance only; coordinates never leave the server
-      const gpsAway = gpsMiles != null && gpsMiles >= GPS_EVIDENCE_MILES;
+      // Penalty evidence must be (a) authenticated as the booked carrier (not a link-token fix) and (b) taken at or
+      // after 30 min before the latest allowed arrival: a fix from hours earlier proves nothing about the deadline.
+      const latestAt = load.pickupRisk?.detail?.latestArrivalAt ? new Date(load.pickupRisk.detail.latestArrivalAt).getTime() : NaN;
+      const gpsCurrent = loc?.authenticated === true && Number.isFinite(latestAt) && new Date(loc.updatedAt).getTime() >= latestAt - GPS_EVIDENCE_LEAD_MS;
+      const gpsAway = gpsMiles != null && gpsMiles >= GPS_EVIDENCE_MILES && gpsCurrent;
       const gpsEvidence = gpsMiles != null
         ? `The last location we received (${new Date(loc.updatedAt).toUTCString().replace(' GMT', '')} UTC) was about ${Math.round(gpsMiles)} miles from the pickup.`
         : 'No location was received from the truck.';

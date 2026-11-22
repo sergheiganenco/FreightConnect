@@ -37,7 +37,7 @@ const HEARTBEAT_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 // Load.carrierLocation has a narrower enum than TrackingEvent. Map any source
 // the Load sub-doc doesn't recognize to 'api' for the live point write, while
 // keeping the original (richer) source on the durable breadcrumb.
-const LOAD_LOCATION_SOURCES = new Set(['browser', 'mobile_app', 'eld', 'api']);
+const LOAD_LOCATION_SOURCES = new Set(['browser', 'mobile_app', 'eld', 'api', 'owntracks', 'traccar']);
 
 /**
  * Decide whether this point is materially different from the last stored point
@@ -88,6 +88,10 @@ async function recordLocation({
   // (a driver sub-account). Falls back to the load's carrier (company) for token/ELD
   // ingest where no person is attached.
   consentUserId = null,
+  // true ONLY when the caller proved it is the booked carrier company (JWT session of that company, or an ELD
+  // connection owned by it). Bearer-link-token ingest and anything unproven stays false: such fixes may drive the
+  // live map but never a penalty or a position-based late_certain verdict.
+  authenticated = false,
 } = {}) {
   try {
     // ── 1. Validate coordinates ───────────────────────────────────────────────
@@ -170,6 +174,7 @@ async function recordLocation({
       heading:   safeHeading,
       accuracy:  safeAccuracy,
       source:    liveSource,
+      authenticated: authenticated === true,
       updatedAt: now,
     };
     // Use a targeted update (no full-doc validation, mirrors app.js behavior).
@@ -187,6 +192,7 @@ async function recordLocation({
           heading:    safeHeading,
           accuracy:   safeAccuracy,
           source:     breadcrumbSource,
+          authenticated: authenticated === true,
           recordedAt: now,
         });
       } catch (historyErr) {

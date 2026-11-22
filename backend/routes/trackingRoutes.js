@@ -63,6 +63,7 @@ router.post('/location', auth, async (req, res) => {
       source: VALID_SOURCES.includes(source) ? source : 'mobile_app',
       // Gate on the acting driver's own consent.
       consentUserId: req.user.userId,
+      authenticated: String(load.acceptedBy) === String(companyId), // an admin pushing a position is not the carrier
     });
     if (!r.ok) return res.status(r.code || 500).json({ error: r.error || 'Failed' });
 

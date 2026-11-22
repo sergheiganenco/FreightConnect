@@ -350,6 +350,7 @@ router.post('/webhook/:provider', async (req, res) => {
           heading: loc.heading ?? null,
           accuracy: null,
           source: 'eld',
+          authenticated: true, // connection.carrier owns the resolved load (resolveLoadId)
         });
         if (result && result.ok) processed += 1;
       } catch (locErr) {
