@@ -17,14 +17,21 @@ const { notifyUserSafe } = require('../utils/notifyUser');
 const hasCoords = (o) => Number.isFinite(o?.lat) && Number.isFinite(o?.lng);
 
 /** Shipper posting gate (suspended account; payment method on file unless REQUIRE_SHIPPER_PAYMENT_METHOD=false). null = allowed. */
-async function shipperPostingGate(shipperCompanyId) {
-  const shipper = await User.findById(shipperCompanyId).select('shipperVerification');
-  const sv = shipper?.shipperVerification;
+async function shipperPostingGate(shipperCompanyId, { requirePaymentMethod = true } = {}) {
+  let shipper = await User.findById(shipperCompanyId).select('shipperVerification parentAccountId active');
+  // Defence in depth: if a sub-account id reaches here, judge the company owner.
+  if (shipper?.parentAccountId) {
+    shipper = await User.findById(shipper.parentAccountId).select('shipperVerification active');
+  }
+  if (!shipper || shipper.active === false) {
+    return { status: 403, error: 'This shipper account is not active.', extra: { verificationStatus: 'inactive' } };
+  }
+  const sv = shipper.shipperVerification;
   if (sv?.status === 'suspended') {
     return { status: 403, error: 'Your shipper account is suspended. Contact support.', extra: { verificationStatus: 'suspended' } };
   }
   // Pilot switch: the payment-method requirement depends on Stripe being wired. A suspended account is always blocked.
-  if (process.env.REQUIRE_SHIPPER_PAYMENT_METHOD !== 'false' && !sv?.paymentMethodVerified) {
+  if (requirePaymentMethod && process.env.REQUIRE_SHIPPER_PAYMENT_METHOD !== 'false' && !sv?.paymentMethodVerified) {
     return {
       status: 403,
       error: 'Add a payment method before posting loads. Go to Settings → Verification to add a card or bank account.',
@@ -151,10 +158,11 @@ function postableFields(fields = {}) {
 async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) {
   const { gate = true, notify = true, windowOpts = {}, geocodeBudget = null } = options;
   try {
-    if (gate) {
-      const blocked = await shipperPostingGate(shipperCompanyId);
-      if (blocked) return blocked;
-    }
+    // `gate: false` (bulk routes that already ran the full gate once, and internal
+    // contract posts) skips only the payment-method requirement. A suspended or
+    // inactive shipper can never post through any path.
+    const blocked = await shipperPostingGate(shipperCompanyId, { requirePaymentMethod: gate });
+    if (blocked) return blocked;
 
     const { title, origin, destination, rate, equipmentType } = fields;
     if (!title || !origin || !destination || !rate || !equipmentType) {
@@ -183,7 +191,10 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
     }
 
     // Road miles (bounded by the ORS timeout, never throws; null on any failure or multi-stop).
-    const distFields = await loadDistanceFields({
+    // In a budgeted (bulk) request the same deadline covers routing: once it has
+    // passed, skip the call and leave road miles to the on-demand backfill.
+    const overBudget = geocodeBudget && Date.now() >= geocodeBudget.deadline;
+    const distFields = overBudget ? {} : await loadDistanceFields({
       originLat: originC.lat, originLng: originC.lng,
       destinationLat: destinationC.lat, destinationLng: destinationC.lng,
       stops: fields.stops,

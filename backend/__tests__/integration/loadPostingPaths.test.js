@@ -251,3 +251,45 @@ describe('createPostedLoad accepts only postable fields', () => {
     expect(load.stops[0].status).toBe('pending');
   });
 });
+
+describe('posting gate always applies to the company', () => {
+  const fields = {
+    title: 'Gate', origin: 'Chicago, IL', destination: 'Dallas, TX', rate: 1000, equipmentType: 'Dry Van',
+    originLat: 41.8781, originLng: -87.6298, destinationLat: 32.7767, destinationLng: -96.797,
+  };
+
+  test('a suspended shipper cannot post even through an internal (gate:false) path', async () => {
+    const shipper = await createTestUser({ role: 'shipper', shipperVerification: { status: 'suspended', paymentMethodVerified: true } });
+    const r = await createPostedLoad({ shipperCompanyId: shipper._id, io: mockIo, options: { gate: false, notify: false }, fields });
+    expect(r.load).toBeUndefined();
+    expect(r.status).toBe(403);
+    expect(await Load.countDocuments({ postedBy: shipper._id })).toBe(0);
+  });
+
+  test('gate:false skips only the payment-method requirement', async () => {
+    const shipper = await createTestUser({ role: 'shipper', shipperVerification: { status: 'verified', paymentMethodVerified: false } });
+    const withGate = await createPostedLoad({ shipperCompanyId: shipper._id, io: mockIo, options: { notify: false }, fields });
+    expect(withGate.status).toBe(403);
+    const internal = await createPostedLoad({ shipperCompanyId: shipper._id, io: mockIo, options: { gate: false, notify: false }, fields });
+    expect(internal.load).toBeTruthy();
+  });
+
+  test('a sub-account id is judged on its company owner, and an inactive company cannot post', async () => {
+    const { shipperPostingGate } = require('../../services/loadPostingService');
+    const owner = await createTestUser({ role: 'shipper', shipperVerification: { status: 'suspended', paymentMethodVerified: true } });
+    const sub = await createTestUser({ role: 'shipper', companyRole: 'dispatcher', parentAccountId: owner._id, shipperVerification: VERIFIED });
+    expect((await shipperPostingGate(sub._id)).status).toBe(403);
+    const inactive = await createTestUser({ role: 'shipper', active: false, shipperVerification: VERIFIED });
+    expect((await shipperPostingGate(inactive._id)).status).toBe(403);
+  });
+
+  test('once a bulk budget deadline has passed, no routing call is made', async () => {
+    const shipper = await createTestUser({ role: 'shipper', shipperVerification: VERIFIED });
+    axios.get.mockReset();
+    const budget = makeGeocodeBudget(0); // already expired
+    const r = await createPostedLoad({ shipperCompanyId: shipper._id, io: mockIo, options: { notify: false, geocodeBudget: budget }, fields });
+    expect(r.load).toBeTruthy();
+    expect(axios.get).not.toHaveBeenCalled();
+    expect(r.load.distanceMiles == null).toBe(true);
+  });
+});

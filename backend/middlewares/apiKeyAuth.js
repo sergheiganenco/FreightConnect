@@ -74,6 +74,9 @@ const apiKeyAuth = async (req, res, next) => {
     req.user = {
       userId: user._id.toString(),
       role: user.role,
+      // The company this key acts for, exactly as authMiddleware sets it from a JWT.
+      companyRole: user.companyRole || 'owner',
+      companyOwnerId: String(user.parentAccountId || user._id),
     };
 
     // Attach API key metadata for permission checks
