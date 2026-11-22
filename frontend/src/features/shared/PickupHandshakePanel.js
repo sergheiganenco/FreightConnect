@@ -119,7 +119,7 @@ export default function PickupHandshakePanel({ load, userRole }) {
                 <Button size="small" variant="outlined" onClick={copyShown}>Copy</Button>
               </Stack>
               <Typography variant="caption" sx={{ color: T.secondary }}>
-                Expires {new Date(dockLink.expiresAt).toLocaleDateString()} (14 days). Anyone with this link can see the booked carrier's name for this load (not the rate, not the code).
+                Expires {new Date(dockLink.expiresAt).toLocaleDateString()} (14 days). Send it only to the pickup facility. Anyone with this link can see the booked carrier's name and MC/DOT numbers, the driver and truck if assigned, the pickup address, time window and reference number, and can enter code attempts (five wrong ones lock it). It does not show the rate or the code.
               </Typography>
             </Box>
           )}
