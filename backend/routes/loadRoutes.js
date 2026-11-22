@@ -457,13 +457,15 @@ router.get("/open", auth, async (req, res) => {
  // POST /api/loads - Create a New Load
 // ----------------------------------------
 const createLoadValidation = [
-  body("title").trim().notEmpty().withMessage("Title is required"),
-  body("origin").trim().notEmpty().withMessage("Origin is required"),
-  body("destination").trim().notEmpty().withMessage("Destination is required"),
+  // isString() first: trim() would otherwise turn an object into "[object Object]" and let an array through.
+  body("title").isString().withMessage("Title must be text").trim().notEmpty().withMessage("Title is required"),
+  body("origin").isString().withMessage("Origin must be text").trim().notEmpty().withMessage("Origin is required"),
+  body("destination").isString().withMessage("Destination must be text").trim().notEmpty().withMessage("Destination is required"),
   body("rate")
     .isFloat({ gt: 0 })
     .withMessage("Rate must be a positive number"),
   body("equipmentType")
+    .isString().withMessage("Equipment type must be text")
     .trim()
     .notEmpty()
     .withMessage("Equipment type is required"),
@@ -654,7 +656,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     };
 
     if (Array.isArray(rawStops) && rawStops.length > 0) {
-      fields.stops = rawStops.map((s, i) => ({
+      // slice: one past the service's 20-stop cap is enough for it to refuse an oversized list; null entries become empty stops.
+      fields.stops = rawStops.slice(0, 21).map((s, i) => (s = s || {}, {
         sequence: s.sequence ?? i + 1,
         type: s.type || 'delivery',
         address: s.address,

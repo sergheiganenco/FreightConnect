@@ -128,7 +128,7 @@ describe('loadLocator job', () => {
     const addMissing = (extra = {}) => createTestLoad(shipper._id, { originLat: undefined, originLng: undefined, ...extra });
     const reeligible = (id) => Load.updateOne({ _id: id }, { $set: { locationNextAttemptAt: new Date(Date.now() - 1000) } });
 
-    test.each([400, 414, 404])('geocoder HTTP %i is "not found": locationProblem, one notification, never retried', async (code) => {
+    test.each([400, 414, 404, 422])('geocoder HTTP %i is "not found": locationProblem, one notification, never retried', async (code) => {
       const load = await addMissing({ title: 'Rejected' });
       fetch.mockResolvedValue(status(code));
       await runLoadLocator();
@@ -143,6 +143,11 @@ describe('loadLocator job', () => {
     test.each([
       ['429', () => fetch.mockResolvedValue(status(429))],
       ['500', () => fetch.mockResolvedValue(status(500))],
+      ['401 (blocked agent)', () => fetch.mockResolvedValue(status(401))],
+      ['403 (blocked IP / WAF)', () => fetch.mockResolvedValue(status(403))],
+      ['407', () => fetch.mockResolvedValue(status(407))],
+      ['408 (timeout)', () => fetch.mockResolvedValue(status(408))],
+      ['425', () => fetch.mockResolvedValue(status(425))],
       ['network error', () => fetch.mockRejectedValue(new Error('ECONNRESET'))],
     ])('%s is an outage: attempts and backoff grow, no problem is recorded', async (_n, arm) => {
       const load = await addMissing();
@@ -243,6 +248,127 @@ describe('loadLocator job', () => {
       expect(third.locationAttempts).toBe(0);
       expect(second.locationNextAttemptAt).toBeNull();
       expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    describe('safety valve: a run where most loads are "not found" is suspect', () => {
+      let warn;
+      beforeEach(() => { warn = jest.spyOn(console, 'warn').mockImplementation(() => {}); });
+      afterEach(() => warn.mockRestore());
+      const suspectWarnings = () => warn.mock.calls.filter((c) => /geocoder problem/.test(c[0]));
+
+      test('5 of 5 rejected: none is marked, each is counted as a failed attempt with backoff, one warning, no notification', async () => {
+        const ids = [];
+        for (let i = 0; i < 5; i++) ids.push((await addMissing({ title: `R${i}`, origin: `Place${i}, TX` }))._id);
+        fetch.mockResolvedValue(status(400));
+        const before = Date.now();
+        await runLoadLocator();
+        for (const id of ids) {
+          const l = await Load.findById(id).lean();
+          expect(l.locationProblem?.at).toBeUndefined();
+          expect(l.locationAttempts).toBe(1);
+          expect(l.locationNextAttemptAt.getTime() - before).toBeGreaterThanOrEqual(20 * MIN - 1000);
+        }
+        expect(suspectWarnings()).toHaveLength(1);
+        expect(suspectWarnings()[0][0]).toMatch(/5 of 5/);
+        expect(await Notification.countDocuments({ type: 'load:location_problem' })).toBe(0);
+      });
+
+      test('1 of 5 rejected: that one is marked (not suspect), the others are located', async () => {
+        const ids = [];
+        for (let i = 0; i < 5; i++) ids.push((await addMissing({ title: `M${i}`, origin: i === 2 ? 'Typo, ZZ' : `Place${i}, TX` }))._id);
+        fetch.mockImplementation(async (url) => (url.includes('Typo') ? status(400) : hit(41.88, -87.63)));
+        axios.get.mockResolvedValue(ors(1500000));
+        await runLoadLocator();
+        const marked = await Load.find({ _id: { $in: ids }, 'locationProblem.at': { $exists: true } }).lean();
+        expect(marked.map((l) => l.title)).toEqual(['M2']);
+        expect(marked[0].locationProblem).toMatchObject({ field: 'origin', reason: 'not_found' });
+        expect(await Load.countDocuments({ _id: { $in: ids }, originLat: { $type: 'number' } })).toBe(4);
+        expect(await Notification.countDocuments({ type: 'load:location_problem' })).toBe(1);
+        expect(suspectWarnings()).toHaveLength(0);
+      });
+
+      test('2 of 2 rejected (fewer than 3) is not suspect: both are marked', async () => {
+        const ids = [(await addMissing({ origin: 'A1, ZZ' }))._id, (await addMissing({ origin: 'A2, ZZ' }))._id];
+        fetch.mockResolvedValue(status(404));
+        await runLoadLocator();
+        expect(await Load.countDocuments({ _id: { $in: ids }, 'locationProblem.at': { $exists: true } })).toBe(2);
+        expect(suspectWarnings()).toHaveLength(0);
+      });
+
+      test('exactly half rejected (2 of 4) is not "more than half": both rejected are marked', async () => {
+        const ids = [];
+        for (let i = 0; i < 4; i++) ids.push((await addMissing({ title: `H${i}`, origin: i < 2 ? `Bad${i}, ZZ` : `Ok${i}, TX` }))._id);
+        fetch.mockImplementation(async (url) => (url.includes('Bad') ? status(400) : hit(41.88, -87.63)));
+        axios.get.mockResolvedValue(ors(1500000));
+        await runLoadLocator();
+        expect(await Load.countDocuments({ _id: { $in: ids }, 'locationProblem.at': { $exists: true } })).toBe(2);
+        expect(suspectWarnings()).toHaveLength(0);
+      });
+
+      test('the same loads are marked on a later run once the pattern is not systemic (they are re-eligible, others located)', async () => {
+        const bad = [];
+        for (let i = 0; i < 3; i++) bad.push((await addMissing({ title: `S${i}`, origin: `Bad${i}, ZZ` }))._id);
+        fetch.mockResolvedValue(status(400));
+        await runLoadLocator(); // 3 of 3: suspect, nothing marked
+        expect(await Load.countDocuments({ _id: { $in: bad }, 'locationProblem.at': { $exists: true } })).toBe(0);
+
+        for (const id of bad) await reeligible(id);
+        // (more loads from other shippers: one shipper is capped at 5 a run)
+        for (let i = 0; i < 6; i++) await createTestLoad((await createTestUser({ role: 'shipper' }))._id, { title: `G${i}`, origin: `Good${i}, TX`, ...NO_COORDS });
+        fetch.mockReset();
+        fetch.mockImplementation(async (url) => (url.includes('Bad') ? status(400) : hit(41.88, -87.63)));
+        axios.get.mockResolvedValue(ors(1500000));
+        await runLoadLocator(); // 3 of 9: not suspect
+        expect(await Load.countDocuments({ _id: { $in: bad }, 'locationProblem.at': { $exists: true } })).toBe(3);
+      });
+    });
+
+    describe('fairness is applied in the database, before the global limit', () => {
+      const raw = (postedBy, n, mk) => Load.collection.insertMany(Array.from({ length: n }, (_, i) => ({
+        title: `X${i}`, origin: 'Same, TX', destination: 'Dest, TX', rate: 1, equipmentType: 'Dry Van', status: 'open',
+        postedBy, locationAttempts: 0, locationNextAttemptAt: null, updatedAt: new Date(), ...mk(i),
+      })));
+
+      test('A: 250 never-attempted loads (older AND newer than B); B: 2 loads whose backoff expired -> both of B attempted, A at most 5', async () => {
+        const a = shipper;
+        const b = await createTestUser({ role: 'shipper' });
+        const bCreated = new Date(Date.now() - 30 * MIN);
+        await raw(a._id, 250, (i) => ({ title: `A${i}`, createdAt: new Date(Date.now() - (i % 2 ? 90 : 5) * MIN - i * 1000) }));
+        await raw(b._id, 2, (i) => ({
+          title: `B${i}`, createdAt: bCreated, locationAttempts: 2, locationNextAttemptAt: new Date(Date.now() - 10 * MIN),
+        }));
+        fetch.mockResolvedValue(status(500));
+        await runLoadLocator();
+        expect(await Load.countDocuments({ postedBy: b._id, locationAttempts: 3 })).toBe(2);
+        expect(await Load.countDocuments({ postedBy: a._id, locationAttempts: { $gt: 0 } })).toBe(5);
+      });
+
+      test('within a shipper the longest-eligible loads go first (eligibility = backoff expiry if set, else createdAt)', async () => {
+        await raw(shipper._id, 8, (i) => ({
+          title: `W${i}`,
+          createdAt: new Date(Date.now() - 1000 * MIN),
+          // W0..W2 expired backoffs (W0 longest ago), W3..W7 never attempted but created 100 - i minutes ago
+          ...(i < 3 ? { locationAttempts: 1, locationNextAttemptAt: new Date(Date.now() - (50 - i) * MIN) }
+            : { createdAt: new Date(Date.now() - (100 - i) * MIN) }),
+        }));
+        fetch.mockResolvedValue(status(500));
+        await runLoadLocator();
+        // eligibility instants: W3..W7 = created 97..93 min ago; W0..W2 = backoff expired 50..48 min ago (though created 1000 min ago).
+        // The 5 longest-waiting are W3..W7; W0..W2 wait for the next run.
+        expect(await Load.countDocuments({ postedBy: shipper._id, title: { $in: ['W3', 'W4', 'W5', 'W6', 'W7'] }, locationAttempts: 1 })).toBe(5);
+        expect(await Load.countDocuments({ postedBy: shipper._id, title: { $in: ['W0', 'W1', 'W2'] }, locationNextAttemptAt: { $lte: new Date() } })).toBe(3);
+      });
+
+      test('across shippers a run takes round 1 of every shipper before anyone gets a second load; longest-waiting shipper first', async () => {
+        const others = await Promise.all([1, 2, 3].map(() => createTestUser({ role: 'shipper' })));
+        const all = [shipper, ...others];
+        for (let s = 0; s < all.length; s++) {
+          await raw(all[s]._id, 8, (i) => ({ title: `S${s}-${i}`, createdAt: new Date(Date.now() - (1000 - s * 10 - i) * MIN) }));
+        }
+        fetch.mockResolvedValue(status(500));
+        await runLoadLocator(); // 20 slots, 4 shippers: 5 each (cap) = 20
+        for (const s of all) expect(await Load.countDocuments({ postedBy: s._id, locationAttempts: 1 })).toBe(5);
+      });
     });
   });
 });

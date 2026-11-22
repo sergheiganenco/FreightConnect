@@ -15,7 +15,7 @@ const LoadSchema = new mongoose.Schema({
   // Road miles origin->destination (1 decimal). Null for multi-stop loads or when unknown.
   distanceMiles: { type: Number, default: null },
   distanceSource: { type: String, enum: ['ors', null], default: null },
-  equipmentType: { type: String, required: true },
+  equipmentType: { type: String, required: true, maxlength: 100 },
   pickupTimeWindow: {
     start: Date,
     end: Date,
@@ -30,46 +30,46 @@ const LoadSchema = new mongoose.Schema({
     width: Number,
     height: Number,
   },
-  commodityType: String,
-  commodityCategory: String,
-  specialInstructions: String,
+  commodityType: { type: String, maxlength: 200 },
+  commodityCategory: { type: String, maxlength: 200 },
+  specialInstructions: { type: String, maxlength: 2000 },
   hazardousMaterial: Boolean,
-  hazmatClass: String,
-  hazmatPackingGroup: String,
-  dangerousGoodsUN: String,
+  hazmatClass: { type: String, maxlength: 50 },
+  hazmatPackingGroup: { type: String, maxlength: 50 },
+  dangerousGoodsUN: { type: String, maxlength: 50 },
 
   // ── Enterprise / extended fields ──────────────────────────────────────────
-  paymentTerms: String,
-  currency: { type: String, default: 'USD' },
-  specialHandling: [String],
-  accessorials: [String],
+  paymentTerms: { type: String, maxlength: 200 },
+  currency: { type: String, default: 'USD', maxlength: 10 },
+  specialHandling: [{ type: String, maxlength: 100 }],
+  accessorials: [{ type: String, maxlength: 100 }],
   insuranceRequired: Number,
   cargoValue: Number,
   loadVisibility: { type: String, default: 'public', enum: ['public', 'preferred', 'private'] },
   allowCarrierBidding: { type: Boolean, default: true },
   expirationDateTime: Date,
-  notes: String,
-  carrierInstructions: String,
-  documentsRequired: [String],
+  notes: { type: String, maxlength: 2000 },
+  carrierInstructions: { type: String, maxlength: 2000 },
+  documentsRequired: [{ type: String, maxlength: 100 }],
 
   // ── Reference numbers ─────────────────────────────────────────────────────
-  poNumber: String,
-  shipperReferenceNumber: String,
-  consigneeReference: String,
+  poNumber: { type: String, maxlength: 200 },
+  shipperReferenceNumber: { type: String, maxlength: 200 },
+  consigneeReference: { type: String, maxlength: 200 },
 
   // ── Overweight acknowledgment ─────────────────────────────────────────────
   overweightAcknowledged: { type: Boolean, default: false },
-  overweightPermitNumber: String,
+  overweightPermitNumber: { type: String, maxlength: 200 },
 
   // ── Pickup / delivery facility details ────────────────────────────────────
-  pickupFacilityName: String,
-  pickupAddress: String,
-  pickupContactName: String,
-  pickupContactPhone: String,
-  deliveryFacilityName: String,
-  deliveryAddress: String,
-  deliveryContactName: String,
-  deliveryContactPhone: String,
+  pickupFacilityName: { type: String, maxlength: 200 },
+  pickupAddress: { type: String, maxlength: 300 },
+  pickupContactName: { type: String, maxlength: 200 },
+  pickupContactPhone: { type: String, maxlength: 50 },
+  deliveryFacilityName: { type: String, maxlength: 200 },
+  deliveryAddress: { type: String, maxlength: 300 },
+  deliveryContactName: { type: String, maxlength: 200 },
+  deliveryContactPhone: { type: String, maxlength: 50 },
 
   status: { type: String, default: 'open', enum: ['open', 'accepted', 'in-transit', 'delivered', 'cancelled', 'disputed', 'resolved'] },
   postedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -118,7 +118,7 @@ const LoadSchema = new mongoose.Schema({
 
   // ── Provenance (how the load entered the platform) ────────────────────────
   source:      { type: String, enum: ['app', 'partner_api', 'edi', 'email'], default: 'app' },
-  externalRef: { type: String, default: null }, // the partner/source's own load id (for dedup)
+  externalRef: { type: String, default: null, maxlength: 200 }, // the partner/source's own load id (for dedup)
 
   // ── Auto-generated document paths ─────────────────────────────────────────
   // Paths are relative to backend static serving (e.g. /documents/uploads/xxx.pdf)
@@ -157,7 +157,7 @@ const LoadSchema = new mongoose.Schema({
     targetMinC:   Number,   // target range in Celsius
     targetMaxC:   Number,
     alertOnDeviation: { type: Boolean, default: true },
-    notes:        String,   // e.g. "Keep frozen, do not stack"
+    notes:        { type: String, maxlength: 2000 },   // e.g. "Keep frozen, do not stack"
   },
 
   // ── Live Carrier Location ─────────────────────────────────────────────────
@@ -187,13 +187,13 @@ const LoadSchema = new mongoose.Schema({
   stops: [{
     sequence:     { type: Number, required: true },
     type:         { type: String, enum: ['pickup', 'delivery'], required: true },
-    address:      { type: String, required: true },
+    address:      { type: String, required: true, maxlength: 300 },
     lat:          Number,
     lng:          Number,
     timeWindow:   { start: Date, end: Date },
-    contactName:  String,
-    contactPhone: String,
-    notes:        String,
+    contactName:  { type: String, maxlength: 200 },
+    contactPhone: { type: String, maxlength: 50 },
+    notes:        { type: String, maxlength: 2000 },
     status: {
       type:    String,
       enum:    ['pending', 'arrived', 'departed', 'skipped'],

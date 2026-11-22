@@ -18,3 +18,6 @@ for (const k of [
 }
 process.env.JWT_SECRET = 'test-secret-key-for-testing';
 process.env.NODE_ENV = 'test';
+// The posting service spaces real geocoder lookups to 1.1 s (provider policy); tests mock the provider and must not wait.
+// The spacing tests set it back through services/loadPostingService._spacing with an injected clock.
+process.env.GEOCODE_SPACING_MS = '0';

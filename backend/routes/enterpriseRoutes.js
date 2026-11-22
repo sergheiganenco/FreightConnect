@@ -392,6 +392,9 @@ const bulkCreateLimiter = makeLimiter({
   keyGenerator: (req) => String(req.user?.companyOwnerId || req.user?.userId || 'anon'),
   message: { error: 'Too many bulk load requests, please try again later' },
 }, 'rl:bulk-loads:');
+// Same string forms the `create` validator (isBoolean) accepts as true; the parse handler uses it too, so the limiter and the handler agree.
+const wantsCreate = (v) => v === true || v === 'true' || v === 1 || v === '1';
+const MAX_CREATED_PER_PARSE = 100;
 
 /**
  * POST /api/enterprise/loads/bulk — Bulk create loads (max 100)
@@ -513,6 +516,8 @@ router.post(
  */
 router.post(
   '/loads/parse',
+  // Creating loads shares the bulk quota (per company); review-only parse calls are not limited by it.
+  (req, res, next) => (wantsCreate(req.body?.create) ? bulkCreateLimiter(req, res, next) : next()),
   requirePermission('loads:write'),
   [
     body('text').isString().trim().notEmpty().withMessage('text is required')
@@ -524,7 +529,8 @@ router.post(
   validate,
   async (req, res) => {
     try {
-      const { text, create = false, engine = 'auto' } = req.body;
+      const { text, engine = 'auto' } = req.body;
+      const create = wantsCreate(req.body.create);
 
       let result;
       try {
@@ -563,6 +569,10 @@ router.post(
       const geocodeBudget = makeGeocodeBudget();
 
       for (const l of result.loads) {
+        if (created.length >= MAX_CREATED_PER_PARSE) {
+          skipped.push({ title: l.title, reason: `Not created: at most ${MAX_CREATED_PER_PARSE} loads are created from one parse request. Submit the remaining loads again.`, load: l });
+          continue;
+        }
         // Require the fields Load create enforces.
         const missing = [];
         if (!l.origin) missing.push('origin');

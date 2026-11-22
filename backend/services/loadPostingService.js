@@ -15,6 +15,9 @@ const { loadDistanceFields } = require('./routingService');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
 const hasCoords = (o) => Number.isFinite(o?.lat) && Number.isFinite(o?.lng);
+const MAX_UNLOCATED_PER_COMPANY = 200;
+const missingNum = { $not: { $type: 'number' } };
+const UNLOCATED = [{ originLat: missingNum }, { originLng: missingNum }, { destinationLat: missingNum }, { destinationLng: missingNum }];
 
 /** Shipper posting gate (suspended account; payment method on file unless REQUIRE_SHIPPER_PAYMENT_METHOD=false). null = allowed. */
 async function shipperPostingGate(shipperCompanyId, { requirePaymentMethod = true } = {}) {
@@ -41,6 +44,8 @@ async function shipperPostingGate(shipperCompanyId, { requirePaymentMethod = tru
   return null;
 }
 
+const REJECTED_STATUSES = [400, 404, 414, 422];
+
 // Nominatim requires a valid User-Agent or it returns "Access denied".
 async function fetchCoords(location) {
   try {
@@ -51,11 +56,9 @@ async function fetchCoords(location) {
       { headers: { 'User-Agent': 'FreightConnect/1.0 (loads@freightconnect.app)' }, signal: ctrl.signal }
     );
     clearTimeout(t);
-    // 429 / 5xx / anything unexpected = outage (retry later). Any other 4xx (400, 404, 414...) means the geocoder refuses
-    // this exact string, so retrying can never help: treat it like "not found".
-    if (resp.status === 429 || resp.status >= 500) return null;
-    if (!resp.ok && resp.status >= 400) return { notFound: true, reason: 'rejected' };
-    if (!resp.ok) return null;
+    // Only statuses about the QUERY STRING mean "this place does not exist" (400, 404, 414, 422). Everything else that is not OK
+    // (401/403 blocked agent or IP, 407, 408, 425, 429, 5xx, 3xx...) is about us or the provider: an outage, retried later.
+    if (!resp.ok) return REJECTED_STATUSES.includes(resp.status) ? { notFound: true, reason: 'rejected' } : null;
     const data = await resp.json();
     // The geocoder answered and found nothing: the place name is wrong. That is different from an outage.
     if (Array.isArray(data) && !data.length) return { notFound: true };
@@ -72,15 +75,31 @@ async function fetchCoords(location) {
 const MAX_PLACE = 200;
 const TEXT_CAPS = {
   title: 200, specialInstructions: 2000, notes: 2000, carrierInstructions: 2000,
-  commodityType: 200, commodityCategory: 200, paymentTerms: 200, currency: 10,
+  equipmentType: 100, commodityType: 200, commodityCategory: 200, paymentTerms: 200, currency: 10,
   hazmatClass: 50, hazmatPackingGroup: 50, dangerousGoodsUN: 50,
   poNumber: 200, shipperReferenceNumber: 200, consigneeReference: 200, externalRef: 200,
   pickupFacilityName: 200, pickupAddress: 300, pickupContactName: 200, pickupContactPhone: 50,
   deliveryFacilityName: 200, deliveryAddress: 300, deliveryContactName: 200, deliveryContactPhone: 50,
   overweightPermitNumber: 200,
 };
+// Array-of-string fields (form option lists; the longest option is 34 characters) and multi-stop limits.
+const ARRAY_FIELDS = ['specialHandling', 'accessorials', 'documentsRequired'];
+const MAX_ARRAY_ITEMS = 20;
+const MAX_ITEM_LEN = 100;
+const MAX_STOPS = 20;
+const STOP_TEXT_CAPS = { address: 300, contactName: 200, contactPhone: 50, notes: 2000 };
+const STOP_TYPES = ['pickup', 'delivery']; // Load.stops[].type enum
+// [min, max]. The form lets weight be 8 digits and cargo value / insurance 12; equipment limits top out at 48,000 lbs and
+// heavier loads are allowed with an overweight permit, so weight is bounded at a superload (500,000 lbs), not at a truck.
+const NUM_BOUNDS = { rate: [0, 1000000], loadWeight: [0, 500000], cargoValue: [0, 1e9], insuranceRequired: [0, 1e9] };
+const DIMENSION_BOUNDS = [0, 999999]; // the form allows 6 digits per dimension
+const REEFER_TEMP_C = [-40, 40];
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+// A number, or a non-blank numeric string (bulk/EDI callers pass strings; Mongoose casts them). Anything else is NaN.
+const toNum = (v) => (typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN));
+const outside = (n, [min, max]) => !Number.isFinite(n) || n < min || n > max;
 
 /** Error message for an unacceptable posted field, or null. */
 function badFieldMessage(fields) {
@@ -92,7 +111,48 @@ function badFieldMessage(fields) {
   }
   for (const [key, max] of Object.entries(TEXT_CAPS)) {
     const v = fields[key];
-    if (typeof v === 'string' && v.length > max) return `${key} must be ${max} characters or fewer.`;
+    if (v == null) continue;
+    if (typeof v !== 'string') return `${key} must be text.`;
+    if (v.length > max) return `${key} must be ${max} characters or fewer.`;
+  }
+  for (const key of ARRAY_FIELDS) {
+    const v = fields[key];
+    if (v == null) continue;
+    if (!Array.isArray(v) || v.length > MAX_ARRAY_ITEMS || v.some((x) => typeof x !== 'string' || x.length > MAX_ITEM_LEN)) {
+      return `${key} must be a list of at most ${MAX_ARRAY_ITEMS} text items of ${MAX_ITEM_LEN} characters or fewer.`;
+    }
+  }
+  for (const [key, bounds] of Object.entries(NUM_BOUNDS)) {
+    const v = fields[key];
+    if (v == null || v === '') continue;
+    if (outside(toNum(v), bounds)) return `${key} must be a number between ${bounds[0]} and ${bounds[1]}.`;
+  }
+  const dims = fields.loadDimensions;
+  if (dims != null) {
+    if (typeof dims !== 'object' || Array.isArray(dims)) return 'loadDimensions must be an object.';
+    for (const k of ['length', 'width', 'height']) {
+      if (dims[k] != null && dims[k] !== '' && outside(toNum(dims[k]), DIMENSION_BOUNDS)) return `loadDimensions.${k} must be a number between ${DIMENSION_BOUNDS[0]} and ${DIMENSION_BOUNDS[1]}.`;
+    }
+  }
+  const reefer = fields.reefer;
+  if (reefer != null) {
+    if (typeof reefer !== 'object' || Array.isArray(reefer)) return 'reefer must be an object.';
+    if (reefer.notes != null && (typeof reefer.notes !== 'string' || reefer.notes.length > 2000)) return 'reefer.notes must be text of 2000 characters or fewer.';
+    for (const k of ['targetMinC', 'targetMaxC']) {
+      if (reefer[k] != null && (typeof reefer[k] !== 'number' || outside(reefer[k], REEFER_TEMP_C))) return `reefer.${k} must be a temperature between ${REEFER_TEMP_C[0]} and ${REEFER_TEMP_C[1]} C.`;
+    }
+  }
+  if (fields.stops != null) {
+    if (!Array.isArray(fields.stops) || fields.stops.length > MAX_STOPS) return `stops must be a list of at most ${MAX_STOPS} stops.`;
+    for (const st of fields.stops) {
+      if (!st || typeof st !== 'object' || Array.isArray(st)) return 'Each stop must be an object.';
+      if (st.type != null && !STOP_TYPES.includes(st.type)) return `Each stop type must be one of: ${STOP_TYPES.join(', ')}.`;
+      for (const [k, max] of Object.entries(STOP_TEXT_CAPS)) {
+        if (st[k] == null) continue;
+        if (typeof st[k] !== 'string') return `Stop ${k} must be text.`;
+        if (st[k].length > max) return `Stop ${k} must be ${max} characters or fewer.`;
+      }
+    }
   }
   return null;
 }
@@ -100,24 +160,34 @@ function badFieldMessage(fields) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NOMINATIM_SPACING_MS = 1100; // provider policy: at most 1 request per second
 
+// Process-wide provider slot: EVERY real lookup (single post, bulk, locator job) takes the next free slot, so concurrent
+// requests cannot exceed the provider's policy together. A lookup that would wait longer than maxWaitMs is not made (an
+// outage: the load posts with needsLocation and the locator job picks it up). Tests inject now/sleep and spacingMs
+// (GEOCODE_SPACING_MS=0 in __tests__/env.js keeps the other suites fast).
+const spacing = {
+  ms: Number(process.env.GEOCODE_SPACING_MS ?? NOMINATIM_SPACING_MS), maxWaitMs: 5000, nextAt: 0,
+  now: () => Date.now(), sleep,
+};
+
 /**
  * Shared by the loads of one multi-load request (bulk, email import): repeated places are looked up once, real lookups are
  * spaced to the provider's 1 request/second policy, and once the time budget is spent the remaining places are NOT looked up.
  */
 function makeGeocodeBudget(ms = 20000) {
-  return { deadline: Date.now() + ms, nextAt: 0, cache: new Map() };
+  return { deadline: Date.now() + ms, cache: new Map() };
 }
 
 async function geocode(place, budget) {
-  if (!budget) return fetchCoords(place);
   const key = String(place).trim().toLowerCase();
-  if (budget.cache.has(key)) return budget.cache.get(key);
-  const at = Math.max(Date.now(), budget.nextAt);
-  if (at >= budget.deadline) return { skipped: true };
-  if (at > Date.now()) await sleep(at - Date.now());
-  budget.nextAt = Date.now() + NOMINATIM_SPACING_MS;
+  if (budget?.cache.has(key)) return budget.cache.get(key);
+  const now = spacing.now();
+  const at = Math.max(now, spacing.nextAt);
+  // Over the request's budget (bulk) or past the longest acceptable wait (single post): do not look it up.
+  if (budget ? at >= budget.deadline : at - now > spacing.maxWaitMs) return budget ? { skipped: true } : null;
+  spacing.nextAt = at + spacing.ms; // claimed synchronously, so concurrent callers queue behind each other
+  if (at > now) await spacing.sleep(at - now);
   const r = await fetchCoords(place);
-  budget.cache.set(key, r);
+  if (budget) budget.cache.set(key, r);
   return r;
 }
 
@@ -227,6 +297,15 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
       }
     }
 
+    // A load saved without coordinates waits for the locator job and is hidden from carriers; one company may not pile up
+    // unbounded numbers of them (loads that geocode fine are unaffected). Uses the {postedBy, status} index.
+    if (!(hasCoords(originC) && hasCoords(destinationC))) {
+      const waiting = await Load.countDocuments({ postedBy: shipperCompanyId, status: 'open', $or: UNLOCATED }, { limit: MAX_UNLOCATED_PER_COMPANY });
+      if (waiting >= MAX_UNLOCATED_PER_COMPANY) {
+        return { status: 429, error: `You already have ${MAX_UNLOCATED_PER_COMPANY} open loads waiting for a location lookup. Cancel loads whose locations were not recognised, or wait for the pending ones to be located, then post again.` };
+      }
+    }
+
     // Road miles (bounded by the ORS timeout, never throws; null on any failure or multi-stop).
     // In a budgeted (bulk) request the same deadline covers routing: once it has
     // passed, skip the call and leave road miles to the on-demand backfill.
@@ -260,4 +339,4 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
   }
 }
 
-module.exports = { createPostedLoad, shipperPostingGate, makeGeocodeBudget, geocode, POSTABLE_FIELDS };
+module.exports = { createPostedLoad, shipperPostingGate, makeGeocodeBudget, geocode, POSTABLE_FIELDS, MAX_UNLOCATED_PER_COMPANY, _spacing: spacing };
