@@ -143,7 +143,7 @@ router.post('/carrier/documents', auth, docUpload.single('file'), async (req, re
 // ----------------------------------------
 router.get('/trust-score', auth, async (req, res) => {
   try {
-    const breakdown = await trustScoreService.getScoreBreakdown(req.user.userId);
+    const breakdown = await trustScoreService.getScoreBreakdown(req.user.companyOwnerId || req.user.userId, { includeHistory: true }); // own company only
     res.json(breakdown);
   } catch (err) {
     console.error('Get trust score error:', err);
@@ -158,7 +158,7 @@ router.get('/trust-score', auth, async (req, res) => {
 router.get('/trust-score/:userId', auth, async (req, res) => {
   try {
     const user = await User.findById(req.params.userId).select(
-      'name role trustScore verification.status createdAt'
+      'name role ' + trustScoreService.PUBLIC_TRUST_SELECT + ' verification.status createdAt'
     );
     if (!user) return res.status(404).json({ error: 'User not found' });
 

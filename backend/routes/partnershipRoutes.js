@@ -13,6 +13,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middlewares/authMiddleware');
 const Partnership = require('../models/Partnership');
+const { PUBLIC_TRUST_SELECT } = require('../services/trustScoreService');
 const User = require('../models/User');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
@@ -87,8 +88,8 @@ router.get('/', auth, CARRIER_ONLY, async (req, res) => {
     if (status && status !== 'all') filter.status = status;
 
     const partnerships = await Partnership.find(filter)
-      .populate('requestedBy', 'name companyName email trustScore verification.status')
-      .populate('requestedTo', 'name companyName email trustScore verification.status')
+      .populate('requestedBy', 'name companyName email ' + PUBLIC_TRUST_SELECT + ' verification.status')
+      .populate('requestedTo', 'name companyName email ' + PUBLIC_TRUST_SELECT + ' verification.status')
       .sort({ updatedAt: -1 });
 
     res.json(partnerships);
@@ -129,7 +130,7 @@ router.get('/directory', auth, async (req, res) => {
 
     const [carriers, total] = await Promise.all([
       User.find(filter)
-        .select('name companyName email trustScore verification.status verification.fmcsaData preferences.equipmentTypes preferences.preferredRegions preferences.homeBase createdAt')
+        .select('name companyName email ' + PUBLIC_TRUST_SELECT + ' verification.status verification.fmcsaData preferences.equipmentTypes preferences.preferredRegions preferences.homeBase createdAt')
         .sort({ 'trustScore.overall': -1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(Number(limit)),

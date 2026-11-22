@@ -219,7 +219,7 @@ async function getFacilityStats(facilityName) {
   if (!facilityName) return null;
 
   const pipeline = [
-    { $match: { facilityName, departedAt: { $ne: null } } },
+    { $match: { facilityName, departedAt: { $ne: null }, closedReason: { $ne: 'cancelled' } } },
     {
       $group: {
         _id: '$stopType',

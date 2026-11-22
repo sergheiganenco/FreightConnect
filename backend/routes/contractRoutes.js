@@ -21,6 +21,7 @@ const express = require('express');
 const router  = express.Router();
 const auth    = require('../middlewares/authMiddleware');
 const Contract = require('../models/Contract');
+const { PUBLIC_TRUST_SELECT } = require('../services/trustScoreService');
 const Load     = require('../models/Load');
 const User     = require('../models/User');
 const { generateContractNumber } = require('../utils/contractNumberGenerator');
@@ -85,7 +86,7 @@ router.get('/', auth, async (req, res) => {
 
     const contracts = await Contract.find(filter)
       .populate('shipper',                   'name companyName email')
-      .populate('assignedCarriers.carrier',  'name companyName email trustScore')
+      .populate('assignedCarriers.carrier',  'name companyName email ' + PUBLIC_TRUST_SELECT)
       .sort({ updatedAt: -1 });
 
     res.json(contracts);
@@ -99,7 +100,7 @@ router.get('/:id', auth, async (req, res) => {
   try {
     const contract = await Contract.findById(req.params.id)
       .populate('shipper',                   'name companyName email phone')
-      .populate('assignedCarriers.carrier',  'name companyName email trustScore verification.status')
+      .populate('assignedCarriers.carrier',  'name companyName email ' + PUBLIC_TRUST_SELECT + ' verification.status')
       .populate('history.performedBy',       'name role');
     if (!contract) return res.status(404).json({ error: 'Contract not found' });
 

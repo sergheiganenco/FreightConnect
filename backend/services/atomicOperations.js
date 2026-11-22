@@ -26,7 +26,7 @@ async function atomicAcceptLoad(loadId, carrierId) {
         $inc: { __v: 1 },
       },
       { new: true }
-    ).populate('postedBy acceptedBy');
+    ).populate({ path: 'postedBy acceptedBy', select: '-trustScore.history' }); // responses echo this load: never ship per-event trust history
 
     if (!load) {
       const existing = await Load.findById(loadId).select('status acceptedBy').lean();

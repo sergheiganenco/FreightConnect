@@ -15,6 +15,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middlewares/authMiddleware');
 const Capacity = require('../models/Capacity');
+const { PUBLIC_TRUST_SELECT } = require('../services/trustScoreService');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
 const CARRIER_ONLY = (req, res, next) => {
@@ -75,7 +76,7 @@ router.get('/', auth, async (req, res) => {
 
     const [posts, total] = await Promise.all([
       Capacity.find(filter)
-        .populate('carrierId', 'name companyName trustScore verification.status verification.fmcsaData')
+        .populate('carrierId', 'name companyName ' + PUBLIC_TRUST_SELECT + ' verification.status verification.fmcsaData')
         .sort({ availableFrom: 1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(Number(limit)),
@@ -103,7 +104,7 @@ router.get('/my', auth, CARRIER_ONLY, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   try {
     const post = await Capacity.findById(req.params.id)
-      .populate('carrierId', 'name companyName trustScore verification email')
+      .populate('carrierId', 'name companyName ' + PUBLIC_TRUST_SELECT + ' verification email')
       .populate('bookedBy', 'name companyName email');
     if (!post) return res.status(404).json({ error: 'Capacity post not found' });
     res.json(post);

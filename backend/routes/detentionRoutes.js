@@ -47,6 +47,7 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
     const existing = await DwellEvent.findOne({
       load: load._id,
       carrier: req.user.userId,
+      bookedAt: load.bookedAt || null, // this booking only (null matches legacy events)
       stopType,
       stopIndex: stopIndex || 0,
     });
@@ -64,6 +65,7 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
       load: load._id,
       carrier: req.user.userId,
       shipper: load.postedBy,
+      bookedAt: load.bookedAt || null,
       stopType,
       stopIndex: stopIndex || 0,
       facilityName: facilityName || (stopType === 'pickup' ? load.pickupFacilityName : load.deliveryFacilityName) || '',
@@ -187,7 +189,7 @@ router.get('/summary', auth, async (req, res) => {
     const carrierId = new mongoose.Types.ObjectId(req.user.userId);
 
     const pipeline = [
-      { $match: { carrier: carrierId, arrivedAt: { $gte: start, $lte: end }, departedAt: { $ne: null } } },
+      { $match: { carrier: carrierId, arrivedAt: { $gte: start, $lte: end }, departedAt: { $ne: null }, closedReason: { $ne: 'cancelled' } } },
       {
         $group: {
           _id: null,

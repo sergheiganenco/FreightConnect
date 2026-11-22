@@ -68,7 +68,7 @@ async function transitionLoadStatus(
         $inc: { __v: 1 },
       },
       { new: true }
-    ).populate('postedBy acceptedBy');
+    ).populate({ path: 'postedBy acceptedBy', select: '-trustScore.history' }); // responses echo this load: never ship per-event trust history
 
     if (!load) {
       // Distinguish "not found" from "wrong status"

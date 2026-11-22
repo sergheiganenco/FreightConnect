@@ -92,9 +92,9 @@ async function adjustScore(userId, reason, points, loadId = null) {
 }
 
 /**
- * Return score breakdown for display on frontend.
+ * Return score breakdown for display on frontend. `history` only when includeHistory (self/admin).
  */
-async function getScoreBreakdown(userId) {
+async function getScoreBreakdown(userId, { includeHistory = false } = {}) {
   const user = await User.findById(userId).select('trustScore verification role createdAt');
   if (!user) throw new Error('User not found');
 
@@ -116,10 +116,15 @@ async function getScoreBreakdown(userId) {
     disputeResolutionRate: ts.disputeResolutionRate ?? 100,
     totalLoadsCompleted: ts.totalLoadsCompleted ?? 0,
     lastCalculated: ts.lastCalculated,
-    history: (ts.history || []).slice(-10),
+    // Per-event history carries loadIds and reasons: only the subject company itself (and admins) may get it.
+    ...(includeHistory ? { history: (ts.history || []).slice(-10) } : {}),
     verificationStatus: user.verification?.status || 'unverified',
     memberSince: user.createdAt,
   };
 }
 
-module.exports = { calculateTrustScore, adjustScore, getScoreBreakdown };
+// Aggregate trust fields a counterparty may see (never `trustScore.history`, which names loads).
+// Use as the select/populate field list instead of the whole `trustScore` object.
+const PUBLIC_TRUST_SELECT = 'trustScore.score trustScore.onTimeRate trustScore.cancellationRate trustScore.totalLoadsCompleted trustScore.lastCalculated';
+
+module.exports = { calculateTrustScore, adjustScore, getScoreBreakdown, PUBLIC_TRUST_SELECT };

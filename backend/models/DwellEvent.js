@@ -24,6 +24,13 @@ const DwellEventSchema = new Schema({
   carrier: { type: ObjectId, ref: 'User', required: true, index: true },
   shipper: { type: ObjectId, ref: 'User', required: true },
 
+  // The booking this visit belongs to (= Load.bookedAt of that booking; null for loads booked before the field
+  // existed, treated as one legacy booking). Lets the SAME carrier re-book a load and get a fresh dwell record.
+  bookedAt: { type: Date, default: null },
+  // Set only when the event was force-closed because the booking ended (cancel / release). Such an event is
+  // closed WITHOUT recalculation: no dwell, no detention fee, no billing; stats aggregates exclude it.
+  closedReason: { type: String, enum: ['cancelled', null], default: null },
+
   // Which stop? pickup or delivery (or multi-stop index)
   stopType:  { type: String, enum: ['pickup', 'delivery'], required: true },
   stopIndex: { type: Number, default: 0 }, // for multi-stop loads
@@ -72,8 +79,10 @@ const DwellEventSchema = new Schema({
 DwellEventSchema.index({ facilityName: 1, stopType: 1 });
 DwellEventSchema.index({ carrier: 1, createdAt: -1 });
 DwellEventSchema.index({ shipper: 1, facilityName: 1 });
-// One dwell record per (load, carrier, stop). DB-level enforcement closes the
+// One dwell record per (load, booking, carrier, stop). DB-level enforcement closes the
 // check-in race (two concurrent check-ins) that would otherwise double-bill.
-DwellEventSchema.index({ load: 1, carrier: 1, stopType: 1, stopIndex: 1 }, { unique: true });
+// DEPLOY: the previous unique index (load, carrier, stopType, stopIndex) must be dropped by hand on live DBs:
+//   db.dwellevents.dropIndex('load_1_carrier_1_stopType_1_stopIndex_1')
+DwellEventSchema.index({ load: 1, bookedAt: 1, carrier: 1, stopType: 1, stopIndex: 1 }, { unique: true });
 
 module.exports = mongoose.model('DwellEvent', DwellEventSchema);

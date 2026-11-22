@@ -4,6 +4,7 @@ const { body, param } = require('express-validator');
 const auth = require('../middlewares/authMiddleware');
 const validate = require('../middlewares/validate');
 const PreferredCarrier = require('../models/PreferredCarrier');
+const { PUBLIC_TRUST_SELECT } = require('../services/trustScoreService');
 const Load = require('../models/Load');
 const User = require('../models/User');
 const { notifyUserSafe } = require('../utils/notifyUser');
@@ -72,7 +73,7 @@ router.get('/', auth, async (req, res) => {
     }
 
     const carriers = await PreferredCarrier.find({ shipper: req.user.userId })
-      .populate('carrier', 'name email companyName mcNumber dotNumber trustScore verification')
+      .populate('carrier', 'name email companyName mcNumber dotNumber ' + PUBLIC_TRUST_SELECT + ' verification')
       .sort({ tier: 1, addedAt: -1 });
 
     res.json(carriers);

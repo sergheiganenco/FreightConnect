@@ -18,6 +18,43 @@ const Appointment = require('../models/Appointment');
 const Load        = require('../models/Load');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
+// Companies, not people: dispatchers/drivers act for their carrier company (owner account id).
+const companyOf = (req) => String(req.user.companyOwnerId || req.user.userId);
+const FROZEN_LEG = ['cancelled', 'missed']; // history: a new appointment request is the way forward
+
+// Authorise a MUTATION against the load's CURRENT booking, not just the appointment's stored parties:
+// the acting company must be the load's booked carrier (acceptedBy) or its shipper (postedBy), the load must be
+// accepted/in-transit, the appointment must belong to this booking, and a cancelled/missed leg is frozen.
+// `allow` lists the sides ('carrier'|'shipper') that may do this. Sends the error and returns null, or returns the side.
+async function authoriseMutation(req, res, appt, allow, apptType) {
+  const deny = (code, error) => { res.status(code).json({ error }); return null; };
+  const admin = req.user.role === 'admin';
+  const load = await Load.findById(appt.load).select('postedBy acceptedBy status');
+  if (!load) return deny(404, 'Load not found');
+  const me = companyOf(req);
+  const side = admin ? 'admin' : me === String(load.acceptedBy) ? 'carrier' : me === String(load.postedBy) ? 'shipper' : null;
+  if (!side || (!admin && !allow.includes(side))) return deny(403, 'Forbidden');
+  if (!admin) {
+    if (!['accepted', 'in-transit'].includes(load.status)) return deny(409, 'This load is not currently booked');
+    if (String(appt.carrier) !== String(load.acceptedBy) || String(appt.shipper) !== String(load.postedBy)) {
+      return deny(409, 'This appointment belongs to a previous booking of the load');
+    }
+  }
+  if (apptType && FROZEN_LEG.includes(appt[apptType]?.status)) return deny(409, `The ${apptType} appointment is ${appt[apptType].status} and cannot be changed; request a new appointment`);
+  return side;
+}
+
+// A carrier that no longer holds the load keeps its own (cancelled/missed) record but sees only the load's
+// identity, never the current booking's status or rate.
+function redactForFormerCarrier(appt, req) {
+  const o = appt.toObject ? appt.toObject() : appt;
+  if (!o.load) return o;
+  if (req.user.role === 'carrier' && String(o.load.acceptedBy || '') !== companyOf(req)) {
+    o.load = { _id: o.load._id, title: o.load.title, origin: o.load.origin, destination: o.load.destination };
+  } else delete o.load.acceptedBy;
+  return o;
+}
+
 // ── POST / — create appointment record for an accepted load ──────────────────
 router.post('/', auth, async (req, res) => {
   try {
@@ -27,8 +64,11 @@ router.post('/', auth, async (req, res) => {
     const load = await Load.findById(loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    // Only the carrier assigned to the load can create the appointment
-    if (req.user.role === 'carrier' && load.acceptedBy?.toString() !== req.user.userId) {
+    // Only the load's CURRENT booked carrier company (or its shipper company) can create the appointment
+    const me = companyOf(req);
+    if (req.user.role === 'carrier' ? load.acceptedBy?.toString() !== me
+      : req.user.role === 'shipper' ? load.postedBy?.toString() !== me
+      : req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Only the assigned carrier can create an appointment' });
     }
     if (!['accepted', 'in-transit'].includes(load.status)) {
@@ -38,7 +78,7 @@ router.post('/', auth, async (req, res) => {
     // Prevent duplicate
     // A record with no live leg left (load cancelled / re-listed) must not block the next carrier's booking.
     const live = { $in: ['pending', 'confirmed', 'rescheduled'] };
-    const existing = await Appointment.findOne({ load: loadId, $or: [{ 'pickup.status': live }, { 'delivery.status': live }] });
+    const existing = await Appointment.findOne({ load: loadId, carrier: load.acceptedBy, $or: [{ 'pickup.status': live }, { 'delivery.status': live }] });
     if (existing) return res.status(409).json({ error: 'Appointment already exists for this load', appointmentId: existing._id });
 
     const now = new Date();
@@ -87,15 +127,14 @@ router.post('/', auth, async (req, res) => {
 // ── GET / — list appointments ─────────────────────────────────────────────────
 router.get('/', auth, async (req, res) => {
   try {
-    const uid    = req.user.userId;
     const role   = req.user.role;
     const { status, from, to, type } = req.query;
 
     let filter = {};
     if (role === 'shipper') {
-      filter.shipper = uid;
+      filter.shipper = companyOf(req);
     } else if (role === 'carrier') {
-      filter.carrier = uid;
+      filter.carrier = companyOf(req);
     } else if (role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -118,12 +157,12 @@ router.get('/', auth, async (req, res) => {
     }
 
     const appointments = await Appointment.find(filter)
-      .populate('load',    'title origin destination status rate')
+      .populate('load',    'title origin destination status rate acceptedBy')
       .populate('shipper', 'name companyName email')
       .populate('carrier', 'name companyName email')
       .sort({ 'pickup.scheduledAt': 1 });
 
-    res.json(appointments);
+    res.json(appointments.map((a) => redactForFormerCarrier(a, req)));
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch appointments' });
   }
@@ -133,12 +172,12 @@ router.get('/', auth, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   try {
     const appt = await Appointment.findById(req.params.id)
-      .populate('load',    'title origin destination status rate pickupTimeWindow deliveryTimeWindow')
+      .populate('load',    'title origin destination status rate pickupTimeWindow deliveryTimeWindow acceptedBy')
       .populate('shipper', 'name companyName email phone')
       .populate('carrier', 'name companyName email phone');
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    const uid = req.user.userId;
+    const uid = companyOf(req);
     if (
       req.user.role !== 'admin' &&
       appt.shipper._id.toString() !== uid &&
@@ -147,7 +186,7 @@ router.get('/:id', auth, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    res.json(appt);
+    res.json(redactForFormerCarrier(appt, req));
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch appointment' });
   }
@@ -165,10 +204,8 @@ router.patch('/:id/request', auth, async (req, res) => {
     const appt = await Appointment.findById(req.params.id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    // Only carrier can request
-    if (appt.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only the carrier can request appointment slots' });
-    }
+    // Only the load's current booked carrier can request
+    if (!await authoriseMutation(req, res, appt, ['carrier'], apptType)) return;
 
     appt[apptType] = {
       ...appt[apptType].toObject(),
@@ -209,9 +246,7 @@ router.patch('/:id/confirm', auth, async (req, res) => {
     const appt = await Appointment.findById(req.params.id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    if (appt.shipper.toString() !== req.user.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only the shipper can confirm appointments' });
-    }
+    if (!await authoriseMutation(req, res, appt, ['shipper'], apptType)) return;
     if (appt[apptType].status !== 'pending') {
       return res.status(409).json({ error: `${apptType} appointment is not pending` });
     }
@@ -247,14 +282,9 @@ router.patch('/:id/reschedule', auth, async (req, res) => {
     const appt = await Appointment.findById(req.params.id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    const uid = req.user.userId;
-    if (
-      req.user.role !== 'admin' &&
-      appt.shipper.toString() !== uid &&
-      appt.carrier.toString() !== uid
-    ) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+    const uid = req.user.userId; // the person, for the audit trail
+    const side = await authoriseMutation(req, res, appt, ['carrier', 'shipper'], apptType);
+    if (!side) return;
 
     appt[apptType].scheduledAt = new Date(scheduledAt);
     appt[apptType].status      = 'rescheduled';
@@ -263,7 +293,7 @@ router.patch('/:id/reschedule', auth, async (req, res) => {
     await appt.save();
 
     // Notify the other party
-    const isShipper = appt.shipper.toString() === uid;
+    const isShipper = side === 'shipper';
     const notifyId  = isShipper ? appt.carrier.toString() : appt.shipper.toString();
     notifyUserSafe(notifyId, {
       type:  'exception:new',
@@ -290,20 +320,15 @@ router.patch('/:id/missed', auth, async (req, res) => {
     const appt = await Appointment.findById(req.params.id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    const uid = req.user.userId;
-    if (
-      req.user.role !== 'admin' &&
-      appt.shipper.toString() !== uid &&
-      appt.carrier.toString() !== uid
-    ) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+    const uid = req.user.userId; // the person, for the audit trail
+    const side = await authoriseMutation(req, res, appt, ['carrier', 'shipper'], apptType);
+    if (!side) return;
 
     appt[apptType].status = 'missed';
     appt.history.push({ action: 'missed', type: apptType, performedBy: uid, notes });
     await appt.save();
 
-    const isShipper = appt.shipper.toString() === uid;
+    const isShipper = side === 'shipper';
     const notifyId  = isShipper ? appt.carrier.toString() : appt.shipper.toString();
     notifyUserSafe(notifyId, {
       type:  'exception:new',
@@ -325,21 +350,17 @@ router.delete('/:id', auth, async (req, res) => {
     const appt = await Appointment.findById(req.params.id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    const uid = req.user.userId;
-    if (
-      req.user.role !== 'admin' &&
-      appt.shipper.toString() !== uid &&
-      appt.carrier.toString() !== uid
-    ) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    appt.pickup.status   = 'cancelled';
-    appt.delivery.status = 'cancelled';
+    const uid = req.user.userId; // the person, for the audit trail
+    const side = await authoriseMutation(req, res, appt, ['carrier', 'shipper']);
+    if (!side) return;
+    // Only live legs are cancelled: a missed/cancelled leg is history and stays as it is.
+    const liveLegs = ['pickup', 'delivery'].filter((l) => !FROZEN_LEG.includes(appt[l]?.status));
+    if (!liveLegs.length) return res.status(409).json({ error: 'Both legs are already cancelled or missed' });
+    liveLegs.forEach((l) => { appt[l].status = 'cancelled'; });
     appt.history.push({ action: 'cancelled', type: 'general', performedBy: uid });
     await appt.save();
 
-    const isShipper = appt.shipper.toString() === uid;
+    const isShipper = side === 'shipper';
     const notifyId  = isShipper ? appt.carrier.toString() : appt.shipper.toString();
     notifyUserSafe(notifyId, {
       type:  'exception:new',

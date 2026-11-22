@@ -21,6 +21,10 @@ const FALLBACK_WINDOW_MS = 2 * 60 * MIN; // latest arrival = pickup start + this
 const ROAD_FACTOR = 1.25;                // road miles ~= straight-line miles x this
 const NORMAL_MPH = 45;                   // normal drive-time estimate speed
 const FAST_MPH = 60;                     // "cannot possibly arrive" speed
+// A pickup window set on a booked load must start at least this far out, and a shipper's pending proposal
+// lapses after PROPOSAL_TTL_MS: nobody can be handed a window that is already (nearly) over.
+const MIN_EDIT_LEAD_MS = 2 * 60 * MIN;
+const PROPOSAL_TTL_MS = 24 * 60 * MIN;
 const NEAR_PICKUP_MILES = 1;             // inside this we assume the geofence check-in is imminent, never alert
 
 const validDate = (d) => {
@@ -105,5 +109,5 @@ function evaluatePickupRisk({
 module.exports = {
   evaluatePickupRisk,
   RISK_LEVELS: ['not_evaluated', 'on_track', 'at_risk', 'late_certain', 'no_show'],
-  CONSTANTS: { WATCH_WINDOW_MS, FRESH_LOCATION_MS, STALE_LOCATION_MS, NO_GPS_ALERT_MS, MARGIN_MS, NO_SHOW_GRACE_MS, FALLBACK_WINDOW_MS, ROAD_FACTOR, NORMAL_MPH, FAST_MPH },
+  CONSTANTS: { WATCH_WINDOW_MS, FRESH_LOCATION_MS, STALE_LOCATION_MS, NO_GPS_ALERT_MS, MARGIN_MS, NO_SHOW_GRACE_MS, FALLBACK_WINDOW_MS, ROAD_FACTOR, NORMAL_MPH, FAST_MPH, MIN_EDIT_LEAD_MS, PROPOSAL_TTL_MS },
 };

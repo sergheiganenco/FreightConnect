@@ -99,6 +99,9 @@ function getFacilityCheckpoints(load) {
   return checkpoints;
 }
 
+// Dwell events belong to a booking; no bookedAt = one legacy booking.
+const bookingKey = (d) => (d ? new Date(d).getTime() : 0);
+
 /**
  * Main geofence check — called on every carrier location update.
  *
@@ -125,7 +128,7 @@ async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
     if (loadId) loadFilter._id = loadId;
     const activeLoads = await Load.find(loadFilter).select(
       '_id postedBy origin destination originLat originLng destinationLat destinationLng ' +
-      'pickupFacilityName pickupAddress deliveryFacilityName deliveryAddress stops'
+      'pickupFacilityName pickupAddress deliveryFacilityName deliveryAddress stops bookedAt'
     );
 
     if (activeLoads.length === 0) return result;
@@ -137,7 +140,7 @@ async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
       departedAt: null,
     });
     const openByKey = new Map(
-      openEvents.map((e) => [`${e.load}:${e.stopType}:${e.stopIndex}`, e])
+      openEvents.map((e) => [`${e.load}:${e.stopType}:${e.stopIndex}:${bookingKey(e.bookedAt)}`, e])
     );
 
     for (const load of activeLoads) {
@@ -147,7 +150,7 @@ async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
         const within = isWithinGeofence(latitude, longitude, cp.lat, cp.lng);
 
         // Find existing open dwell event for this load + stop
-        const existingEvent = openByKey.get(`${load._id}:${cp.type}:${cp.stopIndex}`);
+        const existingEvent = openByKey.get(`${load._id}:${cp.type}:${cp.stopIndex}:${bookingKey(load.bookedAt)}`); // this booking only
 
         if (within && !existingEvent) {
           // ── ENTER geofence: auto-check-in ────────────────────────────
@@ -157,6 +160,7 @@ async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
             shipper: load.postedBy,
             stopType: cp.type,
             stopIndex: cp.stopIndex,
+            bookedAt: load.bookedAt || null,
             facilityName: cp.facilityName,
             facilityAddress: cp.facilityAddress,
             arrivedAt: new Date(),

@@ -43,7 +43,7 @@ router.post(
   validate,
   async (req, res) => {
     try {
-      const fromUserId = req.user.userId;
+      const fromUserId = req.user.companyOwnerId || req.user.userId; // the company is the party to the load
       const { loadId, toUser, overall, categories, comment, isPublic } = req.body;
 
       // 1. Load must exist and be delivered

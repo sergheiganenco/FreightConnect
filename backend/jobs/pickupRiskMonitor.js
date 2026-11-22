@@ -14,7 +14,7 @@
 const cron = require('node-cron');
 const Load = require('../models/Load');
 const DwellEvent = require('../models/DwellEvent');
-const { evaluatePickupRisk } = require('../services/pickupRiskService');
+const { evaluatePickupRisk, CONSTANTS: { PROPOSAL_TTL_MS } } = require('../services/pickupRiskService');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -152,6 +152,8 @@ async function refreshLoad(loadId, skip = {}, now = new Date()) {
 async function runPickupRiskCheck(now = new Date()) {
   const stats = { checked: 0, notified: 0, atRisk: 0, lateCertain: 0, noShow: 0, errors: 0 };
   try {
+    await Load.updateMany({ 'pickupWindowChange.status': 'pending', 'pickupWindowChange.proposedAt': { $lt: new Date(now.getTime() - PROPOSAL_TTL_MS) } },
+      { $set: { 'pickupWindowChange.status': 'expired' } }); // unanswered proposals lapse after 24h
     const range = { $gte: new Date(now.getTime() - DAY_MS), $lte: new Date(now.getTime() + LOOKAHEAD_MS) };
     const loads = await Load.find({
       status: 'accepted', acceptedBy: { $ne: null },

@@ -4,6 +4,7 @@ const auth = require('../middlewares/authMiddleware');
 const validate = require('../middlewares/validate');
 const { param } = require('express-validator');
 const Bid = require('../models/Bid');
+const { PUBLIC_TRUST_SELECT } = require('../services/trustScoreService');
 const Load = require('../models/Load');
 const User = require('../models/User');
 const { suggestRate } = require('../services/rateSuggestionService');
@@ -164,7 +165,7 @@ router.get('/load/:loadId', auth, async (req, res) => {
     // admin sees all
 
     const bids = await Bid.find(filter)
-      .populate('carrierId', 'name companyName trustScore verification.status')
+      .populate('carrierId', 'name companyName ' + PUBLIC_TRUST_SELECT + ' verification.status')
       .sort({ amount: 1, createdAt: 1 });
 
     res.json(bids);

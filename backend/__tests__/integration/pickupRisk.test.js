@@ -448,8 +448,8 @@ describe('pickup window changed after an alert; arrival bound to the booking', (
     expect(await notes(carrier._id, 'pickup:window_changed')).toHaveLength(1);
 
     // new, EARLIER window: only a proposal until the carrier accepts; then with a fresh authenticated fix ~58 miles away: NEW alert
-    await Load.updateOne({ _id: load._id }, { $set: { carrierLocation: { latitude: load.originLat - 0.9, longitude: load.originLng, updatedAt: NOW, source: 'mobile_app', authenticated: true } } });
-    await move(at(10), at(30)).expect(200);
+    await Load.updateOne({ _id: load._id }, { $set: { carrierLocation: { latitude: load.originLat - 3, longitude: load.originLng, updatedAt: NOW, source: 'mobile_app', authenticated: true } } });
+    await move(at(130), at(150)).expect(200); // start must be >= 2h out
     await request(app).post(`/api/loads/${load._id}/pickup-window-response`).set(bearer(carrier)).send({ accept: true }).expect(200);
     await runPickupRiskCheck(NOW);
     fresh = await Load.findById(load._id);
@@ -488,7 +488,7 @@ describe('the agreed pickup window cannot be changed unilaterally', () => {
     carrier = await verifiedCarrier();
     other = await verifiedCarrier();
     driver = await createTestUser({ role: 'carrier', companyRole: 'driver', parentAccountId: carrier._id });
-    load = await bookedLoad(shipper, carrier); // agreed window: +60..+180 min
+    load = await bookedLoad(shipper, carrier, { pickupTimeWindow: { start: at(300), end: at(420) } }); // agreed window: +300..+420 min (edits need a 2h lead)
   });
 
   test('booking snapshots the agreed window; un-booking clears it', async () => {
@@ -503,22 +503,22 @@ describe('the agreed pickup window cannot be changed unilaterally', () => {
 
   test('a shipper shortening the window is only a proposal: carrier judged on the agreed window, monitor quiet, release refused', async () => {
     const agreedEnd = (await Load.findById(load._id)).bookedWindow.end;
-    const res = await move(at(-300), at(-200)).expect(200); // already in the past: would make the carrier a no-show
+    const res = await move(at(150), at(200)).expect(200); // earlier start and end
     expect(res.body.windowChangeProposed).toBe(true);
     let fresh = await Load.findById(load._id);
     expect(fresh.pickupTimeWindow.end.getTime()).toBe(agreedEnd.getTime());   // displayed window = what both agreed
     expect(fresh.bookedWindow.end.getTime()).toBe(agreedEnd.getTime());
     expect(fresh.pickupWindowChange).toMatchObject({ status: 'pending' });
-    expect(fresh.pickupWindowChange.proposedEnd.getTime()).toBe(at(-200).getTime());
+    expect(fresh.pickupWindowChange.proposedEnd.getTime()).toBe(at(200).getTime());
     expect(await notes(carrier._id, 'pickup:window_change_proposed')).toHaveLength(1);
 
-    await runPickupRiskCheck(at(190)); // 10 min after the AGREED end: inside grace -> not a no-show
+    await runPickupRiskCheck(at(430)); // 10 min after the AGREED end: inside grace -> not a no-show
     fresh = await Load.findById(load._id);
     expect(fresh.pickupRisk.level).toBe('at_risk');
     expect(fresh.pickupRisk.detail.latestArrivalAt).toBe(agreedEnd.toISOString());
     expect(await notes(shipper._id, 'pickup:no_show')).toHaveLength(0);
 
-    await runPickupRiskCheck(at(180 + 31)); // genuinely a no-show on the agreed window
+    await runPickupRiskCheck(at(420 + 31)); // genuinely a no-show on the agreed window
     expect((await Load.findById(load._id)).pickupRisk.level).toBe('no_show');
     const refused = await release('no_show').expect(409); // ...but not while the shipper's own proposal is pending
     expect(refused.body.error).toMatch(/proposed/);
@@ -533,15 +533,15 @@ describe('the agreed pickup window cannot be changed unilaterally', () => {
   });
 
   test('carrier company (owner or driver) accepts: window and agreed window update, shipper told', async () => {
-    await move(at(30), at(150)).expect(200); // earlier start + earlier end
+    await move(at(150), at(250)).expect(200); // earlier start + earlier end
     await respond(bearer(other), true).expect(403);
     await respond(bearer(shipper), true).expect(403);
     await respond({}, true).expect(401);
     const res = await respond(subToken(driver, carrier, 'driver'), true).expect(200);
     expect(res.body.pickupWindowChange.status).toBe('accepted');
     const fresh = await Load.findById(load._id);
-    expect(fresh.pickupTimeWindow.end.getTime()).toBe(at(150).getTime());
-    expect(fresh.bookedWindow.end.getTime()).toBe(at(150).getTime());
+    expect(fresh.pickupTimeWindow.end.getTime()).toBe(at(250).getTime());
+    expect(fresh.bookedWindow.end.getTime()).toBe(at(250).getTime());
     expect(String(fresh.pickupWindowChange.respondedBy)).toBe(String(driver._id));
     expect(await notes(shipper._id, 'pickup:window_change_accepted')).toHaveLength(1);
     await respond(bearer(carrier), true).expect(409); // nothing pending any more
@@ -549,7 +549,7 @@ describe('the agreed pickup window cannot be changed unilaterally', () => {
 
   test('carrier declines: agreed window untouched, shipper told', async () => {
     const before = await Load.findById(load._id);
-    await move(at(10), at(90)).expect(200);
+    await move(at(150), at(250)).expect(200);
     await respond(bearer(carrier), false).expect(200);
     const fresh = await Load.findById(load._id);
     expect(fresh.pickupTimeWindow.end.getTime()).toBe(before.pickupTimeWindow.end.getTime());
@@ -558,18 +558,18 @@ describe('the agreed pickup window cannot be changed unilaterally', () => {
   });
 
   test('lenient changes apply immediately and become the agreed window; an earlier START is still a proposal', async () => {
-    await move(at(60), at(240)).expect(200); // same start, later end
+    await move(at(300), at(540)).expect(200); // same start, later end
     let fresh = await Load.findById(load._id);
-    expect(fresh.pickupTimeWindow.end.getTime()).toBe(at(240).getTime());
-    expect(fresh.bookedWindow.end.getTime()).toBe(at(240).getTime());
+    expect(fresh.pickupTimeWindow.end.getTime()).toBe(at(540).getTime());
+    expect(fresh.bookedWindow.end.getTime()).toBe(at(540).getTime());
     expect(await notes(carrier._id, 'pickup:window_changed')).toHaveLength(1);
-    await move(at(120), at(300)).expect(200); // later start, later end
+    await move(at(360), at(600)).expect(200); // later start, later end
     fresh = await Load.findById(load._id);
-    expect(fresh.bookedWindow.start.getTime()).toBe(at(120).getTime());
-    const p = await move(at(30), at(400)).expect(200); // earlier start, later end: demanding on the start
+    expect(fresh.bookedWindow.start.getTime()).toBe(at(360).getTime());
+    const p = await move(at(150), at(700)).expect(200); // earlier start, later end: demanding on the start
     expect(p.body.windowChangeProposed).toBe(true);
-    expect((await Load.findById(load._id)).bookedWindow.start.getTime()).toBe(at(120).getTime());
-    await move(at(120), at(500)).expect(200); // a lenient edit supersedes the pending proposal
+    expect((await Load.findById(load._id)).bookedWindow.start.getTime()).toBe(at(360).getTime());
+    await move(at(360), at(800)).expect(200); // a lenient edit supersedes the pending proposal
     expect((await Load.findById(load._id)).pickupWindowChange?.status).toBeFalsy();
   });
 
@@ -677,5 +677,229 @@ describe('penalty evidence and arrival evidence', () => {
     ] } });
     await runPickupRiskCheck(NOW);
     expect((await Load.findById(load._id)).pickupRisk.level).toBe('no_show');
+  });
+});
+
+describe('pickup window edits on a booked load: lead time, deadline, expiry, immutability', () => {
+  let app, shipper, carrier, load;
+  const move = (start, end) => request(app).put(`/api/loads/${load._id}/pickup-window`).set(bearer(shipper)).send({ start, end });
+  const respond = (accept) => request(app).post(`/api/loads/${load._id}/pickup-window-response`).set(bearer(carrier)).send({ accept });
+  const agreed = async () => (await Load.findById(load._id)).bookedWindow;
+  beforeEach(async () => {
+    app = buildApp();
+    shipper = await createTestUser({ role: 'shipper' });
+    carrier = await verifiedCarrier();
+    load = await bookedLoad(shipper, carrier, { pickupTimeWindow: { start: at(300), end: at(420) } });
+  });
+
+  test('a window in the past, or starting inside the 2h lead, is refused (proposal and lenient edit alike)', async () => {
+    await move(at(-120), at(-60)).expect(400);   // past (would be a proposal: earlier)
+    await move(at(60), at(200)).expect(400);     // inside the lead, earlier: proposal refused
+    await move(at(90), at(900)).expect(400);     // inside the lead
+    const fresh = await Load.findById(load._id);
+    expect(fresh.pickupWindowChange?.status).toBeFalsy();
+    expect((await agreed()).start.getTime()).toBe(at(300).getTime());
+  });
+
+  test('a lenient edit (later end) cannot be used while the agreed start is already past', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { pickupTimeWindow: { start: at(-30), end: at(200) }, bookedWindow: { start: at(-30), end: at(200) } } });
+    await move(at(-30), at(600)).expect(400);
+    expect((await agreed()).end.getTime()).toBe(at(200).getTime());
+  });
+
+  test('once the agreed latest arrival has passed, no window edit is accepted at all', async () => {
+    await Load.updateOne({ _id: load._id }, { $set: { pickupTimeWindow: { start: at(-300), end: at(-10) }, bookedWindow: { start: at(-300), end: at(-10) } } });
+    for (const [s, e] of [[at(300), at(400)], [at(-300), at(-10)], [at(-300), at(900)]]) {
+      const res = await move(s, e).expect(409);
+      expect(res.body.error).toMatch(/pickup deadline has already passed/);
+    }
+    expect((await agreed()).end.getTime()).toBe(at(-10).getTime());
+  });
+
+  test('accepting a proposal whose start has since passed or is inside the lead is refused and the proposal expires', async () => {
+    await move(at(150), at(250)).expect(200);
+    await Load.updateOne({ _id: load._id }, { $set: { 'pickupWindowChange.proposedStart': at(30) } });
+    const res = await respond(true).expect(409);
+    expect(res.body.error).toMatch(/expired/);
+    const fresh = await Load.findById(load._id);
+    expect(fresh.pickupWindowChange.status).toBe('expired');
+    expect(fresh.bookedWindow.start.getTime()).toBe(at(300).getTime()); // agreed window untouched
+    await respond(true).expect(409); // nothing pending any more
+  });
+
+  test('a pending proposal older than 24h expires: on accept and in the monitor sweep', async () => {
+    await move(at(150), at(250)).expect(200);
+    await Load.updateOne({ _id: load._id }, { $set: { 'pickupWindowChange.proposedAt': at(-25 * 60) } });
+    await respond(true).expect(409);
+    expect((await Load.findById(load._id)).pickupWindowChange.status).toBe('expired');
+
+    await move(at(150), at(250)).expect(200); // a fresh proposal is possible again
+    await Load.updateOne({ _id: load._id }, { $set: { 'pickupWindowChange.proposedAt': at(-25 * 60) } });
+    await runPickupRiskCheck(NOW);
+    expect((await Load.findById(load._id)).pickupWindowChange.status).toBe('expired');
+  });
+
+  test('the pickup window is immutable once the load is in transit or delivered', async () => {
+    for (const status of ['in-transit', 'delivered']) {
+      await Load.updateOne({ _id: load._id }, { $set: { status } });
+      await move(at(600), at(700)).expect(409);
+      const fresh = await Load.findById(load._id);
+      expect(fresh.pickupTimeWindow.start.getTime()).toBe(at(300).getTime());
+      expect(fresh.bookedWindow.start.getTime()).toBe(at(300).getTime());
+    }
+  });
+});
+
+describe('carrier cancellation penalty lands on the company', () => {
+  test('a dispatcher sub-account cancels: the company loses 5 points, the dispatcher record is untouched', async () => {
+    const app = buildApp();
+    const shipper = await createTestUser({ role: 'shipper' });
+    const carrier = await verifiedCarrier({ trustScore: { score: 50 } });
+    const dispatcher = await createTestUser({ role: 'carrier', companyRole: 'dispatcher', parentAccountId: carrier._id });
+    const load = await bookedLoad(shipper, carrier);
+    await request(app).put(`/api/loads/${load._id}/cancel`).set(subToken(dispatcher, carrier, 'dispatcher')).send({ reason: 'test' }).expect(200);
+    await new Promise((r) => setTimeout(r, 150)); // adjustScore is fire-and-forget
+    const co = await User.findById(carrier._id);
+    expect(co.trustScore.score).toBe(45);
+    expect(co.trustScore.history).toHaveLength(1);
+    expect(String(co.trustScore.history[0].loadId)).toBe(String(load._id));
+    const person = await User.findById(dispatcher._id);
+    expect(person.trustScore.score).toBe(50);
+    expect(person.trustScore.history).toHaveLength(0);
+  });
+});
+
+describe('dwell events are bound to a booking', () => {
+  const { checkGeofence } = require('../../services/geofenceService');
+  let app, shipper, carrier, load;
+  const atPickup = () => [load.originLat, load.originLng];
+  const cancel = (u) => request(app).put(`/api/loads/${load._id}/cancel`).set(bearer(u)).send({ reason: 'test' });
+  const rebook = async (who) => {
+    await new Promise((r) => setTimeout(r, 5)); // distinct bookedAt
+    await Load.findOneAndUpdate({ _id: load._id, status: 'open' }, { $set: { status: 'accepted', acceptedBy: who._id } });
+  };
+  beforeEach(async () => {
+    app = buildApp();
+    shipper = await createTestUser({ role: 'shipper' });
+    carrier = await verifiedCarrier();
+    load = await bookedLoad(shipper, carrier);
+  });
+
+  test('same carrier: arrive, cancel (open dwell closed, no billing), re-book, arrive again -> second event, monitor sees arrival', async () => {
+    await checkGeofence(carrier._id, ...atPickup());
+    const first = await DwellEvent.findOne({ load: load._id });
+    const b1 = (await Load.findById(load._id)).bookedAt;
+    expect(first.bookedAt.getTime()).toBe(b1.getTime());
+    await DwellEvent.updateOne({ _id: first._id }, { $set: { arrivedAt: new Date(Date.now() - 5 * 3600000) } }); // 5h on site: would bill detention if recalculated
+
+    await cancel(carrier).expect(200);
+    const closed = await DwellEvent.findById(first._id);
+    expect(closed.departedAt).toBeTruthy();
+    expect(closed.closedReason).toBe('cancelled');
+    expect(closed.detentionFeeCents).toBe(0);
+    expect(closed.dwellMinutes).toBe(0);
+    expect((await Load.findById(load._id)).accessorialCharges || []).toHaveLength(0);
+
+    await rebook(carrier);
+    const b2 = (await Load.findById(load._id)).bookedAt;
+    expect(b2.getTime()).toBeGreaterThan(b1.getTime());
+    await checkGeofence(carrier._id, ...atPickup());
+    const events = await DwellEvent.find({ load: load._id, carrier: carrier._id, stopType: 'pickup' }).sort({ createdAt: 1 });
+    expect(events).toHaveLength(2);
+    expect(events[1].bookedAt.getTime()).toBe(b2.getTime());
+    expect(events[1].departedAt).toBeNull();
+
+    await runPickupRiskCheck(at(180 + 60)); // long after the window: an arrival in THIS booking means not a no-show
+    expect((await Load.findById(load._id)).pickupRisk.reason).toBe('arrived');
+  });
+
+  test('a different carrier is unaffected and keeps its own event', async () => {
+    const other = await verifiedCarrier();
+    await checkGeofence(carrier._id, ...atPickup());
+    await cancel(carrier).expect(200);
+    await rebook(other);
+    await checkGeofence(other._id, ...atPickup());
+    expect(await DwellEvent.countDocuments({ load: load._id, carrier: carrier._id })).toBe(1);
+    const mine = await DwellEvent.find({ load: load._id, carrier: other._id });
+    expect(mine).toHaveLength(1);
+    expect(mine[0].closedReason).toBeNull();
+  });
+
+  test('a legacy load without bookedAt still checks in once, and out', async () => {
+    await Load.collection.updateOne({ _id: load._id }, { $unset: { bookedAt: 1 } });
+    await checkGeofence(carrier._id, ...atPickup());
+    await checkGeofence(carrier._id, ...atPickup()); // already checked in: no duplicate
+    const evs = await DwellEvent.find({ load: load._id });
+    expect(evs).toHaveLength(1);
+    expect(evs[0].bookedAt).toBeNull();
+    const out = await checkGeofence(carrier._id, load.originLat + 1, load.originLng);
+    expect(out.checkedOut).toHaveLength(1);
+  });
+});
+
+describe('appointments are bound to the current booking of the load', () => {
+  let app, shipper, carrier, former, dispatcher, load, old;
+  const call = (method, path, headers, body) => request(app)[method](`/api/appointments${path}`).set(headers).send(body || {});
+  beforeEach(async () => {
+    app = buildApp();
+    shipper = await createTestUser({ role: 'shipper' });
+    carrier = await verifiedCarrier();
+    former = await verifiedCarrier();
+    dispatcher = await createTestUser({ role: 'carrier', companyRole: 'dispatcher', parentAccountId: carrier._id });
+    load = await bookedLoad(shipper, former);
+    old = await Appointment.create({ load: load._id, shipper: shipper._id, carrier: former._id, pickup: { status: 'pending', scheduledAt: at(400) }, delivery: { status: 'pending', scheduledAt: at(900) } });
+    await request(app).put(`/api/loads/${load._id}/cancel`).set(bearer(former)).send({ reason: 'test' }).expect(200); // legs cancelled by the cascade
+    await request(app).put(`/api/loads/${load._id}/accept`).set(bearer(carrier)).send({}).expect(200);              // booked to a new carrier
+  });
+
+  test('the dropped carrier cannot request, reschedule, confirm, mark missed or cancel, nor revive its old leg', async () => {
+    const mine = await call('post', '', bearer(carrier), { loadId: String(load._id), pickup: { scheduledAt: at(400) } }).expect(201);
+    const nid = mine.body._id;
+    for (const id of [nid, String(old._id)]) {
+      await call('patch', `/${id}/request`, bearer(former), { apptType: 'pickup', scheduledAt: at(500) }).expect(403);
+      await call('patch', `/${id}/reschedule`, bearer(former), { apptType: 'pickup', scheduledAt: at(500) }).expect(403);
+      await call('patch', `/${id}/confirm`, bearer(former), { apptType: 'pickup' }).expect(403);
+      await call('patch', `/${id}/missed`, bearer(former), { apptType: 'pickup' }).expect(403);
+      await call('delete', `/${id}`, bearer(former)).expect(403);
+    }
+    await call('post', '', bearer(former), { loadId: String(load._id), pickup: { scheduledAt: at(400) } }).expect(403);
+    expect((await Appointment.findById(old._id)).pickup.status).toBe('cancelled');
+    expect((await Appointment.findById(nid)).pickup.status).toBe('pending');
+  });
+
+  test('the new carrier books its own appointment; the old cancelled one is history for everyone', async () => {
+    const mine = await call('post', '', bearer(carrier), { loadId: String(load._id), pickup: { scheduledAt: at(400) } }).expect(201); // old record does not block
+    await call('post', '', bearer(carrier), { loadId: String(load._id), pickup: { scheduledAt: at(400) } }).expect(409);           // own live one does
+    await call('patch', `/${mine.body._id}/request`, bearer(carrier), { apptType: 'delivery', scheduledAt: at(900) }).expect(200);
+    await call('patch', `/${old._id}/request`, bearer(carrier), { apptType: 'pickup', scheduledAt: at(500) }).expect(409);       // a cancelled leg of an earlier booking
+    await call('patch', `/${old._id}/confirm`, bearer(shipper), { apptType: 'pickup' }).expect(409);
+    await call('patch', `/${mine.body._id}/confirm`, bearer(shipper), { apptType: 'pickup' }).expect(200);
+  });
+
+  test('a dispatcher sub-account of the booked carrier can act; cancelled and missed legs stay frozen', async () => {
+    const mine = await call('post', '', bearer(carrier), { loadId: String(load._id), pickup: { scheduledAt: at(400) }, delivery: { scheduledAt: at(900) } }).expect(201);
+    const disp = subToken(dispatcher, carrier, 'dispatcher');
+    await call('patch', `/${mine.body._id}/reschedule`, disp, { apptType: 'pickup', scheduledAt: at(450) }).expect(200);
+    await call('patch', `/${mine.body._id}/missed`, disp, { apptType: 'delivery' }).expect(200);
+    await call('patch', `/${mine.body._id}/request`, disp, { apptType: 'delivery', scheduledAt: at(950) }).expect(409);     // missed: frozen
+    await call('patch', `/${mine.body._id}/reschedule`, bearer(shipper), { apptType: 'delivery', scheduledAt: at(950) }).expect(409);
+    await call('delete', `/${mine.body._id}`, disp).expect(200);                                                            // cancels the live pickup leg only
+    const a = await Appointment.findById(mine.body._id);
+    expect([a.pickup.status, a.delivery.status]).toEqual(['cancelled', 'missed']);
+    await call('patch', `/${mine.body._id}/reschedule`, disp, { apptType: 'pickup', scheduledAt: at(500) }).expect(409);    // cancelled: frozen
+    await call('delete', `/${mine.body._id}`, disp).expect(409);
+  });
+
+  test('reads: the dropped carrier sees its own old record (load redacted) but never the new appointment', async () => {
+    const mine = await call('post', '', bearer(carrier), { loadId: String(load._id), pickup: { scheduledAt: at(400) } }).expect(201);
+    const list = (await call('get', '', bearer(former)).expect(200)).body;
+    expect(list.map((a) => a._id)).toEqual([String(old._id)]);
+    expect(Object.keys(list[0].load).sort()).toEqual(['_id', 'destination', 'origin', 'title']);
+    await call('get', `/${mine.body._id}`, bearer(former)).expect(403);
+    const detail = (await call('get', `/${old._id}`, bearer(former)).expect(200)).body;
+    expect(detail.load.rate).toBeUndefined();
+    const newList = (await call('get', '', subToken(dispatcher, carrier, 'dispatcher')).expect(200)).body; // company-scoped
+    expect(newList.map((a) => a._id)).toEqual([mine.body._id]);
+    expect(newList[0].load.rate).toBeDefined();
   });
 });

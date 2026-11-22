@@ -346,7 +346,7 @@ const LoadSchema = new mongoose.Schema({
     proposedEnd:   Date,
     proposedAt:    Date,
     proposedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    status:        { type: String, enum: ['pending', 'accepted', 'declined'] },
+    status:        { type: String, enum: ['pending', 'accepted', 'declined', 'expired'] },
     respondedAt:   Date,
     respondedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

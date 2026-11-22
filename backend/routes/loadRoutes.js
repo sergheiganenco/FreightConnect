@@ -120,6 +120,11 @@ module.exports = (io) => {
       );
     } catch (e) { console.error('[cancel cascade] bids failed (non-fatal):', e.message); }
     try {
+      // The booking is over: close any still-open dwell event WITHOUT recalculating (no dwell/detention
+      // fee, no billing sync); the closedReason marker also keeps it out of facility stats.
+      await require('../models/DwellEvent').updateMany({ load: loadId, departedAt: null }, { $set: { departedAt: new Date(), closedReason: 'cancelled' } });
+    } catch (e) { console.error('[cancel cascade] dwell events failed (non-fatal):', e.message); }
+    try {
       const Appointment = require('../models/Appointment');
       // Appointment has no top-level status: each leg (pickup/delivery) carries its own. Cancel only
       // legs that are still live; 'missed' and already 'cancelled' legs are history and stay as they are.
@@ -1311,6 +1316,8 @@ router.get('/recommended/:loadId', auth, async (req, res) => {
   }
 });
 
+const { MIN_EDIT_LEAD_MS, PROPOSAL_TTL_MS } = require('../services/pickupRiskService').CONSTANTS;
+
 // Only the load's shipper company or an admin may change its time windows —
 // windows feed detention billing and on-time scorecards, so this must be locked down.
 function assertWindowEditor(load, req) {
@@ -1335,12 +1342,26 @@ router.put('/:id/pickup-window', auth, async (req, res) => {
     if (!load) return res.status(404).json({ error: 'Load not found' });
     if (!assertWindowEditor(load, req)) return res.status(403).json({ error: 'Forbidden' });
 
+    // Once the truck is on its way (or the load is over) the pickup window is a record that on-time stats,
+    // detention and disputes are judged on: it is immutable.
+    if (!['open', 'accepted'].includes(load.status)) return res.status(409).json({ error: 'The pickup window cannot be changed once the load is picked up, delivered or closed' });
+
     const oldW = load.pickupTimeWindow || {};
     const booked = load.status === 'accepted' && load.acceptedBy;
     const agreed = booked && load.bookedWindow && load.bookedWindow.start ? load.bookedWindow : oldW; // legacy bookings: current window
     const as = new Date(agreed.start).getTime(), ae = new Date(agreed.end).getTime();
     const moved = ns !== as || ne !== ae;
     const fmtW = () => `${new Date(ns).toUTCString().replace(' GMT', '')} UTC - ${new Date(ne).toUTCString().replace(' GMT', '')} UTC`;
+
+    if (booked) {
+      const nowMs = Date.now();
+      // A pending proposal that nobody answered within the TTL lapses.
+      const pc = load.pickupWindowChange;
+      if (pc?.status === 'pending' && nowMs - new Date(pc.proposedAt).getTime() > PROPOSAL_TTL_MS) load.pickupWindowChange.status = 'expired';
+      // Past the agreed latest arrival a verdict (no-show / release) may already exist: no edit may rewrite it.
+      if (nowMs > ae) return res.status(409).json({ error: 'The pickup deadline has already passed — release or cancel instead' });
+      if (moved && ns < nowMs + MIN_EDIT_LEAD_MS) return res.status(400).json({ error: 'The new pickup window must start at least 2 hours from now' });
+    }
 
     if (booked && moved && (ns < as || ne < ae)) {
       load.pickupWindowChange = { proposedStart: new Date(ns), proposedEnd: new Date(ne), proposedAt: new Date(), proposedBy: req.user.userId, status: 'pending' };
@@ -1679,7 +1700,7 @@ router.post('/voice-command', auth, async (req, res) => {
       // ── Carrier cancels accepted load → trust penalty ──────────────
       if (isCarrier && previousStatus === 'accepted') {
         const { adjustScore } = require('../services/trustScoreService');
-        adjustScore(userId, 'carrier_cancelled_load', -5, load._id).catch(() => {});
+        adjustScore(load.acceptedBy, 'carrier_cancelled_load', -5, load._id).catch(() => {}); // the carrier COMPANY, not the acting dispatcher/driver (userId stays in the audit trail)
 
         escrowRefunded = await reopenAfterCarrierDrop(load, userId, 'Reopened after carrier cancellation', reason);
 
@@ -1812,6 +1833,11 @@ router.post('/voice-command', auth, async (req, res) => {
 
       const accept = req.body.accept === true;
       const now = new Date();
+      // Re-validate at acceptance: a stale proposal, or one whose start is now past / inside the lead time, expires.
+      if (accept && (now.getTime() - new Date(ch.proposedAt).getTime() > PROPOSAL_TTL_MS || new Date(ch.proposedStart).getTime() < now.getTime() + MIN_EDIT_LEAD_MS)) {
+        await Load.updateOne({ _id: load._id, 'pickupWindowChange.status': 'pending' }, { $set: { 'pickupWindowChange.status': 'expired', 'pickupWindowChange.respondedAt': now } });
+        return res.status(409).json({ error: 'This proposal has expired. Ask the shipper to send a new pickup time.' });
+      }
       const set = { 'pickupWindowChange.status': accept ? 'accepted' : 'declined', 'pickupWindowChange.respondedAt': now, 'pickupWindowChange.respondedBy': req.user.userId };
       const upd = { $set: set };
       if (accept) {

@@ -19,7 +19,7 @@ const User    = require('../models/User');
 const Load    = require('../models/Load');
 const Rating  = require('../models/Rating');
 const DwellEvent = require('../models/DwellEvent');
-const { getScoreBreakdown } = require('../services/trustScoreService');
+const { getScoreBreakdown, PUBLIC_TRUST_SELECT } = require('../services/trustScoreService');
 const { getFacilityStats }  = require('../services/detentionService');
 
 // ── Badge definitions ────────────────────────────────────────────────────────
@@ -138,15 +138,20 @@ const BADGE_DEFS = [
 // ── GET /:userId — Public reputation profile ────────────────────────────────
 router.get('/:userId', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId)
-      .select('name companyName role verification trustScore createdAt');
+    // Reputation belongs to the COMPANY: a sub-account id resolves to its owner account.
+    let user = await User.findById(req.params.userId)
+      .select('name companyName role verification parentAccountId ' + PUBLIC_TRUST_SELECT + ' createdAt');
+    if (user && user.parentAccountId) {
+      user = await User.findById(user.parentAccountId).select('name companyName role verification ' + PUBLIC_TRUST_SELECT + ' createdAt');
+    }
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Trust score breakdown
-    const breakdown = await getScoreBreakdown(req.params.userId);
+    // Trust score breakdown. Per-event history (loadIds, reasons) only for the company itself and admins.
+    const isSelf = String(req.user.companyOwnerId || req.user.userId) === String(user._id);
+    const breakdown = await getScoreBreakdown(user._id, { includeHistory: isSelf || req.user.role === 'admin' });
 
     // Rating averages
-    const ratings = await Rating.getAverageForUser(req.params.userId);
+    const ratings = await Rating.getAverageForUser(user._id);
 
     // Load stats
     const isCarrier = user.role === 'carrier';
@@ -160,7 +165,7 @@ router.get('/:userId', auth, async (req, res) => {
     if (!isCarrier) {
       const mongoose = require('mongoose');
       const dwellPipeline = [
-        { $match: { shipper: new mongoose.Types.ObjectId(req.params.userId), departedAt: { $ne: null } } },
+        { $match: { shipper: new mongoose.Types.ObjectId(user._id), departedAt: { $ne: null }, closedReason: { $ne: 'cancelled' } } },
         {
           $group: {
             _id: null,
