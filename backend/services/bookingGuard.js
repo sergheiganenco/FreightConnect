@@ -59,11 +59,13 @@ async function atomicBookLoad({ loadId, carrierId, gate, extra = {} }) {
     ...extra,
   };
   if (gate.riskFlags && gate.riskFlags.length > 0) update.riskFlags = gate.riskFlags;
-  return Load.findOneAndUpdate(
+  const booked = await Load.findOneAndUpdate(
     { _id: loadId, status: 'open', acceptedBy: null },
     { $set: update },
     { new: true }
   );
+  if (booked) await require('./standbyService').buildStandby(booked, carrierId);
+  return booked;
 }
 
 module.exports = { evaluateBookingGate, atomicBookLoad };

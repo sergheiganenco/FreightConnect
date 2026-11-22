@@ -18,8 +18,31 @@ import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
 import ReturnLoadSuggestions from '../../components/ReturnLoadSuggestions';
+import PickupRiskPanel from '../../features/shared/PickupRiskPanel';
 import SignaturePad from '../../components/SignaturePad';
 import { glassCard } from '../../theme/tokens';
+
+// Loads someone else booked where this carrier had a bid: "You're on standby" with an opt-out.
+function StandbyBids() {
+  const [bids, setBids] = useState([]);
+  const load = useCallback(() => {
+    api.get('/bids/my')
+      .then(({ data }) => setBids(data.filter((b) => b.standby?.rank && !b.standby.optedOut && b.loadId?.status === 'accepted')))
+      .catch(() => setBids([]));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (!bids.length) return null;
+  return (
+    <Box mb={2}>
+      {bids.map((b) => (
+        <Alert key={b._id} severity="info" sx={{ mb: 1 }}
+          action={<Button color="inherit" size="small" onClick={async () => { try { await api.put(`/bids/${b._id}/standby-opt-out`); } catch { /* shown again on reload */ } load(); }}>Don't keep me on standby</Button>}>
+          You're on standby for {b.loadId.origin} → {b.loadId.destination}. If the booked carrier falls through you'll be notified; you are never booked automatically.
+        </Alert>
+      ))}
+    </Box>
+  );
+}
 
 export default function CarrierMyLoads({ embedded = false }) {
   /* ── state ────────────────────────────────────────────────── */
@@ -224,6 +247,8 @@ export default function CarrierMyLoads({ embedded = false }) {
         </Alert>
       )}
 
+      <StandbyBids />
+
       {loading ? (
         <Grid container spacing={2}>
           {Array.from({ length: 4 }).map((_, i) => (
@@ -280,6 +305,8 @@ export default function CarrierMyLoads({ embedded = false }) {
                   <Typography variant="body2" color="text.secondary" mb={1}>
                     Rate: ${l.rate.toLocaleString()}
                   </Typography>
+
+                  <PickupRiskPanel load={l} userRole="carrier" onChanged={fetchLoads} />
 
                   {l.status === 'delivered' && (
                     <Box

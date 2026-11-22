@@ -327,6 +327,22 @@ const LoadSchema = new mongoose.Schema({
     }],
     select: false,
   },
+
+  // ── Pickup no-show prediction (written ONLY by jobs/pickupRiskMonitor + pickup-confirm) ──
+  // Belongs to the CURRENT booking: wiped whenever the load is booked or un-booked.
+  // `notified` = levels already announced for this booking (idempotency for the monitor).
+  pickupRisk: {
+    level:       { type: String, enum: ['not_evaluated', 'on_track', 'at_risk', 'late_certain', 'no_show'] },
+    reason:      String,
+    detail:      { type: mongoose.Schema.Types.Mixed },   // small: the numbers behind the estimate, no coordinates
+    evaluatedAt: Date,
+    notified:    { type: [String], default: undefined },
+    carrierConfirmation: {
+      status: { type: String, enum: ['on_my_way', 'cannot_make_it'] },
+      at:     Date,
+      by:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    },
+  },
 }, { timestamps: true });
 
 // Keep rateCents in sync with rate (so existing code that sets `rate` still works)
@@ -353,6 +369,9 @@ function pickupLifecycle(update) {
   u.$set = set;
   u.$unset = u.$unset || {};
   set[`${PV}.failedAttempts`] = 0;
+  // Risk state and the last GPS fix belong to ONE booking; never carry them to the next carrier.
+  u.$unset.pickupRisk = 1;
+  u.$unset.carrierLocation = 1;
   for (const f of ['verifiedAt', 'verifiedBy', 'lockedAt']) u.$unset[`${PV}.${f}`] = 1;
   if (booked) set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   else u.$unset[`${PV}.code`] = 1;
@@ -395,6 +414,10 @@ LoadSchema.pre('save', function (next) {
     this.pickupVerification.lockedAt = undefined;
     this.pickupVerification.failedAttempts = 0;
   }
+  if (!this.isNew && this.isModified('acceptedBy') && !this.acceptedBy) {
+    this.pickupRisk = undefined;
+    this.carrierLocation = undefined;
+  }
   next();
 });
 LoadSchema.post('save', async function () {
@@ -408,6 +431,8 @@ LoadSchema.index({ acceptedBy: 1, status: 1 });
 LoadSchema.index({ equipmentType: 1, status: 1 });
 LoadSchema.index({ status: 1, equipmentType: 1 });
 LoadSchema.index({ 'pickupTimeWindow.start': 1 });
+// pickupRiskMonitor: accepted loads whose pickup start falls in a time range.
+LoadSchema.index({ status: 1, 'pickupTimeWindow.start': 1 });
 LoadSchema.index({ originLat: 1, originLng: 1 });
 LoadSchema.index({ destinationLat: 1, destinationLng: 1 });
 // Dedup partner/EDI/email-ingested loads per poster+external id (sparse: app loads have none).

@@ -91,6 +91,23 @@ export default function LoadDetailScreen({ route, navigation }) {
     } catch { /* ignore */ }
   };
 
+  // Pickup no-show prediction: the server flags at_risk/late_certain; the driver answers here.
+  const answerPickup = async (status) => {
+    setActionLoading(true);
+    try {
+      await api.post(`/loads/${load._id}/pickup-confirm`, { status });
+      await refreshLoad();
+    } catch (err) {
+      Alert.alert('Error', err.response?.data?.error || 'Could not send your answer');
+    }
+    setActionLoading(false);
+  };
+  const cantMakeIt = () => Alert.alert(
+    "Tell the shipper you can't make it?",
+    'The shipper will be notified and may release the load to other carriers. Your booking is not cancelled by this.',
+    [{ text: 'Back', style: 'cancel' }, { text: "I can't make it", style: 'destructive', onPress: () => answerPickup('cannot_make_it') }],
+  );
+
   // ── Accept load ────────────────────────────────────────────────
   const handleAccept = async () => {
     setActionLoading(true);
@@ -221,6 +238,22 @@ export default function LoadDetailScreen({ route, navigation }) {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Instructions</Text>
           <Text style={styles.instructions}>{load.specialInstructions}</Text>
+        </View>
+      )}
+
+      {/* Pickup risk — shown only when the server predicts a missed pickup and the driver has not answered */}
+      {load.status === 'accepted' && ['at_risk', 'late_certain'].includes(load.pickupRisk?.level) && !load.pickupRisk?.carrierConfirmation?.status && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Are you on the way to {load.pickupFacilityName || load.pickupAddress || load.origin}?</Text>
+          <Text style={styles.facilityAddr}>
+            {load.pickupRisk.detail?.distanceMilesStraight != null
+              ? `GPS shows you about ${load.pickupRisk.detail.distanceMilesStraight} miles away (estimate, straight-line).`
+              : "We're not receiving your location. Start your trip or enable tracking."}
+          </Text>
+          <View style={{ marginTop: 10 }}>
+            <ActionButton label="On my way" color={COLORS.success} onPress={() => answerPickup('on_my_way')} disabled={actionLoading} />
+            <ActionButton label="I can't make it" color={COLORS.error} onPress={cantMakeIt} disabled={actionLoading} />
+          </View>
         </View>
       )}
 

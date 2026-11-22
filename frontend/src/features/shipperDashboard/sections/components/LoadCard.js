@@ -1,6 +1,7 @@
 import React from 'react';
 import { Paper, Typography, Box, Chip } from '@mui/material';
 import { motion } from 'framer-motion';
+import { PickupRiskChip } from '../../../shared/PickupRiskPanel';
 import { status as ST, surface, shadow, text as T, statusColor } from '../../../../theme/tokens';
 
 const normalizeStatus = s =>
@@ -82,6 +83,8 @@ export default function LoadCard({ load, onClick }) {
             sx={{ mb: 0.5, mr: 0.5, bgcolor: 'rgba(239,68,68,0.15)', color: '#ef4444', fontWeight: 700, fontSize: '0.75rem', border: '1px solid rgba(239,68,68,0.4)' }}
           />
         )}
+
+        <PickupRiskChip load={load} />
 
         {/* Overweight badge */}
         {load.overweightAcknowledged && (

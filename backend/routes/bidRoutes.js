@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middlewares/authMiddleware');
+const validate = require('../middlewares/validate');
+const { param } = require('express-validator');
 const Bid = require('../models/Bid');
 const Load = require('../models/Load');
 const User = require('../models/User');
@@ -473,6 +475,24 @@ router.delete('/:id', auth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to withdraw bid' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// PUT /api/bids/:id/standby-opt-out — carrier: "Don't keep me on standby" for this load
+// ────────────────────────────────────────────────────────────────────────────
+router.put('/:id/standby-opt-out', auth, param('id').isMongoId(), validate, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
+    const r = await Bid.updateOne(
+      { _id: req.params.id, carrierId: req.user.companyOwnerId || req.user.userId, 'standby.rank': { $ne: null } },
+      { $set: { 'standby.optedOut': true } }
+    );
+    if (!r.matchedCount) return res.status(404).json({ error: 'No standby entry found for this bid' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[standby-opt-out] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

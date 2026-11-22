@@ -3,7 +3,7 @@ module.exports = (io) => {
   const express = require("express");
   const router = express.Router();
   const fetch = require("node-fetch");
-  const { body } = require("express-validator");
+  const { body, param } = require("express-validator");
   const auth = require("../middlewares/authMiddleware");
   const validate = require("../middlewares/validate");
   const Load = require("../models/Load");
@@ -21,6 +21,7 @@ module.exports = (io) => {
   const { checkLoadEligibility } = require('../services/loadEligibility');
   const { carrierOpenVisibleConditions, carrierCanSeeLoad } = require('../services/loadVisibility');
   const { haversineMiles, boundingBox, round } = require('../utils/geo');
+  const { refreshLoad, messages: pickupRiskMessages } = require('../jobs/pickupRiskMonitor');
   const { estimateEconomics } = require('../utils/loadEconomics');
   const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
 
@@ -76,6 +77,36 @@ module.exports = (io) => {
     } catch (_) { /* non-critical */ }
 
     return true;
+  }
+
+  // A carrier-fault drop of an ACCEPTED load (already moved to 'cancelled' + cascaded): re-post it for the
+  // shipper. 'cancelled' -> 'open' is NOT a valid state-machine transition, so this is one atomic update
+  // plus a manual StatusHistory entry. Clears the acceptance fingerprint, driver, rate-con and escrow flags
+  // so the relisted load is clean for the next carrier (the Load hooks clear pickup code, risk state and
+  // archive evidence). Releases the escrow hold (authorization only, manual capture). Returns escrowRefunded.
+  async function reopenAfterCarrierDrop(load, actorId, historyNote, escrowReason) {
+    await Load.findByIdAndUpdate(load._id, {
+      $set: {
+        status: 'open',
+        acceptedBy: null,
+        assignedTruckId: null,
+        acceptanceFingerprint: null,
+        assignedDriverId: null,
+        assignedDriverName: null,
+        cancelledBy: null,
+        cancelledByRole: null,
+        cancelReason: null,
+        cancelledAt: null,
+        paymentAssured: false,
+        escrowFunded: false,
+        escrowPaymentIntentId: null,
+        'documents.rateConfirmation': null,
+      },
+    });
+    StatusHistory.record('load', load._id, 'cancelled', 'open', actorId, historyNote).catch(() => {});
+    try {
+      return await releaseEscrowHold(load._id, escrowReason);
+    } catch { return false; /* non-critical */ }
   }
 
   // When a load is cancelled, terminate the records that hang off it so carriers
@@ -876,6 +907,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         }
       } catch (_) {}
       try { await Load.findByIdAndUpdate(load._id, { paymentAssured }); } catch (_) {}
+      await require('../services/standbyService').buildStandby(load, companyId);
 
       // ── Funded escrow hold at booking (non-blocking) ────────────────────
       try {
@@ -1587,32 +1619,7 @@ router.post('/voice-command', auth, async (req, res) => {
         const { adjustScore } = require('../services/trustScoreService');
         adjustScore(userId, 'carrier_cancelled_load', -5).catch(() => {});
 
-        // Re-open the load so shipper can find another carrier.
-        // 'cancelled' → 'open' is NOT a valid state-machine transition, so we do
-        // a single atomic update AND manually record StatusHistory to avoid an
-        // orphaned-history gap. Clear the acceptance fingerprint so the next
-        // accepting carrier gets a fresh audit trail.
-        await Load.findByIdAndUpdate(load._id, {
-          $set: {
-            status: 'open',
-            acceptedBy: null,
-            assignedTruckId: null,
-            acceptanceFingerprint: null,
-            // Clear leftover acceptance/cancellation state so the relisted load is
-            // clean for the next carrier (no stale rate-con, driver, or escrow flags).
-            assignedDriverId: null,
-            assignedDriverName: null,
-            cancelledBy: null,
-            cancelledByRole: null,
-            cancelReason: null,
-            cancelledAt: null,
-            paymentAssured: false,
-            escrowFunded: false,
-            escrowPaymentIntentId: null,
-            'documents.rateConfirmation': null,
-          },
-        });
-        StatusHistory.record('load', load._id, 'cancelled', 'open', userId, 'Reopened after carrier cancellation').catch(() => {});
+        escrowRefunded = await reopenAfterCarrierDrop(load, userId, 'Reopened after carrier cancellation', reason);
 
         const { notifyUserSafe } = require('../utils/notifyUser');
         notifyUserSafe(load.postedBy, {
@@ -1622,13 +1629,6 @@ router.post('/voice-command', auth, async (req, res) => {
           link: '/dashboard/shipper/loads',
           metadata: { loadId: load._id },
         });
-
-        // Release the escrow hold if one exists. The funds are only AUTHORIZED
-        // (manual capture), so the correct action is to cancel the PaymentIntent,
-        // not to mark a refund of money that was never captured.
-        try {
-          escrowRefunded = await releaseEscrowHold(load._id, reason);
-        } catch { /* non-critical */ }
 
         return res.json({
           message: 'Load cancelled. Your trust score has been adjusted (-5 points). Load re-posted for shipper.',
@@ -1679,6 +1679,130 @@ router.post('/voice-command', auth, async (req, res) => {
 
     } catch (err) {
       console.error('Error cancelling load:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ========================================================================
+  //  PICKUP NO-SHOW PREDICTION — carrier response + shipper release
+  //  Risk state is written by jobs/pickupRiskMonitor. Nothing here cancels or
+  //  penalizes automatically: the carrier answers, the shipper decides.
+  // ========================================================================
+  const RELEASE_LABEL = {
+    no_show: 'predicted no-show (truck never arrived at pickup)',
+    late_certain: 'predicted lateness (truck cannot reach pickup in time)',
+    carrier_declined: 'the carrier saying it cannot make the pickup',
+  };
+  const GPS_EVIDENCE_MILES = 5; // a no-show only carries the standard penalty if the last GPS fix put the truck at least this far from pickup
+
+  // POST /api/loads/:id/pickup-confirm  { status: 'on_my_way' | 'cannot_make_it' }  — booked carrier company only
+  router.post('/:id/pickup-confirm', auth, param('id').isMongoId(), body('status').isIn(['on_my_way', 'cannot_make_it']), validate, async (req, res) => {
+    try {
+      if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Only the booked carrier can respond' });
+      const load = await Load.findById(req.params.id).select('status acceptedBy postedBy title pickupRisk.carrierConfirmation');
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+      if (String(load.acceptedBy) !== companyOf(req)) return res.status(403).json({ error: 'Only the booked carrier can respond' });
+      if (load.status !== 'accepted') return res.status(409).json({ error: 'Pickup confirmation is only possible while the load is booked and awaiting pickup' });
+
+      const { status } = req.body;
+      const prev = load.pickupRisk?.carrierConfirmation?.status;
+      const w = await Load.updateOne(
+        { _id: load._id, status: 'accepted', acceptedBy: load.acceptedBy },
+        { $set: { 'pickupRisk.carrierConfirmation': { status, at: new Date(), by: req.user.userId } } }
+      );
+      if (!w.matchedCount) return res.status(409).json({ error: 'Load is no longer booked to you' });
+      StatusHistory.record('load', load._id, 'accepted', 'accepted', req.user.userId,
+        status === 'on_my_way' ? 'Carrier confirmed: on the way to pickup' : 'Carrier said it cannot make the pickup',
+        { event: 'pickup_confirmation', status }).catch(() => {});
+
+      // Re-evaluate now; the carrier just answered, so never notify them about their own answer.
+      const out = await refreshLoad(load._id, { carrier: true });
+      if (status === 'cannot_make_it' && prev !== 'cannot_make_it' && !(out && out.notified)) {
+        // The at-risk level was already announced earlier, so refreshLoad stayed quiet: tell the shipper explicitly.
+        const full = await Load.findById(load._id).select('title origin pickupFacilityName pickupAddress pickupTimeWindow');
+        const m = pickupRiskMessages(full, { level: 'at_risk', reason: 'carrier_declined', detail: {} });
+        await notifyUserSafe(load.postedBy, { ...m.shipper, link: '/dashboard/shipper/loads', metadata: { loadId: String(load._id), level: 'at_risk', reason: 'carrier_declined' } });
+      }
+      const fresh = await Load.findById(load._id).select('pickupRisk').lean();
+      res.json({ success: true, pickupRisk: fresh?.pickupRisk || null });
+    } catch (err) {
+      console.error('[pickup-confirm] failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // GET /api/loads/:id/standby — how many standby carriers a release would notify (shipper company or admin)
+  router.get('/:id/standby', auth, param('id').isMongoId(), validate, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+      if (req.user.role !== 'admin' && !(req.user.role === 'shipper' && String(load.postedBy) === companyOf(req))) return res.status(403).json({ error: 'Forbidden' });
+      res.json({ count: (await require('../services/standbyService').currentStandby(load)).length });
+    } catch (err) {
+      console.error('[standby] count failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // POST /api/loads/:id/release-to-standby  { reason: 'no_show' | 'late_certain' | 'carrier_declined' }
+  // Shipper company or admin. Re-evaluates first (the stored state can be minutes old), then reuses the
+  // carrier-fault cancel path: transition -> cancelLoadCascade -> reopenAfterCarrierDrop.
+  router.post('/:id/release-to-standby', auth, param('id').isMongoId(), body('reason').isIn(Object.keys(RELEASE_LABEL)), validate, async (req, res) => {
+    try {
+      if (!['shipper', 'admin'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+      const base = await Load.findById(req.params.id).select('postedBy status');
+      if (!base) return res.status(404).json({ error: 'Load not found' });
+      if (req.user.role !== 'admin' && String(base.postedBy) !== companyOf(req)) return res.status(403).json({ error: 'Forbidden' });
+      if (base.status !== 'accepted') return res.status(409).json({ error: 'Only a booked load awaiting pickup can be released' });
+
+      await refreshLoad(base._id, { all: true }); // fresh truth: an arrival since the last run must cancel the release
+      const load = await Load.findById(base._id);
+      if (!load || load.status !== 'accepted' || !load.acceptedBy) return res.status(409).json({ error: 'Load is no longer awaiting pickup' });
+      const { reason } = req.body;
+      const level = load.pickupRisk?.level;
+      const allowed = reason === 'carrier_declined' ? load.pickupRisk?.carrierConfirmation?.status === 'cannot_make_it' : level === reason;
+      if (!allowed) return res.status(409).json({ error: 'Release is not allowed: the pickup risk does not support this reason right now', level: level || null });
+
+      const carrierId = load.acceptedBy;
+      const loc = load.carrierLocation;
+      const gpsAway = loc?.updatedAt && Number.isFinite(load.originLat) && loc.latitude != null
+        && haversineMiles(loc.latitude, loc.longitude, load.originLat, load.originLng) >= GPS_EVIDENCE_MILES;
+      const lateMin = load.pickupRisk?.detail?.minutesLateEstimate;
+      const label = reason === 'late_certain' && lateMin ? `${RELEASE_LABEL[reason]}, est. ${lateMin} min late` : RELEASE_LABEL[reason];
+      const userId = req.user.userId;
+
+      const t = await transitionLoadStatus(load._id, 'accepted', 'cancelled',
+        { cancelledBy: userId, cancelledByRole: req.user.role, cancelReason: `released_to_standby:${reason}`, cancelledAt: new Date() },
+        userId, `Released by ${req.user.role} after ${label}`);
+      if (!t.success) return res.status(409).json({ error: t.error });
+      await cancelLoadCascade(load._id);
+      const escrowRefunded = await reopenAfterCarrierDrop(load, userId, `Released to standby carriers by ${req.user.role} after ${label}`, `released_to_standby:${reason}`);
+
+      // Existing carrier-cancel penalty (-5), applied only to a GPS-evidenced no-show. Predicted lateness and
+      // a carrier's own "can't make it" carry no automatic penalty. Never silent: the carrier is told below.
+      let trustScorePenalty = 0;
+      if (reason === 'no_show' && gpsAway) {
+        trustScorePenalty = -5;
+        require('../services/trustScoreService').adjustScore(carrierId, 'carrier_pickup_no_show', -5).catch(() => {});
+      }
+      await notifyUserSafe(carrierId, {
+        type: 'pickup:released',
+        title: 'Load released by the shipper',
+        body: `The shipper released "${load.title}" after ${label}. ` + (trustScorePenalty
+          ? 'Your trust score was reduced by 5 points because GPS showed the truck away from pickup. If this is wrong, contact support.'
+          : reason === 'no_show' ? 'No trust score change was made (no GPS evidence). If this is wrong, contact support.' : 'No trust score change was made.'),
+        link: '/dashboard/carrier/my-loads',
+        metadata: { loadId: String(load._id), reason, trustScorePenalty },
+      });
+      try {
+        await require('../models/Message').create({ channelType: 'load_thread', channelId: `load_${load._id}`, sender: null, messageType: 'system', readBy: [],
+          content: `Load released to standby carriers by the shipper after ${label}.` });
+      } catch { /* non-critical */ }
+      const standbyNotified = await require('../services/standbyService').notifyStandby(load);
+
+      res.json({ message: 'Load released and re-posted.', loadStatus: 'open', reason, standbyNotified, trustScorePenalty, escrowRefunded });
+    } catch (err) {
+      console.error('[release-to-standby] failed:', err.message);
       res.status(500).json({ error: 'Server error' });
     }
   });

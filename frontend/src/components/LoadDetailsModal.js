@@ -24,6 +24,7 @@ import { getSocket } from '../services/socket';
 import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
 import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
 import PickupHandshakePanel from '../features/shared/PickupHandshakePanel';
+import PickupRiskPanel from '../features/shared/PickupRiskPanel';
 import LoadEvidencePanel from '../features/shared/LoadEvidencePanel';
 import ReputationBadges from './ReputationBadges';
 import {
@@ -1491,6 +1492,11 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
               </Box>
             )}
           </Box>
+        )}
+
+        {/* ── Pickup no-show prediction ── */}
+        {['carrier', 'shipper', 'admin'].includes(userRole) && (
+          <PickupRiskPanel load={loadState} userRole={userRole} onChanged={(l) => setLoadState((prev) => ({ ...prev, ...l }))} />
         )}
 
         {/* ── Pickup handshake (anti-impersonation) ── */}

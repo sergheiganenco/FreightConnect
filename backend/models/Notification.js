@@ -21,6 +21,12 @@
  *   exception:note     — new note added to an exception
  *   insurance:expiring — insurance expiring soon (carrier)
  *   insurance:lapsed   — insurance has lapsed (carrier)
+ *   pickup:at_risk     — booked pickup may be missed (carrier + shipper)
+ *   pickup:late        — truck cannot reach pickup in time (carrier + shipper)
+ *   pickup:no_show     — truck never arrived at pickup (carrier + shipper)
+ *   pickup:carrier_declined — carrier says it can't make the pickup (shipper)
+ *   pickup:released    — shipper released the load to standby carriers (carrier)
+ *   load:standby_available — a load you were standby for is open again (carrier)
  */
 
 const mongoose = require('mongoose');

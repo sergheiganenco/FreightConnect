@@ -23,6 +23,13 @@ const BidSchema = new mongoose.Schema({
     default: 'pending',
   },
 
+  // Standby for a load booked by someone else (set by services/standbyService at booking).
+  // rank 1 = first choice; optedOut = carrier said "don't keep me on standby". Cleared on release.
+  standby: {
+    rank:     { type: Number, default: undefined },
+    optedOut: { type: Boolean, default: undefined },
+  },
+
   // Full audit trail
   history: [BidHistorySchema],
 }, { timestamps: true });
