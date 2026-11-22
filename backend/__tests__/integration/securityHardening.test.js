@@ -448,6 +448,42 @@ describe('window validation on load-creating routes; no route but the dedicated 
     expect(load.acceptedBy == null).toBe(true);
   });
 
+  test('EDI documents belong to the uploading shipper company: no cross-tenant read or create-load', async () => {
+    const doc = await ediDoc();
+    const otherShipper = await createTestUser({ role: 'shipper' });
+    const admin = await createTestUser({ role: 'admin' });
+
+    // another shipper cannot post a load in this shipper's name, nor read the document
+    const stolen = await request(app).post(`/api/edi/${doc._id}/create-load`).set(bearer(otherShipper)).send({});
+    expect(stolen.status).toBe(404);
+    expect(await Load.countDocuments({ postedBy: shipper._id })).toBe(0);
+    expect((await request(app).get(`/api/edi/${doc._id}`).set(bearer(otherShipper))).status).toBe(404);
+    // an unrelated carrier cannot read it or see it in its list
+    expect((await request(app).get(`/api/edi/${doc._id}`).set(bearer(carrier))).status).toBe(404);
+    expect((await request(app).get('/api/edi').set(bearer(carrier))).body).toEqual([]);
+    expect((await request(app).get('/api/edi').set(bearer(otherShipper))).body).toEqual([]);
+
+    // a document with no shipper can never become a load, even for an admin
+    const orphan = await EDIDocument.create({ direction: 'inbound', type: '204', rawContent: 'x', status: 'parsed', parsedData: doc.parsedData });
+    expect((await request(app).post(`/api/edi/${orphan._id}/create-load`).set(bearer(admin)).send({})).status).toBe(404);
+
+    // the owner still can, and the owner and admin can read it
+    expect((await request(app).get(`/api/edi/${doc._id}`).set(bearer(shipper))).status).toBe(200);
+    expect((await request(app).get(`/api/edi/${doc._id}`).set(bearer(admin))).status).toBe(200);
+    const ok = await request(app).post(`/api/edi/${doc._id}/create-load`).set(bearer(shipper)).send({});
+    expect(ok.status).toBe(201);
+    expect(String(ok.body.load.postedBy)).toBe(String(shipper._id));
+  });
+
+  test('EDI create-load is claimed atomically: two concurrent requests create one load', async () => {
+    const doc = await ediDoc();
+    const fire = () => request(app).post(`/api/edi/${doc._id}/create-load`).set(bearer(shipper)).send({});
+    const results = await Promise.all([fire(), fire()]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(await Load.countDocuments({ postedBy: shipper._id })).toBe(1);
+    expect((await EDIDocument.findById(doc._id)).status).toBe('load_created');
+  });
+
   test('enterprise bulk create rejects malformed / reversed / zone-less windows per load', async () => {
     const base = { title: 'T', origin: 'A, IL', destination: 'B, TX', rate: 1000, equipmentType: 'Dry Van' };
     const res = await request(app).post('/api/enterprise/loads/bulk').set(bearer(shipper)).send({ loads: [

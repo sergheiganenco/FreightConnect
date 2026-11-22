@@ -18,6 +18,9 @@ const Load     = require('../models/Load');
 const User     = require('../models/User');
 const { parseEDI204, edi204ToLoadFields, generateEDI214, generateEDI210 } = require('../utils/ediParser');
 
+// The company an account acts for (owner id); dispatchers/coordinators share it.
+const companyOf = (req) => String(req.user.companyOwnerId || req.user.userId);
+
 const SHIPPER_OR_ADMIN = (req, res, next) => {
   if (req.user.role !== 'shipper' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Shippers and admins only' });
@@ -60,7 +63,7 @@ router.post('/inbound', auth, SHIPPER_OR_ADMIN, async (req, res) => {
     const doc = await EDIDocument.create({
       direction:  'inbound',
       type,
-      shipper:    req.user.role === 'shipper' ? req.user.userId : undefined,
+      shipper:    req.user.role === 'shipper' ? companyOf(req) : undefined,
       rawContent: rawContent.trim(),
       parsedData,
       status,
@@ -79,9 +82,10 @@ router.post('/inbound', auth, SHIPPER_OR_ADMIN, async (req, res) => {
 router.get('/', auth, async (req, res) => {
   try {
     const filter = {};
-    if (req.user.role === 'shipper') filter.shipper = req.user.userId;
-    else if (req.user.role === 'carrier') filter.carrier = req.user.userId;
-    // admin sees all
+    if (req.user.role === 'admin') { /* admin sees all */ }
+    else if (req.user.role === 'shipper') filter.shipper = companyOf(req);
+    else if (req.user.role === 'carrier') filter.carrier = companyOf(req);
+    else return res.status(403).json({ error: 'Forbidden' });
 
     if (req.query.type)   filter.type   = req.query.type;
     if (req.query.status) filter.status = req.query.status;
@@ -112,9 +116,11 @@ router.get('/:id', auth, async (req, res) => {
       .populate('carrier', 'name companyName');
     if (!doc) return res.status(404).json({ error: 'Not found' });
 
-    // Access control
-    if (req.user.role === 'shipper' && doc.shipper?._id.toString() !== req.user.userId) {
-      return res.status(403).json({ error: 'Forbidden' });
+    // Access control: only the document's shipper company, its carrier company, or an admin.
+    const me = companyOf(req);
+    const isParty = String(doc.shipper?._id || '') === me || String(doc.carrier?._id || '') === me;
+    if (req.user.role !== 'admin' && !isParty) {
+      return res.status(404).json({ error: 'Not found' });
     }
 
     res.json(doc);
@@ -128,6 +134,13 @@ router.post('/:id/create-load', auth, SHIPPER_OR_ADMIN, async (req, res) => {
   try {
     const doc = await EDIDocument.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Not found' });
+    // Only the shipper company that uploaded the document may turn it into a load
+    // (it is posted in that company's name). Admins may act only on a document that
+    // has a shipper; a load is never posted in an admin's name.
+    const isOwner = doc.shipper && String(doc.shipper) === companyOf(req);
+    if (!isOwner && !(req.user.role === 'admin' && doc.shipper)) {
+      return res.status(404).json({ error: 'Not found' });
+    }
     if (doc.type !== '204') return res.status(400).json({ error: 'Only 204 documents can create loads' });
     if (doc.status === 'load_created') return res.status(409).json({ error: 'Load already created from this document' });
     if (doc.status === 'error') return res.status(400).json({ error: 'Cannot create load from errored document' });
@@ -153,22 +166,36 @@ router.post('/:id/create-load', auth, SHIPPER_OR_ADMIN, async (req, res) => {
       return res.status(400).json({ error: 'Rate is required — provide it in the request body or ensure OID segment has freight charges' });
     }
 
-    const shipperId = doc.shipper || req.user.userId;
-    const load = await Load.create({
-      ...loadFields,
-      postedBy: shipperId,
-      specialInstructions: [
-        loadFields.specialInstructions,
-        `EDI Doc: ${doc._id}`,
-        doc.parsedData.bolNumber ? `BOL: ${doc.parsedData.bolNumber}` : null,
-      ].filter(Boolean).join(' | '),
-    });
+    // Claim the document atomically so two requests cannot create two loads from it.
+    const claimed = await EDIDocument.findOneAndUpdate(
+      { _id: doc._id, status: doc.status, shipper: doc.shipper },
+      { $set: { status: 'load_created' } },
+      { new: true }
+    );
+    if (!claimed) return res.status(409).json({ error: 'Load already created from this document' });
 
-    doc.load   = load._id;
-    doc.status = 'load_created';
-    await doc.save();
+    let load;
+    try {
+      load = await Load.create({
+        ...loadFields,
+        postedBy: doc.shipper,
+        specialInstructions: [
+          loadFields.specialInstructions,
+          `EDI Doc: ${doc._id}`,
+          doc.parsedData.bolNumber ? `BOL: ${doc.parsedData.bolNumber}` : null,
+        ].filter(Boolean).join(' | '),
+      });
+    } catch (createErr) {
+      // Release the claim so the shipper can correct the data and try again.
+      await EDIDocument.updateOne({ _id: doc._id, status: 'load_created', load: null }, { $set: { status: doc.status } });
+      if (createErr.name === 'ValidationError') return res.status(400).json({ error: createErr.message });
+      throw createErr;
+    }
 
-    res.status(201).json({ load, ediDocument: doc });
+    claimed.load = load._id;
+    await claimed.save();
+
+    res.status(201).json({ load, ediDocument: claimed });
   } catch (err) {
     console.error('EDI create-load error:', err);
     res.status(500).json({ error: 'Failed to create load from EDI' });
@@ -182,8 +209,8 @@ router.get('/outbound/214/:loadId', auth, async (req, res) => {
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
     // Only carrier assigned to load or admin
-    if (req.user.role !== 'admin' && load.acceptedBy?.toString() !== req.user.userId &&
-        load.postedBy?.toString() !== req.user.userId) {
+    if (req.user.role !== 'admin' && load.acceptedBy?.toString() !== companyOf(req) &&
+        load.postedBy?.toString() !== companyOf(req)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -226,8 +253,8 @@ router.get('/outbound/210/:loadId', auth, async (req, res) => {
       return res.status(400).json({ error: 'EDI 210 can only be generated for delivered loads' });
     }
 
-    if (req.user.role !== 'admin' && load.acceptedBy?.toString() !== req.user.userId &&
-        load.postedBy?.toString() !== req.user.userId) {
+    if (req.user.role !== 'admin' && load.acceptedBy?.toString() !== companyOf(req) &&
+        load.postedBy?.toString() !== companyOf(req)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
