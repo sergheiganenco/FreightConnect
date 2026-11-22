@@ -208,7 +208,8 @@ async function runFullVerification(user, mcNumber, dotNumber) {
 
     const isAuthorized = verifyAuthority(fmcsaData);
     const prevDot = user.verification.fmcsaData?.dotNumber;
-    if (prevDot && digits(prevDot) !== digits(fmcsaData.dotNumber)) user.verification.identityVerified = false; // different company now
+    // Fail closed: keep an identity confirmation only when it is provably for this same DOT.
+    if (!prevDot || digits(prevDot) !== digits(fmcsaData.dotNumber)) user.verification.identityVerified = false;
     user.verification.mcNumber = mcNumber || user.verification.mcNumber;
     user.verification.dotNumber = dotNumber || user.verification.dotNumber;
     // Replaced wholesale so numbers this lookup did not confirm are cleared.
