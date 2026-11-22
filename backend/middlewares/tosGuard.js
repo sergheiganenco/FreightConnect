@@ -13,6 +13,7 @@ const SKIP_PATHS = [
   // blocks every other route until it is); ToS is then required on the next request.
   '/api/users/change-password',
   '/api/tracking-portal',
+  '/api/dock', // public dock-verification pages (no account)
 ];
 
 /**

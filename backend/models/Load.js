@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 const LoadSchema = new mongoose.Schema({
   title: { type: String, required: true },
@@ -280,12 +281,62 @@ const LoadSchema = new mongoose.Schema({
     shipperPaymentIntentId: { type: String, default: null },
     shipperPaymentStatus:   { type: String, enum: ['none','requires_action','collected','failed'], default: 'none' },
   }],
+
+  // ── Pickup handshake (anti impersonation / double-brokering) ──────────────
+  // `code` is issued to the BOOKED carrier only (GET /loads/:id/pickup-code) and
+  // is select:false so no list/detail/populate/lean response can leak it.
+  pickupVerification: {
+    required:       { type: Boolean, default: false },
+    code:           { type: String, select: false },
+    verifiedAt:     Date,
+    verifiedBy:     { type: String, enum: ['dock_link', 'shipper', 'admin'] },
+    failedAttempts: { type: Number, default: 0 },
+    lockedAt:       Date,
+  },
 }, { timestamps: true });
 
 // Keep rateCents in sync with rate (so existing code that sets `rate` still works)
 LoadSchema.pre('save', function(next) {
   if (this.rate != null && (this.rateCents == null || this.isModified('rate'))) {
     this.rateCents = Math.round(this.rate * 100);
+  }
+  next();
+});
+
+// ── Pickup-code lifecycle — the ONE shared hook for every booking path ──────
+// Any findOneAndUpdate/updateOne that books a load (status:'accepted' + acceptedBy:
+// direct accept, atomicBookLoad for bids/assign-load/auto-dispatch) issues a fresh
+// 6-digit code and clears prior verification. Any update that un-books it
+// (status open/cancelled, or acceptedBy:null) clears the code. save() covers the
+// doc-based unassign. `required` is never touched here.
+const PV = 'pickupVerification';
+function pickupLifecycle(update) {
+  const u = Object.keys(update).some(k => k.startsWith('$')) ? update : { $set: update };
+  const set = u.$set || {};
+  const booked = set.status === 'accepted' && set.acceptedBy;
+  const unbooked = set.status === 'open' || set.status === 'cancelled' || set.acceptedBy === null;
+  if (!booked && !unbooked) return update;
+  u.$set = set;
+  u.$unset = u.$unset || {};
+  set[`${PV}.failedAttempts`] = 0;
+  for (const f of ['verifiedAt', 'verifiedBy', 'lockedAt']) u.$unset[`${PV}.${f}`] = 1;
+  if (booked) set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  else u.$unset[`${PV}.code`] = 1;
+  return u;
+}
+for (const op of ['findOneAndUpdate', 'updateOne']) {
+  LoadSchema.pre(op, function (next) {
+    this.setUpdate(pickupLifecycle(this.getUpdate() || {}));
+    next();
+  });
+}
+LoadSchema.pre('save', function (next) {
+  if (!this.isNew && this.isModified('acceptedBy') && !this.acceptedBy && this.pickupVerification) {
+    this.pickupVerification.code = undefined;
+    this.pickupVerification.verifiedAt = undefined;
+    this.pickupVerification.verifiedBy = undefined;
+    this.pickupVerification.lockedAt = undefined;
+    this.pickupVerification.failedAttempts = 0;
   }
   next();
 });

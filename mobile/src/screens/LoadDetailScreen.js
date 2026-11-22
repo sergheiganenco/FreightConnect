@@ -18,6 +18,15 @@ export default function LoadDetailScreen({ route, navigation }) {
   const [load, setLoad] = useState(route.params.load);
   const [tracking, setTracking] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [pickup, setPickup] = useState(null); // { code } | { verifiedAt } — pickup handshake
+
+  // Pickup handshake: the booked carrier's account is the only place the dock code is shown.
+  useEffect(() => {
+    if (load.status !== 'accepted') { setPickup(load.pickupVerification?.verifiedAt ? { verifiedAt: load.pickupVerification.verifiedAt } : null); return; }
+    api.get(`/loads/${load._id}/pickup-code`)
+      .then(({ data }) => setPickup(data.verified ? { verifiedAt: data.verifiedAt } : { code: data.code }))
+      .catch(() => setPickup(null));
+  }, [load._id, load.status]);
 
   useEffect(() => {
     // Check if we're currently tracking this load
@@ -167,6 +176,26 @@ export default function LoadDetailScreen({ route, navigation }) {
         </View>
       )}
 
+      {/* Pickup code — show to the dock to prove this truck belongs to the booked carrier */}
+      {pickup && (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Pickup code</Text>
+          {pickup.code ? (
+            <>
+              <Text style={styles.pickupCode}>{pickup.code}</Text>
+              <Text style={styles.facilityAddr}>Show this code to the dock. Never share it by phone, text or email.</Text>
+              {load.pickupVerification?.required && (
+                <Text style={styles.facilityAddr}>The shipper requires this check before you can start the trip.</Text>
+              )}
+            </>
+          ) : (
+            <Text style={[styles.facilityValue, { color: COLORS.success }]}>
+              Verified at {new Date(pickup.verifiedAt).toLocaleString()}
+            </Text>
+          )}
+        </View>
+      )}
+
       {/* View on Map */}
       <TouchableOpacity
         style={styles.mapBtn}
@@ -256,6 +285,7 @@ const styles = StyleSheet.create({
   facilityLabel: { color: COLORS.textMuted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 },
   facilityValue: { color: '#fff', fontSize: 14, fontWeight: '600' },
   facilityAddr: { color: COLORS.textMuted, fontSize: 13, marginTop: 2 },
+  pickupCode: { color: '#fff', fontSize: 44, fontWeight: '800', letterSpacing: 8, textAlign: 'center', marginVertical: 8 },
   instructions: { color: COLORS.textMuted, fontSize: 14, lineHeight: 20 },
   mapBtn: {
     backgroundColor: '#1a2744',

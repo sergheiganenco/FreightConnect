@@ -23,6 +23,7 @@ import api from '../services/api';
 import { getSocket } from '../services/socket';
 import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
 import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
+import PickupHandshakePanel from '../features/shared/PickupHandshakePanel';
 import ReputationBadges from './ReputationBadges';
 import {
   brand, status as ST, semantic, severity as SEV, exceptionStatus as EXC_ST,
@@ -1481,6 +1482,9 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
             )}
           </Box>
         )}
+
+        {/* ── Pickup handshake (anti-impersonation) ── */}
+        <PickupHandshakePanel load={loadState} userRole={userRole} />
 
         {/* ── Exceptions section ── */}
         {canFileException && (

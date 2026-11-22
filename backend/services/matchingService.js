@@ -102,7 +102,8 @@ async function findMatchesForCarrier(carrierId, limit = 20) {
   const carrier = await User.findById(carrierId).lean();
   if (!carrier || carrier.role !== 'carrier') return [];
 
-  const openLoads = await Load.find({ status: 'open' }).lean();
+  const { carrierOpenVisibleConditions } = require('./loadVisibility');
+  const openLoads = await Load.find({ $or: await carrierOpenVisibleConditions(carrierId) }).lean();
 
   const scored = openLoads.map((load) => ({
     load,

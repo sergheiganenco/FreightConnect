@@ -56,4 +56,4 @@ const apiLimiter = makeLimiter({
   legacyHeaders: false,
 }, 'rl:api:');
 
-module.exports = { authLimiter, apiLimiter };
+module.exports = { authLimiter, apiLimiter, makeLimiter };

@@ -96,6 +96,9 @@ router.post('/', auth, async (req, res) => {
 
     const load = await Load.findById(loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
+    if (!(await require('../services/loadVisibility').carrierCanSeeLoad(load, req.user.companyOwnerId || req.user.userId))) {
+      return res.status(404).json({ error: 'Load not found' });
+    }
     if (load.status !== 'open') return res.status(409).json({ error: 'Load is no longer open for bids' });
 
     // Upsert: carrier can revise their bid (replaces previous)

@@ -69,6 +69,29 @@ describe('return load suggestions', () => {
     expect(s.approxDeadheadMiles).toBeLessThan(50);
   });
 
+  describe('first-look (preferred visibility) gating', () => {
+    const PreferredCarrier = require('../../models/PreferredCarrier');
+    const titles = async () => (await get(current._id, ownerToken)).body.suggestions.map((s) => s.load.title);
+    const mkPreferred = (over) => createTestLoad(shipper._id, {
+      title: 'pref', loadVisibility: 'preferred', originLat: NEAR.lat, originLng: NEAR.lng,
+      pickupTimeWindow: after(4), ...over,
+    });
+
+    test('hidden from a non-preferred carrier inside the window', async () => {
+      await mkPreferred();
+      expect(await titles()).not.toContain('pref');
+    });
+    test('suggested once the carrier is preferred', async () => {
+      await mkPreferred();
+      await PreferredCarrier.create({ shipper: shipper._id, carrier: owner._id });
+      expect(await titles()).toContain('pref');
+    });
+    test('suggested after the 2h window', async () => {
+      await mkPreferred({ createdAt: new Date(Date.now() - 3 * HOUR) });
+      expect(await titles()).toContain('pref');
+    });
+  });
+
   test('dispatcher sub-account of the same company gets the same result', async () => {
     const res = await get(current._id, dispatcherToken);
     expect(res.status).toBe(200);

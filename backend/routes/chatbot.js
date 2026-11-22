@@ -18,9 +18,10 @@ router.post('/voice-command', auth, async (req, res) => {
         return res.json({ message: "You have no active loads. Please accept a load first." });
       }
 
+      const { carrierOpenVisibleConditions } = require('../services/loadVisibility');
       const recommendedLoads = await Load.find({
         origin: activeLoad.destination,
-        status: "open"
+        $or: await carrierOpenVisibleConditions(req.user.companyOwnerId || req.user.userId)
       });
 
       if (recommendedLoads.length === 0) {

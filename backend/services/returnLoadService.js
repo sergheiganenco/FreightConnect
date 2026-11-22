@@ -159,6 +159,9 @@ async function findReturnLoads({
     originLng: { $gte: box.lngMin, $lte: box.lngMax },
     postedBy: { $ne: carrierId }, // never suggest the company's own postings
   };
+  // Same preferred-visibility gating as the load board ($and, since $or is used below).
+  const { carrierOpenVisibleConditions } = require('./loadVisibility');
+  filter.$and = [{ $or: await carrierOpenVisibleConditions(carrierId) }];
 
   if (excludeLoadId) {
     filter._id = { $ne: excludeLoadId };

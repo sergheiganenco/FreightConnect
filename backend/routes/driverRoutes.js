@@ -133,7 +133,8 @@ router.post(
         if (!Array.isArray(raw.endorsements) || raw.endorsements.some((e) => typeof e !== 'string')) {
           err('endorsements', 'endorsements must be a list of strings');
         } else {
-          endorsements = raw.endorsements.map((e) => e.trim().toLowerCase()).filter(Boolean);
+          if (raw.endorsements.length > ALLOWED_ENDORSEMENTS.length) err('endorsements', 'Too many endorsements');
+          endorsements = [...new Set(raw.endorsements.map((e) => e.trim().toLowerCase()).filter(Boolean))];
           const bad = endorsements.find((e) => !ALLOWED_ENDORSEMENTS.includes(e));
           if (bad) err('endorsements', `Unknown endorsement "${bad}". Allowed: ${ALLOWED_ENDORSEMENTS.join(', ')}`);
         }

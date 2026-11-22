@@ -168,6 +168,17 @@ describe('bulk import', () => {
       expect(await rosterOf()).toHaveLength(0);
     });
 
+    test('duplicate endorsements collapse; an oversized list is rejected', async () => {
+      const ok = await post(url, ownerToken, { drivers: [{ name: 'a', endorsements: ['Hazmat', 'hazmat', ' HAZMAT '] }] });
+      expect(ok.status).toBe(201);
+      expect((await rosterOf())[0].endorsements).toEqual(['hazmat']);
+
+      const many = Array(6).fill('hazmat'); // allowed set has 5 values
+      const bad = await post(url, ownerToken, { drivers: [{ name: 'b', endorsements: many }] });
+      expect(bad.status).toBe(400);
+      expect(bad.body.errors.map((e) => `${e.row}:${e.field}`)).toContain('1:endorsements');
+    });
+
     test('duplicate driverId in file and against roster', async () => {
       const dup = await post(url, ownerToken, { drivers: [{ name: 'a', driverId: 'X1' }, { name: 'b', driverId: 'x1' }] });
       expect(dup.status).toBe(400);

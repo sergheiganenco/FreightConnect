@@ -93,4 +93,5 @@ const auth = async (req, res, next) => {
 };
 
 auth.invalidateActive = invalidateActive;
+auth.resolveAccount = resolveAccount;
 module.exports = auth;

@@ -288,6 +288,21 @@ const loginValidation = [
   body("password").notEmpty().withMessage("Password is required"),
 ];
 
+// Every session token carries the same claims, always taken from the user record.
+function signSessionToken(user) {
+  return jwt.sign(
+    {
+      userId: user._id,
+      role: user.role,
+      companyRole: user.companyRole || 'owner',
+      // The company this session acts for (owner id).
+      companyOwnerId: String(user.parentAccountId || user._id),
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '1d' }
+  );
+}
+
 router.post("/login", authLimiter, loginValidation, validate, async (req, res) => {
   const { email, password, mfaToken } = req.body;
   try {
@@ -327,17 +342,7 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
       }
     }
 
-    const token = jwt.sign(
-      {
-        userId: user._id,
-        role: user.role,
-        companyRole: user.companyRole || 'owner',
-        // The company this session acts for (owner id).
-        companyOwnerId: String(user.parentAccountId || user._id),
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "1d" }
-    );
+    const token = signSessionToken(user);
 
     return res.json({
       token,
@@ -454,11 +459,9 @@ router.post('/refresh-token', auth, async (req, res) => {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '1d' }
-    );
+    // Same claims as login: a refreshed sub-account token must keep its company
+    // role and scope (it used to come back looking like an owner token).
+    const token = signSessionToken(user);
 
     res.json({
       token,
@@ -649,7 +652,8 @@ router.put('/me', auth, profileValidation, validate, async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // Sub-accounts (dispatcher/driver) must not change company identity fields.
-    if (['dispatcher', 'driver'].includes(req.user.companyRole)) {
+    // Decided from the database record, never from token claims.
+    if (user.parentAccountId || ['dispatcher', 'driver'].includes(user.companyRole)) {
       const company = type ? await Company.findById(user.companyId).select('type') : null;
       const changed =
         (companyName && companyName !== user.companyName) ||

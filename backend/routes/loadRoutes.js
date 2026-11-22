@@ -18,6 +18,7 @@ module.exports = (io) => {
   const { notifyUserSafe } = require('../utils/notifyUser');
   const antiFraudGuard = require('../services/antiFraudGuard');
   const { checkLoadEligibility } = require('../services/loadEligibility');
+  const { carrierOpenVisibleConditions, carrierCanSeeLoad } = require('../services/loadVisibility');
   const { haversineMiles, boundingBox, round } = require('../utils/geo');
   const { estimateEconomics } = require('../utils/loadEconomics');
   const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
@@ -36,9 +37,14 @@ module.exports = (io) => {
     return load.postedBy?.toString() === cid || load.acceptedBy?.toString() === cid;
   }
   // Carriers may additionally browse OPEN loads they could accept from the board.
-  function canBrowseLoad(load, req) {
-    if (isLoadParty(load, req)) return true;
-    return req.user.role === 'carrier' && load.status === 'open';
+  // Returns null when allowed, else the HTTP error to send. A first-look (preferred)
+  // load hidden from this carrier answers 404 so its existence is not revealed.
+  async function browseDenial(load, req) {
+    if (isLoadParty(load, req)) return null;
+    if (req.user.role === 'carrier' && load.status === 'open') {
+      return (await carrierCanSeeLoad(load, companyOf(req))) ? null : { status: 404, error: 'Load not found' };
+    }
+    return { status: 403, error: 'Forbidden' };
   }
 
   // Release an in-escrow authorization hold when a load is cancelled. The escrow
@@ -187,22 +193,7 @@ module.exports = (io) => {
       // ---- Carrier: open loads and loads accepted by this carrier
       // Preferred-visibility loads are hidden from non-preferred carriers during firstLook window
       if (req.user.role === "carrier") {
-        // Find shippers who have this company's carrier as preferred
-        const preferredEntries = await PreferredCarrier.find({
-          carrier: companyId,
-          isActive: true,
-        }).select('shipper').lean();
-        const preferredShipperIds = preferredEntries.map(e => e.shipper);
-
-        carrierOpenVisible = [
-          // Open loads that are public
-          { status: "open", loadVisibility: { $ne: 'preferred' } },
-          // Open loads with preferred visibility where this carrier IS preferred
-          { status: "open", loadVisibility: 'preferred', postedBy: { $in: preferredShipperIds } },
-          // Open preferred-visibility loads past their firstLook window (now public)
-          { status: "open", loadVisibility: 'preferred', postedBy: { $nin: preferredShipperIds },
-            createdAt: { $lte: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
-        ];
+        carrierOpenVisible = await carrierOpenVisibleConditions(companyId);
 
         filter = {
           $or: [
@@ -331,7 +322,11 @@ module.exports = (io) => {
 router.get("/open", auth, async (req, res) => {
   try {
     // Only show open, unassigned loads
-    const openLoads = await Load.find({ status: "open", assignedTruckId: null });
+    const openLoads = await Load.find(
+      req.user.role === "carrier"
+        ? { $or: await carrierOpenVisibleConditions(req.user.companyOwnerId || req.user.userId), }
+        : { status: "open" }
+    ).where({ assignedTruckId: null });
     res.json(openLoads);
   } catch (err) {
     console.error("Error fetching open loads:", err);
@@ -434,6 +429,7 @@ const createLoadValidation = [
     .trim()
     .notEmpty()
     .withMessage("Equipment type is required"),
+  body("requirePickupVerification").optional().isBoolean().withMessage("requirePickupVerification must be a boolean"),
 ];
 
 router.post('/', auth, createLoadValidation, validate, async (req, res) => {
@@ -537,6 +533,9 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
 
       // Multi-stop
       stops: rawStops,
+
+      // Pickup handshake (anti-impersonation) — optional opt-in
+      requirePickupVerification,
     } = req.body;
 
     if (!title || !origin || !destination || !rate || !equipmentType) {
@@ -659,6 +658,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       overweightAcknowledged: overweightAcknowledged === true || overweightAcknowledged === 'true',
       overweightPermitNumber: overweightPermitNumber || undefined,
 
+      pickupVerification: { required: requirePickupVerification === true || requirePickupVerification === 'true' },
+
       // Reefer settings (convert F→C if needed)
       reefer: equipmentType === 'Reefer'
         ? {
@@ -761,6 +762,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         .select('role verification fleet carrierEndorsements');
       const loadToCheck = await Load.findById(req.params.id);
       if (!loadToCheck) {
+        return res.status(404).json({ error: "Load not found" });
+      }
+      // First-look: a non-preferred carrier cannot book a preferred load early.
+      if (!(await carrierCanSeeLoad(loadToCheck, companyId))) {
         return res.status(404).json({ error: "Load not found" });
       }
 
@@ -983,7 +988,8 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
       if (!load) return res.status(404).json({ error: "Load not found" });
       // A party can always see their load; carriers can browse OPEN loads. Non-open
       // loads you aren't party to (private/accepted/in-transit) are not readable.
-      if (!canBrowseLoad(load, req)) return res.status(403).json({ error: "Forbidden" });
+      const denied = await browseDenial(load, req);
+      if (denied) return res.status(denied.status).json({ error: denied.error });
       if (req.user.role === "carrier") {
         // Same annotations as the board list (optional ?deadheadMiles= from the caller's context).
         const dh = req.query.deadheadMiles === undefined ? NaN : Number(req.query.deadheadMiles);
@@ -1064,7 +1070,8 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
     try {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: "Load not found." });
-      if (!canBrowseLoad(load, req)) return res.status(403).json({ error: "Forbidden" });
+      const denied = await browseDenial(load, req);
+      if (denied) return res.status(denied.status).json({ error: denied.error });
 
       if (!load.originLat || !load.originLng || !load.destinationLat || !load.destinationLng) {
         return res.status(400).json({
@@ -1175,6 +1182,15 @@ router.put("/:id/status", auth, async (req, res) => {
       return res.status(403).json({ error: "Unauthorized action." });
     }
 
+    // Pickup handshake: when the shipper required it, the carrier cannot start the
+    // trip until the dock/shipper has verified the driver's code.
+    if (status === 'in-transit' && existingLoad.pickupVerification?.required && !existingLoad.pickupVerification.verifiedAt) {
+      return res.status(409).json({
+        error: 'Pickup verification required: the dock or shipper must verify your pickup code before this load can be marked picked up.',
+        reason: 'pickup_verification_required',
+      });
+    }
+
     // On delivery, also stamp deliveredAt (so the timestamp + downstream docs are recorded)
     const updateFields = status === 'delivered' ? { deliveredAt: new Date() } : {};
     const result = await transitionLoadStatus(req.params.id, existingLoad.status, status, updateFields, req.user.userId, `Status updated by carrier`);
@@ -1220,6 +1236,9 @@ router.get('/recommended/:loadId', auth, async (req, res) => {
       origin: currentLoad.destination,
       status: "open",
       _id: { $ne: currentLoad._id },
+      ...(req.user.role === "carrier"
+        ? { $and: [{ $or: await carrierOpenVisibleConditions(req.user.companyOwnerId || req.user.userId) }] }
+        : {}),
     }).limit(5);
 
     res.json(recommendedLoads);
@@ -1297,7 +1316,8 @@ router.get('/:id/stops', auth, async (req, res) => {
     const load = await Load.findById(req.params.id).select('stops origin destination status postedBy acceptedBy loadVisibility');
     if (!load) return res.status(404).json({ error: 'Load not found' });
     // Stops carry facility contact details — gate the same way as the load itself.
-    if (!canBrowseLoad(load, req)) return res.status(403).json({ error: 'Forbidden' });
+    const denied = await browseDenial(load, req);
+    if (denied) return res.status(denied.status).json({ error: denied.error });
     res.json({ stops: load.stops || [], origin: load.origin, destination: load.destination });
   } catch (err) {
     res.status(500).json({ error: 'Server error fetching stops' });

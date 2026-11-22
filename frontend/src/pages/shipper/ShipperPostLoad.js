@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   TextField, Button, Grid, Typography, Box, Paper, Snackbar, Alert, Select, MenuItem,
-  FormControl, InputLabel, FormControlLabel, Switch, Divider, Chip, IconButton,
+  FormControl, InputLabel, FormControlLabel, Switch, Checkbox, Divider, Chip, IconButton,
   CircularProgress, Collapse, Tooltip, Stepper, Step, StepLabel,
 } from "@mui/material";
 import Autocomplete from "@mui/material/Autocomplete";
@@ -90,6 +90,8 @@ const initialLoad = {
   // Overweight acknowledgment
   overweightAcknowledged: false,
   overweightPermitNumber: "",
+  // Pickup handshake: dock must verify the driver's code before pickup
+  requirePickupVerification: false,
 };
 
 const EQUIPMENT_SUBTYPES = {
@@ -1417,6 +1419,20 @@ export default function ShipperPostLoad() {
               onChange={e => handleChange("carrierInstructions", e.target.value, limits.carrierInstructions)}
               inputProps={{ maxLength: limits.carrierInstructions }}
               helperText={`Optional. ${newLoad.carrierInstructions.length}/${limits.carrierInstructions}`} />
+          </Grid>
+
+          {/* Pickup handshake (anti-impersonation) */}
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newLoad.requirePickupVerification}
+                  onChange={e => handleChange("requirePickupVerification", e.target.checked)}
+                />
+              }
+              label="Require pickup verification code at the dock"
+              sx={{ color: "#fff" }}
+            />
           </Grid>
 
           {/* Documents Required (expanded multi-select) */}

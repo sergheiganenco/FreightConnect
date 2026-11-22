@@ -393,6 +393,9 @@ router.post('/:loadId/pickup-signature', auth, async (req, res) => {
     if (!['accepted', 'in-transit'].includes(load.status)) {
       return res.status(409).json({ error: 'Pickup signature can only be captured after acceptance and before delivery' });
     }
+    if (load.pickupVerification?.required && !load.pickupVerification.verifiedAt) {
+      return res.status(409).json({ error: 'Pickup verification required before the pickup signature can be captured', reason: 'pickup_verification_required' });
+    }
     const dataUrl = parseSignatureDataUrl(req.body.dataUrl || req.body.signatureData);
     if (!dataUrl) return res.status(400).json({ error: 'A valid PNG signature (data:image/png;base64,...) is required' });
 

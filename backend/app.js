@@ -228,11 +228,18 @@ const chatbotRoutes = require('./routes/chatbot');
 app.use('/api/chatbot', chatbotRoutes);
 
 // Socket.IO — authenticate every connection via JWT
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('Authentication error'));
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Same account checks as HTTP auth: deactivated, deleted or temporary-password
+    // accounts get no realtime connection. (A DB error here rejects the socket;
+    // the client reconnects.)
+    const account = await require('./middlewares/authMiddleware').resolveAccount(decoded.userId);
+    if (account.active !== true || account.mustChangePassword) {
+      return next(new Error('Authentication error'));
+    }
     socket.userId = decoded.userId;
     socket.userRole = decoded.role;
     // The company this connection acts for (owner id); sub-account tokens carry it.
@@ -453,6 +460,9 @@ app.use('/api/return-loads', returnLoadRoutes);
 // Public Tracking Portal Routes
 const trackingPortalRoutes = require('./routes/trackingPortalRoutes');
 app.use('/api/tracking-portal', trackingPortalRoutes);
+
+// Pickup handshake: carrier code, shipper verify/unlock, public no-account dock link
+app.use('/api', require('./routes/pickupVerificationRoutes'));
 
 // QuickPay Routes
 const quickPayRoutes = require('./routes/quickPayRoutes');

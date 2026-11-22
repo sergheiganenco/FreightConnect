@@ -21,6 +21,7 @@ import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import VerifyEmail from './pages/VerifyEmail';
+import DockVerify from './pages/DockVerify';
 
 /* dashboard + admin pages (lazy — split into their own chunks, loaded on demand) */
 const AIInsightsPanel = lazy(() => import('./components/AIInsightsPanel'));
@@ -125,6 +126,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
+          {/* Public no-account dock check for the pickup handshake */}
+          <Route path="/dock/:token" element={<DockVerify />} />
           {/* Forced first-login / self-service password change (token required) */}
           <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
 
