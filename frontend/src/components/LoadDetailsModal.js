@@ -25,6 +25,7 @@ import StatusChip from '../features/carrierDashboard/sections/components/StatusC
 import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
 import PickupHandshakePanel from '../features/shared/PickupHandshakePanel';
 import PickupRiskPanel from '../features/shared/PickupRiskPanel';
+import PickupWindowPanel from '../features/shared/PickupWindowPanel';
 import LoadEvidencePanel from '../features/shared/LoadEvidencePanel';
 import ReputationBadges from './ReputationBadges';
 import {
@@ -1506,6 +1507,11 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         {/* ── Pickup no-show prediction ── */}
         {['carrier', 'shipper', 'admin'].includes(userRole) && (
           <PickupRiskPanel load={loadState} userRole={userRole} onChanged={(l) => { setLoadState((prev) => ({ ...prev, ...l })); if (l.status && l.status !== loadState.status) onLoadAccepted?.(loadState._id); }} />
+        )}
+
+        {/* ── Change pickup / delivery time (shipper) and respond to a proposed pickup time (carrier) ── */}
+        {['carrier', 'shipper', 'admin'].includes(userRole) && (
+          <PickupWindowPanel load={loadState} userRole={userRole} onChanged={(l) => setLoadState((prev) => ({ ...prev, ...l }))} />
         )}
 
         {/* ── Pickup handshake (anti-impersonation) ── */}

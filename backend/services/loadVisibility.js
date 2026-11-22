@@ -11,18 +11,24 @@ const User = require('../models/User');
 
 const FIRST_LOOK_MS = 2 * 60 * 60 * 1000;
 
-/** Mongo conditions to be OR-ed: open loads visible to this carrier company. */
+// A load without coordinates can never be booked (accept refuses it), so it is not offered to carriers at all.
+const HAS_COORDS = {
+  originLat: { $type: 'number' }, originLng: { $type: 'number' },
+  destinationLat: { $type: 'number' }, destinationLng: { $type: 'number' },
+};
+
+/** Mongo conditions to be OR-ed: open loads visible to this carrier company (and bookable: they have coordinates). */
 async function carrierOpenVisibleConditions(companyId) {
   const entries = await PreferredCarrier.find({ carrier: companyId, isActive: true }).select('shipper').lean();
   const preferredShipperIds = entries.map((e) => e.shipper);
   return [
     // Public is matched explicitly (null = loads from before the field existed),
     // so any other value fails closed.
-    { status: 'open', loadVisibility: { $in: ['public', null] } },
+    { status: 'open', loadVisibility: { $in: ['public', null] }, ...HAS_COORDS },
     // preferred + private: the shipper's preferred carriers always see them
-    { status: 'open', loadVisibility: { $in: ['preferred', 'private'] }, postedBy: { $in: preferredShipperIds } },
+    { status: 'open', loadVisibility: { $in: ['preferred', 'private'] }, postedBy: { $in: preferredShipperIds }, ...HAS_COORDS },
     { status: 'open', loadVisibility: 'preferred', postedBy: { $nin: preferredShipperIds },
-      createdAt: { $lte: new Date(Date.now() - FIRST_LOOK_MS) } },
+      createdAt: { $lte: new Date(Date.now() - FIRST_LOOK_MS) }, ...HAS_COORDS },
   ];
 }
 

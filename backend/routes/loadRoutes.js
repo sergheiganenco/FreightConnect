@@ -14,8 +14,6 @@ module.exports = (io) => {
   const { transitionLoadStatus, canTransition } = require('../services/loadStateMachine');
   const StatusHistory = require('../models/StatusHistory');
   const { checkScheduleConflicts } = require('../services/scheduleConflictService');
-  const PreferredCarrier = require('../models/PreferredCarrier');
-  const { parseWindow } = require('../utils/windowValidation');
   const { notifyUserSafe, notifyAdmins } = require('../utils/notifyUser');
   const { isAutoPayable, chargeEventBillable } = require('../services/detentionBillingService');
   const { pickupBlockers, deliveryBlockers } = require('../services/evidenceService');
@@ -26,6 +24,7 @@ module.exports = (io) => {
   const { refreshLoad, messages: pickupRiskMessages, noShowSnapshot, fileNoShowReview } = require('../jobs/pickupRiskMonitor');
   const { estimateEconomics } = require('../utils/loadEconomics');
   const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
+  const { createPostedLoad } = require('../services/loadPostingService');
 
   // ── Authorization helpers ──────────────────────────────────────────────────
   // The company (owner id) that the acting account belongs to. Sub-accounts
@@ -475,32 +474,10 @@ const createLoadValidation = [
 
 router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   try {
-    // ── Shipper verification guard ──────────────────────────────────
-    // Must have payment method on file before posting loads. Verification lives on
-    // the company owner, so a shipper sub-account is checked against the company.
+    // Verification lives on the company owner, so a shipper sub-account is checked against the company.
     const companyId = req.user.companyOwnerId || req.user.userId;
-    if (req.user.role === 'shipper') {
-      const shipper = await User.findById(companyId).select('shipperVerification');
-      const sv = shipper?.shipperVerification;
-
-      if (sv?.status === 'suspended') {
-        return res.status(403).json({
-          error: 'Your shipper account is suspended. Contact support.',
-          verificationStatus: 'suspended',
-        });
-      }
-      // Pilot switch: the payment-method requirement depends on Stripe being wired.
-      // Set REQUIRE_SHIPPER_PAYMENT_METHOD=false to let shippers post while payments
-      // are dormant (pilot/testing). Default (unset) keeps the requirement ON. A
-      // suspended account is always blocked regardless of this flag.
-      const requirePaymentMethod = process.env.REQUIRE_SHIPPER_PAYMENT_METHOD !== 'false';
-      if (requirePaymentMethod && !sv?.paymentMethodVerified) {
-        return res.status(403).json({
-          error: 'Add a payment method before posting loads. Go to Settings → Verification to add a card or bank account.',
-          verificationStatus: sv?.status || 'unverified',
-          missingStep: 'payment_method',
-        });
-      }
+    if (req.user.role !== 'shipper') {
+      return res.status(403).json({ error: 'Only shippers can post loads.' });
     }
 
     const {
@@ -581,59 +558,6 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       requireDeliveryPhotos,
     } = req.body;
 
-    if (!title || !origin || !destination || !rate || !equipmentType) {
-      return res.status(400).json({ error: 'Title, origin, destination, rate and equipmentType are required.' });
-    }
-
-    if (req.user.role !== 'shipper') {
-      return res.status(403).json({ error: 'Only shippers can post loads.' });
-    }
-
-    // ---------- geocode (resilient — a geocoding outage must NOT block posting) ----------
-    // Nominatim requires a valid User-Agent or it returns "Access denied".
-    const fetchCoords = async (location) => {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 6000);
-        const resp = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(location)}`,
-          { headers: { 'User-Agent': 'FreightConnect/1.0 (loads@freightconnect.app)' }, signal: ctrl.signal }
-        );
-        clearTimeout(t);
-        if (!resp.ok) return null;
-        const data = await resp.json();
-        // The geocoder answered and found nothing: the place name is wrong. That is
-        // different from an outage — a load with no coordinates can never be accepted.
-        if (Array.isArray(data) && !data.length) return { notFound: true };
-        if (!Array.isArray(data)) return null;
-        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      } catch (geoErr) {
-        console.warn(`[loads] geocode failed for "${location}" (non-fatal):`, geoErr.message);
-        return null; // post the load anyway; coords can be filled later
-      }
-    };
-
-    // Prefer client-supplied coords; otherwise best-effort geocode.
-    const originC = (req.body.originLat && req.body.originLng)
-      ? { lat: Number(req.body.originLat), lng: Number(req.body.originLng) }
-      : (await fetchCoords(origin)) || {};
-    const destinationC = (req.body.destinationLat && req.body.destinationLng)
-      ? { lat: Number(req.body.destinationLat), lng: Number(req.body.destinationLng) }
-      : (await fetchCoords(destination)) || {};
-
-    for (const [label, place, c] of [['pickup', origin, originC], ['delivery', destination, destinationC]]) {
-      if (c.notFound) {
-        return res.status(400).json({ error: `We couldn't find the ${label} location "${place}". Enter it as City, ST (for example "Austin, TX").` });
-      }
-    }
-
-    // Road miles (bounded by the ORS timeout, never throws; null on any failure or multi-stop).
-    const distFields = await loadDistanceFields({
-      originLat: originC.lat, originLng: originC.lng,
-      destinationLat: destinationC.lat, destinationLng: destinationC.lng,
-      stops: rawStops,
-    });
-
     // ---------- build & save ---------
     // Parse array fields that may arrive as JSON strings (FormData uploads)
     const parseArr = (v) => {
@@ -642,34 +566,24 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       return undefined;
     };
 
-    // Same strict ISO + end>=start rule as the dedicated window endpoints (the form sends datetime-local, so no zone is required here).
-    let pickupTimeWindow, deliveryTimeWindow;
-    try {
-      pickupTimeWindow = parseWindow(pickupWindowStart ? { start: pickupWindowStart, end: pickupWindowEnd } : undefined, 'pickupTimeWindow');
-      deliveryTimeWindow = parseWindow(deliveryWindowStart ? { start: deliveryWindowStart, end: deliveryWindowEnd } : undefined, 'deliveryTimeWindow');
-    } catch (e) { return res.status(400).json({ error: e.message }); }
-
-    const newLoad = new Load({
+    const fields = {
       title,
       origin,
-      originLat: originC.lat,
-      originLng: originC.lng,
+      originLat: req.body.originLat,
+      originLng: req.body.originLng,
       destination,
-      destinationLat: destinationC.lat,
-      destinationLng: destinationC.lng,
-      ...distFields,
+      destinationLat: req.body.destinationLat,
+      destinationLng: req.body.destinationLng,
       rate,
       equipmentType,
-      // Attribute ownership to the company so any of its sub-accounts can manage it.
-      postedBy: companyId,
       commodityType: commodityType || undefined,
       commodityCategory: commodityCategory || undefined,
       loadWeight: weight ? Number(weight) : undefined,
       specialInstructions: specialInstructions || undefined,
 
-      // Time windows
-      pickupTimeWindow,
-      deliveryTimeWindow,
+      // Time windows (the form sends datetime-local, so no zone is required; parsed by the posting service)
+      pickupTimeWindow: pickupWindowStart ? { start: pickupWindowStart, end: pickupWindowEnd } : undefined,
+      deliveryTimeWindow: deliveryWindowStart ? { start: deliveryWindowStart, end: deliveryWindowEnd } : undefined,
 
       // Dimensions
       loadDimensions: (loadLength || loadWidth || loadHeight) ? {
@@ -737,11 +651,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
             notes: reeferNotes || undefined,
           }
         : undefined,
-    });
+    };
 
-    // Geocode intermediate stops asynchronously — do not block response
     if (Array.isArray(rawStops) && rawStops.length > 0) {
-      newLoad.stops = rawStops.map((s, i) => ({
+      fields.stops = rawStops.map((s, i) => ({
         sequence: s.sequence ?? i + 1,
         type: s.type || 'delivery',
         address: s.address,
@@ -753,40 +666,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       }));
     }
 
-    await newLoad.save();
-    res.status(201).json(newLoad);
-
-    // Async: notify preferred carriers first (non-blocking)
-    (async () => {
-      try {
-        const preferredCarriers = await PreferredCarrier.find({
-          shipper: companyId,
-          isActive: true,
-        }).populate('carrier', 'name email');
-
-        if (preferredCarriers.length > 0) {
-          for (const pc of preferredCarriers) {
-            await notifyUserSafe(pc.carrier._id, {
-              type: 'load:preferred',
-              title: 'New load from a shipper who prefers you!',
-              body: `${newLoad.origin} → ${newLoad.destination} · $${Number(newLoad.rate).toLocaleString()} · ${newLoad.equipmentType}`,
-              link: '/dashboard/carrier/loads',
-              metadata: {
-                loadId: newLoad._id,
-                tier: pc.tier,
-                firstLookHours: pc.firstLookHours,
-              },
-            });
-          }
-        }
-      } catch (err) {
-        console.error('[PreferredCarrier] Notification failed (non-fatal):', err.message);
-      }
-    })();
-
-    // Async: notify matched carriers — non-blocking
-    const { notifyMatchedCarriers } = require('../services/matchingService');
-    notifyMatchedCarriers(newLoad, io);
+    // gate -> validation -> geocode -> distance -> create -> notifications: shared with EDI, bulk and email import
+    const r = await createPostedLoad({ shipperCompanyId: companyId, fields, io });
+    if (!r.load) return res.status(r.status).json({ error: r.error, ...r.extra });
+    res.status(201).json(r.needsLocation ? { ...r.load.toObject(), needsLocation: true } : r.load);
   } catch (err) {
     console.error('Error saving load:', err);
     res.status(500).json({ error: 'Failed to post load.' });

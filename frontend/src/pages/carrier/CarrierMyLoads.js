@@ -17,6 +17,7 @@ import {
 import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
+import PickupWindowPanel from '../../features/shared/PickupWindowPanel';
 import ReturnLoadSuggestions from '../../components/ReturnLoadSuggestions';
 import PickupRiskPanel from '../../features/shared/PickupRiskPanel';
 import SignaturePad from '../../components/SignaturePad';
@@ -307,6 +308,7 @@ export default function CarrierMyLoads({ embedded = false }) {
                   </Typography>
 
                   <PickupRiskPanel load={l} userRole="carrier" onChanged={fetchLoads} />
+                  <PickupWindowPanel load={l} userRole="carrier" onChanged={fetchLoads} />
 
                   {l.status === 'delivered' && (
                     <Box
@@ -380,7 +382,7 @@ export default function CarrierMyLoads({ embedded = false }) {
           userRole="carrier"
           notice={notice?.text}
           noticeFocus={notice?.focus}
-          onClose={() => { setSelected(null); setNotice(null); }}
+          onClose={() => { setSelected(null); setNotice(null); fetchLoads(); }}
           onLoadAccepted={() => {
             // The accepted load may not be in this list yet (e.g. a return-load suggestion) — refetch.
             fetchLoads();

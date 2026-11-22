@@ -4,6 +4,7 @@
  * null bounds, and window validation on the other load-creating routes.
  */
 require('../setup');
+jest.mock('node-fetch'); // load posting geocodes typed places through node-fetch
 const express = require('express');
 const request = require('supertest');
 
@@ -424,7 +425,8 @@ describe('window validation on load-creating routes; no route but the dedicated 
   let app, shipper, carrier;
   beforeEach(async () => {
     app = buildApp();
-    shipper = await createTestUser({ role: 'shipper' });
+    // Load-creating routes apply the shipper posting gate and geocode typed places (node-fetch is mocked: no network).
+    shipper = await createTestUser({ role: 'shipper', shipperVerification: { status: 'verified', paymentMethodVerified: true } });
     carrier = await createTestUser({ role: 'carrier' });
   });
   const ediDoc = () => EDIDocument.create({

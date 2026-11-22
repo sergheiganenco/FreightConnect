@@ -12,7 +12,7 @@ const dayjs    = require('dayjs');
 const utc      = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const Contract = require('../models/Contract');
-const { loadDistanceFields } = require('../services/routingService');
+const { createPostedLoad } = require('../services/loadPostingService');
 const Load     = require('../models/Load');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
@@ -68,41 +68,41 @@ async function runAutoPost() {
           return dayjs.tz(`${today} ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, tz).toDate();
         };
 
-        const laneFields = {
-          originLat:     contract.lane.origin.latitude,
-          originLng:     contract.lane.origin.longitude,
-          destinationLat:contract.lane.destination.latitude,
-          destinationLng:contract.lane.destination.longitude,
-        };
-        const load = await Load.create({
-          ...(await loadDistanceFields(laneFields)),
-          title:         tpl.title || `${contract.contractNumber} — Auto-Posted`,
-          origin:        `${contract.lane.origin.city}, ${contract.lane.origin.state}`,
-          originLat:     contract.lane.origin.latitude,
-          originLng:     contract.lane.origin.longitude,
-          destination:   `${contract.lane.destination.city}, ${contract.lane.destination.state}`,
-          destinationLat:contract.lane.destination.latitude,
-          destinationLng:contract.lane.destination.longitude,
-          rate:          contract.pricing.rateCents / 100,
-          equipmentType: contract.equipmentType,
-          hazardousMaterial: contract.hazardousMaterial,
-          loadWeight:    tpl.loadWeight,
-          loadDimensions:tpl.loadDimensions,
-          commodityType: tpl.commodityType,
-          specialInstructions: tpl.specialInstructions,
-          pickupTimeWindow: {
-            start: buildTime(tpl.pickupTimeWindowStart),
-            end:   buildTime(tpl.pickupTimeWindowEnd),
+        // Internal post: no shipper gate (the contract is already agreed) and the job sends its own notifications,
+        // but coordinates (the lane's, else geocoded) and road distance are filled like any other posted load.
+        const r = await createPostedLoad({
+          shipperCompanyId: contract.shipper,
+          options: { gate: false, notify: false },
+          fields: {
+            title:         tpl.title || `${contract.contractNumber} — Auto-Posted`,
+            origin:        `${contract.lane.origin.city}, ${contract.lane.origin.state}`,
+            originLat:     contract.lane.origin.latitude,
+            originLng:     contract.lane.origin.longitude,
+            destination:   `${contract.lane.destination.city}, ${contract.lane.destination.state}`,
+            destinationLat:contract.lane.destination.latitude,
+            destinationLng:contract.lane.destination.longitude,
+            rate:          contract.pricing.rateCents / 100,
+            equipmentType: contract.equipmentType,
+            hazardousMaterial: contract.hazardousMaterial,
+            loadWeight:    tpl.loadWeight,
+            loadDimensions:tpl.loadDimensions,
+            commodityType: tpl.commodityType,
+            specialInstructions: tpl.specialInstructions,
+            pickupTimeWindow: {
+              start: buildTime(tpl.pickupTimeWindowStart),
+              end:   buildTime(tpl.pickupTimeWindowEnd),
+            },
+            deliveryTimeWindow: {
+              start: buildTime(tpl.deliveryTimeWindowStart),
+              end:   buildTime(tpl.deliveryTimeWindowEnd),
+            },
+            contractId:      contract._id,
+            isContractLoad:  true,
+            status:          'open',
           },
-          deliveryTimeWindow: {
-            start: buildTime(tpl.deliveryTimeWindowStart),
-            end:   buildTime(tpl.deliveryTimeWindowEnd),
-          },
-          postedBy:        contract.shipper,
-          contractId:      contract._id,
-          isContractLoad:  true,
-          status:          'open',
         });
+        if (!r.load) throw new Error(r.error);
+        const load = r.load;
 
         // Increment counter
         await Contract.findByIdAndUpdate(contract._id, {

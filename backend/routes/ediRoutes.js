@@ -16,6 +16,8 @@ const auth     = require('../middlewares/authMiddleware');
 const EDIDocument = require('../models/EDIDocument');
 const Load     = require('../models/Load');
 const User     = require('../models/User');
+const { createPostedLoad } = require('../services/loadPostingService');
+const { getIO } = require('../utils/socket');
 const { parseEDI204, edi204ToLoadFields, generateEDI214, generateEDI210 } = require('../utils/ediParser');
 
 // The company an account acts for (owner id); dispatchers/coordinators share it.
@@ -174,28 +176,30 @@ router.post('/:id/create-load', auth, SHIPPER_OR_ADMIN, async (req, res) => {
     );
     if (!claimed) return res.status(409).json({ error: 'Load already created from this document' });
 
-    let load;
-    try {
-      load = await Load.create({
+    // Same bar as a form-posted load: shipper posting gate, geocoding, road distance, notifications.
+    const r = await createPostedLoad({
+      shipperCompanyId: String(doc.shipper),
+      io: getIO(),
+      fields: {
         ...loadFields,
-        postedBy: doc.shipper,
         specialInstructions: [
           loadFields.specialInstructions,
           `EDI Doc: ${doc._id}`,
           doc.parsedData.bolNumber ? `BOL: ${doc.parsedData.bolNumber}` : null,
         ].filter(Boolean).join(' | '),
-      });
-    } catch (createErr) {
-      // Release the claim so the shipper can correct the data and try again.
+      },
+    });
+    if (!r.load) {
+      // Release the claim so the shipper can correct the data (or finish verification) and try again.
       await EDIDocument.updateOne({ _id: doc._id, status: 'load_created', load: null }, { $set: { status: doc.status } });
-      if (createErr.name === 'ValidationError') return res.status(400).json({ error: createErr.message });
-      throw createErr;
+      return res.status(r.status).json({ error: r.error, ...r.extra });
     }
+    const load = r.load;
 
     claimed.load = load._id;
     await claimed.save();
 
-    res.status(201).json({ load, ediDocument: claimed });
+    res.status(201).json({ load, ediDocument: claimed, ...(r.needsLocation && { needsLocation: true }) });
   } catch (err) {
     console.error('EDI create-load error:', err);
     res.status(500).json({ error: 'Failed to create load from EDI' });

@@ -16,6 +16,8 @@ const STATUS_COLORS = {
   delivered: COLORS.success,
 };
 
+const fmtFull = (d) => (d ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD');
+
 export default function LoadDetailScreen({ route, navigation }) {
   const [load, setLoad] = useState(route.params.load);
   const [tracking, setTracking] = useState(false);
@@ -107,6 +109,20 @@ export default function LoadDetailScreen({ route, navigation }) {
     'The shipper will be notified and may release the load to other carriers. Your booking is not cancelled by this.',
     [{ text: 'Back', style: 'cancel' }, { text: "I can't make it", style: 'destructive', onPress: () => answerPickup('cannot_make_it') }],
   );
+
+  // Shipper asked to change the pickup time of this booked load. The agreed time stays in force until the driver accepts.
+  const answerWindow = async (accept) => {
+    setActionLoading(true);
+    try {
+      await api.post(`/loads/${load._id}/pickup-window-response`, { accept });
+      Alert.alert(accept ? 'New pickup time accepted' : 'Agreed time kept', accept ? 'The pickup time was changed.' : 'The pickup time stays as agreed.');
+    } catch (err) {
+      Alert.alert('Error', err.response?.data?.error || 'Could not send your answer');
+    }
+    await refreshLoad();
+    setActionLoading(false);
+  };
+  const fmtWindow = (w) => (w?.end ? `${fmtFull(w.start)} to ${fmtFull(w.end)}` : fmtFull(w?.start));
 
   // ── Accept load ────────────────────────────────────────────────
   const handleAccept = async () => {
@@ -240,6 +256,27 @@ export default function LoadDetailScreen({ route, navigation }) {
           <Text style={styles.instructions}>{load.specialInstructions}</Text>
         </View>
       )}
+
+      {/* Pickup time change asked by the shipper — the agreed window is bookedWindow (pickupTimeWindow equals it) */}
+      {load.status === 'accepted' && load.pickupWindowChange?.status === 'pending' && (() => {
+        const ch = load.pickupWindowChange;
+        const expiresAt = new Date(new Date(ch.proposedAt).getTime() + 24 * 60 * 60 * 1000);
+        const expired = expiresAt.getTime() < Date.now();
+        return (
+          <View style={[styles.card, { borderColor: COLORS.warning }]}>
+            <Text style={styles.sectionTitle}>
+              The shipper asks to change pickup to {fmtWindow({ start: ch.proposedStart, end: ch.proposedEnd })} (currently {fmtWindow(load.bookedWindow?.start ? load.bookedWindow : load.pickupTimeWindow)}).
+            </Text>
+            <Text style={styles.facilityAddr}>
+              If you don't answer, the agreed time stays in force. {expired ? 'This request has expired.' : `The request expires ${fmtFull(expiresAt)}, 24 hours after it was proposed.`}
+            </Text>
+            <View style={{ marginTop: 10 }}>
+              {!expired && <ActionButton label="Accept new time" color={COLORS.success} onPress={() => answerWindow(true)} disabled={actionLoading} />}
+              <ActionButton label="Keep agreed time" color={COLORS.info} onPress={() => answerWindow(false)} disabled={actionLoading} />
+            </View>
+          </View>
+        );
+      })()}
 
       {/* Pickup risk — shown only when the server predicts a missed pickup and the driver has not answered */}
       {load.status === 'accepted' && ['at_risk', 'late_certain'].includes(load.pickupRisk?.level) && !load.pickupRisk?.carrierConfirmation?.status && (

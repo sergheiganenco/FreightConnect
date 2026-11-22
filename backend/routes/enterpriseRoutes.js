@@ -1,5 +1,4 @@
 const express = require('express');
-const { parseWindow } = require('../utils/windowValidation');
 const router = express.Router();
 const { body, param, query } = require('express-validator');
 const validate = require('../middlewares/validate');
@@ -11,6 +10,8 @@ const Webhook = require('../models/Webhook');
 const Load = require('../models/Load');
 const webhookDelivery = require('../services/webhookDelivery');
 const loadParser = require('../services/loadParserService');
+const { createPostedLoad, shipperPostingGate, makeGeocodeBudget } = require('../services/loadPostingService');
+const { getIO } = require('../utils/socket');
 
 // All enterprise routes require authentication (API key or JWT)
 router.use(apiKeyAuth);
@@ -411,37 +412,50 @@ router.post(
       const created = [];
       const errors = [];
 
+      // Same bar as a form-posted load. The shipper gate is checked once for the whole request; geocoding is shared
+      // (repeated places looked up once, spaced for the provider, 20s overall budget). Loads left without coordinates
+      // are created but flagged needsLocation and stay hidden from carriers until they are located.
+      const posterId = req.user.companyOwnerId || req.user.userId;
+      if (req.user.role === 'shipper') {
+        const blocked = await shipperPostingGate(posterId);
+        if (blocked) return res.status(blocked.status).json({ error: blocked.error, ...blocked.extra });
+      }
+      const geocodeBudget = makeGeocodeBudget();
+
       for (let i = 0; i < loads.length; i++) {
         const loadData = loads[i];
         try {
-          // Same strict ISO + end>=start rule as the dedicated window endpoints (a bad window is a per-load error).
-          const pickupTimeWindow = parseWindow(loadData.pickupTimeWindow, 'pickupTimeWindow', { requireZone: true });
-          const deliveryTimeWindow = parseWindow(loadData.deliveryTimeWindow, 'deliveryTimeWindow', { requireZone: true });
-          const load = await Load.create({
-            title: loadData.title,
-            origin: loadData.origin,
-            originLat: loadData.originLat,
-            originLng: loadData.originLng,
-            destination: loadData.destination,
-            destinationLat: loadData.destinationLat,
-            destinationLng: loadData.destinationLng,
-            rate: loadData.rate,
-            equipmentType: loadData.equipmentType,
-            loadWeight: loadData.loadWeight,
-            commodityType: loadData.commodityType,
-            specialInstructions: loadData.specialInstructions,
-            hazardousMaterial: loadData.hazardousMaterial || false,
-            pickupTimeWindow,
-            deliveryTimeWindow,
-            paymentTerms: loadData.paymentTerms,
-            // Provenance (e.g. loads imported from a parsed email keep source:'email').
-            source: loadData.source || undefined,
-            externalRef: loadData.externalRef || undefined,
-            postedBy: req.user.userId,
-            status: 'open',
+          const r = await createPostedLoad({
+            shipperCompanyId: posterId,
+            io: getIO(),
+            options: { gate: false, windowOpts: { requireZone: true }, geocodeBudget },
+            fields: {
+              title: loadData.title,
+              origin: loadData.origin,
+              originLat: loadData.originLat,
+              originLng: loadData.originLng,
+              destination: loadData.destination,
+              destinationLat: loadData.destinationLat,
+              destinationLng: loadData.destinationLng,
+              rate: loadData.rate,
+              equipmentType: loadData.equipmentType,
+              loadWeight: loadData.loadWeight,
+              commodityType: loadData.commodityType,
+              specialInstructions: loadData.specialInstructions,
+              hazardousMaterial: loadData.hazardousMaterial || false,
+              pickupTimeWindow: loadData.pickupTimeWindow,
+              deliveryTimeWindow: loadData.deliveryTimeWindow,
+              paymentTerms: loadData.paymentTerms,
+              // Provenance (e.g. loads imported from a parsed email keep source:'email').
+              source: loadData.source || undefined,
+              externalRef: loadData.externalRef || undefined,
+              status: 'open',
+            },
           });
+          if (!r.load) { errors.push({ index: i, title: loadData.title, error: r.error }); continue; }
+          const load = r.load;
 
-          created.push({ index: i, id: load._id, title: load.title });
+          created.push({ index: i, id: load._id, title: load.title, ...(r.needsLocation && { needsLocation: true }) });
 
           // Fire webhook (non-blocking)
           webhookDelivery.deliver('load.created', {
@@ -532,6 +546,11 @@ router.post(
       const posterId = req.user.companyOwnerId || req.user.userId;
       const created = [];
       const skipped = [];
+      if (req.user.role === 'shipper') {
+        const blocked = await shipperPostingGate(posterId);
+        if (blocked) return res.status(blocked.status).json({ error: blocked.error, ...blocked.extra });
+      }
+      const geocodeBudget = makeGeocodeBudget();
 
       for (const l of result.loads) {
         // Require the fields Load create enforces.
@@ -555,20 +574,26 @@ router.post(
         }
 
         try {
-          const load = await Load.create({
-            title: l.title,
-            origin: l.origin,
-            destination: l.destination,
-            rate: l.rate,
-            equipmentType: l.equipmentType,
-            loadWeight: l.loadWeight || undefined,
-            commodityType: l.commodityType || undefined,
-            source: 'email',
-            externalRef: l.externalRef || undefined,
-            postedBy: posterId,
-            status: 'open',
+          const r = await createPostedLoad({
+            shipperCompanyId: posterId,
+            io: getIO(),
+            options: { gate: false, geocodeBudget },
+            fields: {
+              title: l.title,
+              origin: l.origin,
+              destination: l.destination,
+              rate: l.rate,
+              equipmentType: l.equipmentType,
+              loadWeight: l.loadWeight || undefined,
+              commodityType: l.commodityType || undefined,
+              source: 'email',
+              externalRef: l.externalRef || undefined,
+              status: 'open',
+            },
           });
-          created.push({ id: load._id, title: load.title });
+          if (!r.load) { skipped.push({ title: l.title, reason: r.error }); continue; }
+          const load = r.load;
+          created.push({ id: load._id, title: load.title, ...(r.needsLocation && { needsLocation: true }) });
 
           webhookDelivery.deliver('load.created', {
             loadId: load._id,
