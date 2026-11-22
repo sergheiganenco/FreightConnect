@@ -28,7 +28,7 @@ function CarrierDashboard() {
   const handleAccept = async (loadId) => {
     try {
       const token = localStorage.getItem('token');
-      await api.put(`/loads/${loadId}/accept`, {}, {
+      await api.put(`/loads/${loadId}/accept`, { termsVersion: loads.find((l) => l._id === loadId)?.termsVersion ?? 1 }, {
         headers: { Authorization: `Bearer ${token}` },
       });
 

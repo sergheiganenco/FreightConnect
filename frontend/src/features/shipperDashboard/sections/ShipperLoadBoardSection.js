@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Box, Typography, Select, MenuItem, FormControl, InputLabel, Pagination, Stack, Chip } from "@mui/material";
+import { Box, Typography, Select, MenuItem, FormControl, InputLabel, Pagination, Stack, Chip, Snackbar, Alert } from "@mui/material";
 import LoadGrid from "./components/LoadGrid";
 import { useShipperLoads } from "../hooks/useShipperLoads";
 import LoadDetailsModal from "../../../components/LoadDetailsModal";
@@ -26,12 +26,14 @@ const LOADS_PER_PAGE = 6;
 export default function ShipperLoadBoardSection() {
   const { loads = [], isLoading, error } = useShipperLoads();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
 
   const [page, setPage] = useState(1);
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortOrder, setSortOrder] = useState("recent");
   const [selectedLoad, setSelectedLoad] = useState(null);
+  const [flash, setFlash] = useState(() => location.state?.flash || '');
 
   const allStatuses = useMemo(() => {
     const seen = new Set();
@@ -140,6 +142,11 @@ export default function ShipperLoadBoardSection() {
           />
         </Box>
       )}
+
+      {/* Result of an edit (set by the edit screen on its way back here) */}
+      <Snackbar open={!!flash} autoHideDuration={6000} onClose={() => setFlash('')} anchorOrigin={{ vertical: "top", horizontal: "center" }}>
+        <Alert severity="success" onClose={() => setFlash('')} sx={{ width: "100%" }}>{flash}</Alert>
+      </Snackbar>
 
       {/* Details Modal */}
       {selectedLoad && (

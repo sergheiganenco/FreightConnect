@@ -375,6 +375,10 @@ const LoadSchema = new mongoose.Schema({
     at:    Date,
   },
   // jobs/loadLocator backoff: failed geocode attempts and the earliest time the next one is allowed.
+  // Bumped (by services/loadPostingService.updatePostedLoad) whenever the shipper changes a term a carrier priced the load on.
+  // PUT /:id/accept can carry the version the carrier saw; a mismatch refuses the booking (no bait-and-switch).
+  // Loads from before the field existed have none and count as 1.
+  termsVersion: { type: Number, default: 1 },
   locationAttempts: { type: Number, default: 0 },
   locationNextAttemptAt: { type: Date, default: null },
   pickupRisk: {

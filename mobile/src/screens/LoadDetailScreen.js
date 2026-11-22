@@ -128,11 +128,13 @@ export default function LoadDetailScreen({ route, navigation }) {
   const handleAccept = async () => {
     setActionLoading(true);
     try {
-      await api.put(`/loads/${load._id}/accept`);
+      // Send the terms version the driver is looking at; the server refuses if the shipper changed the load since.
+      await api.put(`/loads/${load._id}/accept`, { termsVersion: load.termsVersion ?? 1 });
       Alert.alert('Success', 'Load accepted!');
       await refreshLoad();
     } catch (err) {
       Alert.alert('Error', err.response?.data?.error || 'Could not accept');
+      if (err.response?.data?.code === 'TERMS_CHANGED') await refreshLoad(); // show the new details
     }
     setActionLoading(false);
   };

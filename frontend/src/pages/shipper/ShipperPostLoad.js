@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   TextField, Button, Grid, Typography, Box, Paper, Snackbar, Alert, Select, MenuItem,
   FormControl, FormHelperText, InputLabel, FormControlLabel, Switch, Checkbox, Divider, Chip, IconButton,
@@ -97,6 +98,105 @@ const initialLoad = {
   requireDeliveryPhotos: false,
 };
 
+// ── Edit mode helpers ──────────────────────────────────────────────────────
+const pad2 = (n) => String(n).padStart(2, '0');
+const toLocalInput = (iso) => {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+const str = (v) => (v == null ? '' : String(v));
+const INSURANCE_VALUES = INSURANCE_LEVELS.map((i) => i.value).filter((v) => v && v !== 'custom');
+
+// A stored load -> the form's state (the inverse of formToApi).
+function loadToForm(l) {
+  const ins = l.insuranceRequired == null ? '' : String(l.insuranceRequired);
+  const customIns = ins && !INSURANCE_VALUES.includes(ins);
+  const reefer = l.reefer || {};
+  const d = l.loadDimensions || {};
+  const form = {
+    ...initialLoad,
+    title: str(l.title), commodityType: str(l.commodityType), commodityCategory: str(l.commodityCategory),
+    weight: str(l.loadWeight), equipmentType: str(l.equipmentType),
+    origin: str(l.origin), destination: str(l.destination),
+    pickupWindowStart: toLocalInput(l.pickupTimeWindow?.start), pickupWindowEnd: toLocalInput(l.pickupTimeWindow?.end),
+    deliveryWindowStart: toLocalInput(l.deliveryTimeWindow?.start), deliveryWindowEnd: toLocalInput(l.deliveryTimeWindow?.end),
+    deliveryFacilityName: str(l.deliveryFacilityName), deliveryAddress: str(l.deliveryAddress),
+    deliveryContactName: str(l.deliveryContactName), deliveryContactPhone: str(l.deliveryContactPhone),
+    pickupFacilityName: str(l.pickupFacilityName), pickupAddress: str(l.pickupAddress),
+    pickupContactName: str(l.pickupContactName), pickupContactPhone: str(l.pickupContactPhone),
+    rate: str(l.rate), currency: l.currency || 'USD', paymentTerms: str(l.paymentTerms),
+    termsAccepted: true, // agreed when the load was posted
+    specialInstructions: str(l.specialInstructions), notes: str(l.notes), carrierInstructions: str(l.carrierInstructions),
+    loadVisibility: l.loadVisibility || 'public', expirationDateTime: toLocalInput(l.expirationDateTime),
+    allowCarrierBidding: l.allowCarrierBidding !== false,
+    poNumber: str(l.poNumber), shipperReferenceNumber: str(l.shipperReferenceNumber), consigneeReference: str(l.consigneeReference),
+    cargoValue: str(l.cargoValue),
+    insuranceRequired: customIns ? 'custom' : ins, customInsuranceAmount: customIns ? ins : '',
+    hazardousMaterial: l.hazardousMaterial === true,
+    hazmatClass: str(l.hazmatClass), hazmatPackingGroup: str(l.hazmatPackingGroup), dangerousGoodsUN: str(l.dangerousGoodsUN),
+    temperatureMin: str(reefer.targetMinC), temperatureMax: str(reefer.targetMaxC), temperatureUnit: 'C', // stored in Celsius
+    specialHandling: l.specialHandling || [], accessorials: l.accessorials || [], documentsRequired: l.documentsRequired || [],
+    loadLength: str(d.length), loadWidth: str(d.width), loadHeight: str(d.height),
+    overweightAcknowledged: l.overweightAcknowledged === true, overweightPermitNumber: str(l.overweightPermitNumber),
+    requirePickupVerification: l.pickupVerification?.required === true,
+    requirePickupPhotos: l.evidenceRequired?.pickup === true, requireDeliveryPhotos: l.evidenceRequired?.delivery === true,
+  };
+  const stops = (l.stops || []).map((s, i) => ({
+    sequence: s.sequence ?? i + 1, type: s.type || 'delivery', address: str(s.address),
+    timeWindowStart: toLocalInput(s.timeWindow?.start), timeWindowEnd: toLocalInput(s.timeWindow?.end),
+    contactName: str(s.contactName), contactPhone: str(s.contactPhone), notes: str(s.notes),
+  }));
+  return { form, stops };
+}
+
+// The form's state -> the body PUT /loads/:id takes (schema field names; '' / null clear an optional field).
+function formToApi(f, stops, reeferBase) {
+  const num = (v) => (v === '' || v == null ? null : Number(v));
+  const txt = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const iso = (v) => { const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d.toISOString(); };
+  const win = (s, e) => (s ? { start: iso(s), end: e ? iso(e) : undefined } : null);
+  const toC = (v) => {
+    if (v === '' || v == null || Number.isNaN(parseFloat(v))) return undefined;
+    return f.temperatureUnit === 'F' ? Math.round(((parseFloat(v) - 32) * 5) / 9 * 10) / 10 : parseFloat(v);
+  };
+  const hazmat = f.hazardousMaterial === true;
+  const insurance = f.insuranceRequired === 'custom' ? f.customInsuranceAmount : f.insuranceRequired;
+  const dims = { length: num(f.loadLength), width: num(f.loadWidth), height: num(f.loadHeight) };
+  return {
+    title: txt(f.title), origin: txt(f.origin), destination: txt(f.destination), rate: num(f.rate), equipmentType: txt(f.equipmentType),
+    commodityType: txt(f.commodityType), commodityCategory: txt(f.commodityCategory), loadWeight: num(f.weight),
+    loadDimensions: dims.length == null && dims.width == null && dims.height == null ? null : dims,
+    pickupTimeWindow: win(f.pickupWindowStart, f.pickupWindowEnd), deliveryTimeWindow: win(f.deliveryWindowStart, f.deliveryWindowEnd),
+    hazardousMaterial: hazmat,
+    hazmatClass: hazmat ? txt(f.hazmatClass) : null, hazmatPackingGroup: hazmat ? txt(f.hazmatPackingGroup) : null,
+    dangerousGoodsUN: hazmat ? txt(f.dangerousGoodsUN) : null,
+    reefer: f.equipmentType === 'Reefer' ? { ...reeferBase, enabled: true, targetMinC: toC(f.temperatureMin), targetMaxC: toC(f.temperatureMax), alertOnDeviation: true } : null,
+    stops: stops.map((s, i) => ({
+      sequence: i + 1, type: s.type, address: s.address,
+      timeWindow: s.timeWindowStart ? { start: iso(s.timeWindowStart), end: s.timeWindowEnd ? iso(s.timeWindowEnd) : undefined } : undefined,
+      contactName: txt(s.contactName) || undefined, contactPhone: txt(s.contactPhone) || undefined, notes: txt(s.notes) || undefined,
+    })),
+    specialInstructions: txt(f.specialInstructions), specialHandling: f.specialHandling, accessorials: f.accessorials,
+    insuranceRequired: num(insurance), cargoValue: num(f.cargoValue), paymentTerms: txt(f.paymentTerms), currency: txt(f.currency),
+    loadVisibility: f.loadVisibility, allowCarrierBidding: f.allowCarrierBidding === true,
+    expirationDateTime: f.expirationDateTime ? iso(f.expirationDateTime) : null,
+    notes: txt(f.notes), carrierInstructions: txt(f.carrierInstructions), documentsRequired: f.documentsRequired,
+    poNumber: txt(f.poNumber), shipperReferenceNumber: txt(f.shipperReferenceNumber), consigneeReference: txt(f.consigneeReference),
+    pickupFacilityName: txt(f.pickupFacilityName), pickupAddress: txt(f.pickupAddress), pickupContactName: txt(f.pickupContactName), pickupContactPhone: txt(f.pickupContactPhone),
+    deliveryFacilityName: txt(f.deliveryFacilityName), deliveryAddress: txt(f.deliveryAddress), deliveryContactName: txt(f.deliveryContactName), deliveryContactPhone: txt(f.deliveryContactPhone),
+    overweightAcknowledged: f.overweightAcknowledged === true, overweightPermitNumber: txt(f.overweightPermitNumber),
+    pickupVerification: { required: f.requirePickupVerification === true },
+    evidenceRequired: { pickup: f.requirePickupPhotos === true, delivery: f.requireDeliveryPhotos === true },
+  };
+}
+
+// Only what the shipper changed is sent, so untouched fields (and their exact stored values) are never rewritten.
+const diffApi = (next, prev) => Object.fromEntries(Object.entries(next).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(prev[k])));
+
+// Required to save an existing load: what the server requires (loads from EDI/import may lack the rest).
+const EDIT_REQUIRED = ['title', 'equipmentType', 'origin', 'destination', 'rate'];
+
 const EQUIPMENT_SUBTYPES = {
   Reefer:    [{ value: 'multi_temp', label: 'Multi-Temp' }, { value: 'frozen', label: 'Frozen' }, { value: 'produce', label: 'Produce' }],
   Flatbed:   [{ value: 'tarp', label: 'Tarp' }, { value: 'chains', label: 'Chains' }, { value: 'conestoga', label: 'Conestoga' }, { value: 'step_deck', label: 'Step Deck' }, { value: 'oversize', label: 'Oversize' }],
@@ -112,6 +212,12 @@ const REQUIRED_ENDORSEMENT_OPTIONS = [
 
 export default function ShipperPostLoad() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { id: editId } = useParams(); // present on /dashboard/shipper/loads/:id/edit: the same form edits an open load
+  const isEdit = Boolean(editId);
+  const [editLoading, setEditLoading] = useState(isEdit);
+  const [editBlock, setEditBlock] = useState(''); // why the load cannot be edited (not open, not ours, not found)
+  const editBase = useRef(null); // the loaded load as the PUT body would carry it, to send only the changes
   const [newLoad, setNewLoad] = useState(initialLoad);
   const [openSnackbar, setOpenSnackbar] = useState(false);
   const [error, setError] = useState("");
@@ -120,18 +226,36 @@ export default function ShipperPostLoad() {
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false); // sync guard: state updates are async
   const paymentRef = useRef(null);
-  const [uploadNames, setUploadNames] = useState({
-    cargoPhotos: [],
-    rateConfirmationUpload: [],
-    customsDocsUpload: [],
-  });
 
   // ── Draft Manager ────────────────────────────────────────────────────────
-  const { hasDraft, draftData, resumeDraft, discardDraft, clearDraft, showResumeDialog } = useDraftManager('shipperPostLoad', newLoad, setNewLoad);
+  // Editing uses its own draft slot so it never touches (or offers) the new-load draft.
+  const { hasDraft, draftData, resumeDraft, discardDraft, clearDraft, showResumeDialog } = useDraftManager(isEdit ? `shipperEditLoad_${editId}` : 'shipperPostLoad', newLoad, setNewLoad);
+
+  // ── Edit mode: load the load and prefill the form ────────────────────────
+  useEffect(() => {
+    if (!isEdit) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get(`/loads/${editId}`);
+        if (cancelled) return;
+        if (data.status !== 'open') { setEditBlock('This load can no longer be edited.'); return; }
+        const { form, stops: loadedStops } = loadToForm(data);
+        editBase.current = { api: formToApi(form, loadedStops, data.reefer), reefer: data.reefer }; // reefer: keeps its other settings on save
+        setNewLoad(form);
+        setStops(loadedStops);
+      } catch (err) {
+        if (!cancelled) setEditBlock(err.response?.data?.error || 'Could not load this load.');
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editId, isEdit]);
 
   // ── Auto-title ───────────────────────────────────────────────────────────
-  const [autoTitleEnabled, setAutoTitleEnabled] = useState(true);
-  const titleManuallyEdited = useRef(false);
+  const [autoTitleEnabled, setAutoTitleEnabled] = useState(!isEdit); // an existing title is never regenerated
+  const titleManuallyEdited = useRef(isEdit);
 
   useEffect(() => {
     if (!autoTitleEnabled || titleManuallyEdited.current) return;
@@ -230,13 +354,8 @@ export default function ShipperPostLoad() {
     setFieldErrors((fe) => ({ ...fe, [field]: false }));
   };
 
-  const handleFileChange = (field, files) => {
-    setNewLoad((prev) => ({ ...prev, [field]: files }));
-    setUploadNames((prev) => ({ ...prev, [field]: Array.from(files).map(f => f.name) }));
-  };
-
   // ── Validation ───────────────────────────────────────────────────────────
-  const requiredFields = [
+  const requiredFields = isEdit ? EDIT_REQUIRED : [
     "title", "commodityType", "commodityCategory", "weight",
     "equipmentType", "origin", "pickupWindowStart",
     "destination", "deliveryFacilityName", "deliveryAddress",
@@ -283,7 +402,7 @@ export default function ShipperPostLoad() {
 
   const validateStep = (step) => {
     let errors = {};
-    (STEP_REQUIRED[step] || []).forEach((k) => {
+    (STEP_REQUIRED[step] || []).filter((k) => !isEdit || EDIT_REQUIRED.includes(k)).forEach((k) => {
       if (!newLoad[k]) errors[k] = true;
     });
     // Step 1: block advancing while overweight is not acknowledged
@@ -347,6 +466,23 @@ export default function ShipperPostLoad() {
     submittingRef.current = true;
     setSubmitting(true);
     try {
+      if (isEdit) {
+        // Same JSON the server validates for posting, but only the fields that changed.
+        const changes = diffApi(formToApi(newLoad, stops, editBase.current?.reefer), editBase.current?.api || {});
+        if (Object.keys(changes).length === 0) {
+          navigate('/dashboard/shipper/loads', { state: { flash: 'No changes to save.' } });
+          return;
+        }
+        const { data } = await api.put(`/loads/${editId}`, changes);
+        clearDraft();
+        queryClient.invalidateQueries({ queryKey: ['loads'] }); // the board shows the new values
+        const notes = ['Load updated.'];
+        if (data.voidedBids) notes.push(`${data.voidedBids} open bid${data.voidedBids === 1 ? ' was' : 's were'} withdrawn and the carrier${data.voidedBids === 1 ? ' was' : 's were'} asked to bid again.`);
+        if (data.needsLocation) notes.push("We still couldn't find a location, so carriers can't see this load yet.");
+        navigate('/dashboard/shipper/loads', { state: { flash: notes.join(' ') } });
+        return;
+      }
+
       const token = localStorage.getItem("token");
 
       // Resolve insurance: if "custom", use the custom amount
@@ -354,31 +490,9 @@ export default function ShipperPostLoad() {
         ? newLoad.customInsuranceAmount
         : newLoad.insuranceRequired;
 
-      const hasFiles =
-        newLoad.cargoPhotos.length ||
-        newLoad.rateConfirmationUpload.length ||
-        newLoad.customsDocsUpload.length;
-
-      let payload, headers;
-      if (hasFiles) {
-        payload = new FormData();
-        const skipKeys = ['cargoPhotos', 'rateConfirmationUpload', 'customsDocsUpload', 'customInsuranceAmount', 'termsAccepted'];
-        Object.entries(newLoad).forEach(([k, v]) => {
-          if (['cargoPhotos', 'rateConfirmationUpload', 'customsDocsUpload'].includes(k)) {
-            for (let file of v) payload.append(k, file);
-          } else if (skipKeys.includes(k)) {
-            // skip
-          } else if (Array.isArray(v)) {
-            payload.append(k, JSON.stringify(v));
-          } else {
-            payload.append(k, v ?? "");
-          }
-        });
-        payload.set('insuranceRequired', resolvedInsurance || '');
-        if (stops.length > 0) payload.append('stops', JSON.stringify(stops));
-        headers = { "Authorization": `Bearer ${token}` };
-      } else {
-        payload = {
+      const headers = { "Authorization": `Bearer ${token}` };
+      {
+        const payload = {
           ...newLoad,
           insuranceRequired: resolvedInsurance || undefined,
           stops: stops.length > 0 ? stops.map(s => ({
@@ -394,16 +508,15 @@ export default function ShipperPostLoad() {
         // Remove fields not needed by backend
         delete payload.customInsuranceAmount;
         delete payload.termsAccepted;
-        headers = { "Authorization": `Bearer ${token}` };
+        await api.post("/loads", payload, { headers });
       }
-      await api.post("/loads", payload, { headers });
       clearDraft();
       navigate("/dashboard/shipper/loads");
     } catch (err) {
       const d = err.response?.data;
       const msg = d?.error
         || (Array.isArray(d?.errors) && d.errors.map((x) => x.msg).filter(Boolean).join(' '))
-        || "Failed to post load. Please check all fields and try again.";
+        || (isEdit ? "Failed to save changes. Please check all fields and try again." : "Failed to post load. Please check all fields and try again.");
       // Server names the bad city: return to the step with that field and mark it.
       const lower = msg.toLowerCase();
       const bad = {};
@@ -500,6 +613,19 @@ export default function ShipperPostLoad() {
     </>
   );
 
+  if (isEdit && (editLoading || editBlock)) {
+    return (
+      <Paper sx={{ p: 4, maxWidth: 880, mx: "auto", textAlign: "center" }}>
+        {editLoading ? <CircularProgress /> : (
+          <>
+            <Alert severity="warning" sx={{ mb: 2, textAlign: "left" }}>{editBlock}</Alert>
+            <Button variant="contained" onClick={() => navigate('/dashboard/shipper/loads')}>Back to my loads</Button>
+          </>
+        )}
+      </Paper>
+    );
+  }
+
   return (
     <Paper
       sx={{
@@ -532,12 +658,17 @@ export default function ShipperPostLoad() {
         }
       }}
     >
-      <DraftResumeDialog open={showResumeDialog && hasDraft} draft={draftData} onResume={resumeDraft} onDiscard={discardDraft} />
+      {!isEdit && <DraftResumeDialog open={showResumeDialog && hasDraft} draft={draftData} onResume={resumeDraft} onDiscard={discardDraft} />}
 
-      <Typography variant="h4" fontWeight={900} color="#fff" mb={4} align="center" letterSpacing={1.4}
+      <Typography variant="h4" fontWeight={900} color="#fff" mb={isEdit ? 2 : 4} align="center" letterSpacing={1.4}
         sx={{ textShadow: "0 2px 16px #6a1fcf66" }}>
-        Post a New Load
+        {isEdit ? 'Edit load' : 'Post a New Load'}
       </Typography>
+      {isEdit && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Changing the route, rate, equipment, weight, dates, stops or commodity withdraws any open bids; those carriers are told to review the new terms and bid again.
+        </Alert>
+      )}
 
       {/* ── Wizard progress ─────────────────────────────────────────────── */}
       <Stepper
@@ -1338,7 +1469,7 @@ export default function ShipperPostLoad() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* 8. NOTES & ATTACHMENTS                                             */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        <SectionHeader icon={<AssignmentOutlinedIcon fontSize="large" sx={{ color: "#fff" }} />} label="Notes & Attachments (Optional)" />
+        <SectionHeader icon={<AssignmentOutlinedIcon fontSize="large" sx={{ color: "#fff" }} />} label="Notes (Optional)" />
         <TextField
           label="Additional Notes"
           fullWidth
@@ -1350,47 +1481,6 @@ export default function ShipperPostLoad() {
           sx={{ mb: 2 }}
           helperText={`Optional. ${newLoad.notes.length}/${limits.notes}`}
         />
-        <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Grid item xs={12} sm={4}>
-            <Typography color="#eee" fontSize="0.97em">Cargo Photos (.jpg, .png, .pdf)</Typography>
-            <input type="file" accept=".jpg,.jpeg,.png,.pdf" multiple
-              onChange={e => handleFileChange("cargoPhotos", e.target.files)}
-              style={{ color: "#fff", marginBottom: 12 }} />
-            {uploadNames.cargoPhotos.length > 0 && (
-              <Box>
-                {uploadNames.cargoPhotos.map((name, idx) => (
-                  <Chip key={idx} label={name} size="small" sx={{ mr: 1, mb: 1, bgcolor: "#4527a0", color: "#fff" }} />
-                ))}
-              </Box>
-            )}
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Typography color="#eee" fontSize="0.97em">Rate Confirmation (.pdf)</Typography>
-            <input type="file" accept=".pdf" multiple
-              onChange={e => handleFileChange("rateConfirmationUpload", e.target.files)}
-              style={{ color: "#fff", marginBottom: 12 }} />
-            {uploadNames.rateConfirmationUpload.length > 0 && (
-              <Box>
-                {uploadNames.rateConfirmationUpload.map((name, idx) => (
-                  <Chip key={idx} label={name} size="small" sx={{ mr: 1, mb: 1, bgcolor: "#6347a0", color: "#fff" }} />
-                ))}
-              </Box>
-            )}
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Typography color="#eee" fontSize="0.97em">Customs Docs (.pdf)</Typography>
-            <input type="file" accept=".pdf" multiple
-              onChange={e => handleFileChange("customsDocsUpload", e.target.files)}
-              style={{ color: "#fff", marginBottom: 12 }} />
-            {uploadNames.customsDocsUpload.length > 0 && (
-              <Box>
-                {uploadNames.customsDocsUpload.map((name, idx) => (
-                  <Chip key={idx} label={name} size="small" sx={{ mr: 1, mb: 1, bgcolor: "#8b59f7", color: "#fff" }} />
-                ))}
-              </Box>
-            )}
-          </Grid>
-        </Grid>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* 9. ADVANCED / ENTERPRISE FIELDS                                    */}
@@ -1532,6 +1622,7 @@ export default function ShipperPostLoad() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* 10. TERMS & SUBMIT                                                 */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
+        {!isEdit && (
         <FormControlLabel
           control={
             <Switch
@@ -1544,7 +1635,8 @@ export default function ShipperPostLoad() {
           label="I agree to platform Terms & Conditions"
           sx={{ color: "#fff", mb: 2 }}
         />
-        {fieldErrors.termsAccepted && (
+        )}
+        {!isEdit && fieldErrors.termsAccepted && (
           <Typography color="error" fontSize="0.9em">You must accept Terms & Conditions</Typography>
         )}
         </Box>
@@ -1622,7 +1714,7 @@ export default function ShipperPostLoad() {
                 }
               }}
             >
-              {submitting ? 'Posting…' : 'Post Load'}
+              {isEdit ? (submitting ? 'Saving…' : 'Save changes') : (submitting ? 'Posting…' : 'Post Load')}
             </Button>
           )}
         </Box>

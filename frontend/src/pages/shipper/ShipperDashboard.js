@@ -30,6 +30,7 @@ import api from '../../services/api';
 
 // Utility to highlight nav based on route:
 const sectionFromPath = (pathname) => {
+  if (/\/loads\/[^/]+\/edit$/.test(pathname)) return 'loads'; // before the '/edi' check below, which '/edit' would match
   if (pathname.includes('/import-loads')) return 'import-loads';
   if (pathname.includes('/post-load')) return 'post-load';
   if (pathname.includes('/contracts')) return 'contracts';

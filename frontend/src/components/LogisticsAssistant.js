@@ -88,7 +88,7 @@ const LogisticsAssistant = ({ onLoadAccepted }) => {
     if (!selectedLoad) return;
 
     try {
-      await api.put(`/loads/${selectedLoad._id}/accept`, {}, {
+      await api.put(`/loads/${selectedLoad._id}/accept`, { termsVersion: selectedLoad.termsVersion ?? 1 }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       speakMessage("Load accepted successfully. Do you want to close the assistant?");

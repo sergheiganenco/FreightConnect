@@ -508,12 +508,13 @@ describe('window validation on load-creating routes; no route but the dedicated 
     expect(rev.status).toBe(400);
   });
 
-  test('there is no generic load update route: PUT/PATCH /api/loads/:id cannot move a booked load window', async () => {
+  // PUT /api/loads/:id now exists (shipper edits an OPEN load, see loadEdit.test.js); on a booked load it refuses (409).
+  test('PUT/PATCH /api/loads/:id cannot move a booked load window', async () => {
     const load = await createTestLoad(shipper._id, { pickupTimeWindow: { start: at(300), end: at(400) } });
     await Load.findOneAndUpdate({ _id: load._id, status: 'open' }, { $set: { status: 'accepted', acceptedBy: carrier._id } });
     for (const m of ['put', 'patch']) {
       const res = await request(app)[m](`/api/loads/${load._id}`).set(bearer(shipper)).send({ pickupTimeWindow: { start: at(1).toISOString(), end: at(2).toISOString() } });
-      expect([404, 405]).toContain(res.status);
+      expect(m === 'put' ? [409] : [404, 405]).toContain(res.status);
     }
     const fresh = await Load.findById(load._id);
     expect(fresh.pickupTimeWindow.end.getTime()).toBe(load.pickupTimeWindow.end.getTime());

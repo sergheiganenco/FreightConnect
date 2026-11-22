@@ -102,9 +102,9 @@ export default function LoadBoardScreen() {
     fetchLoads();
   };
 
-  const acceptLoad = async (loadId) => {
+  const acceptLoad = async (loadId, termsVersion) => {
     try {
-      await api.put(`/loads/${loadId}/accept`);
+      await api.put(`/loads/${loadId}/accept`, { termsVersion: termsVersion ?? 1 });
       Alert.alert('Success', 'Load accepted!');
       fetchLoads();
     } catch (err) {
@@ -166,7 +166,7 @@ export default function LoadBoardScreen() {
           onPress={() => {
             Alert.alert('Accept Load', `Accept "${item.title}" at $${item.rate}?`, [
               { text: 'Cancel', style: 'cancel' },
-              { text: 'Accept', onPress: () => acceptLoad(item._id) },
+              { text: 'Accept', onPress: () => acceptLoad(item._id, item.termsVersion) },
             ]);
           }}
         >

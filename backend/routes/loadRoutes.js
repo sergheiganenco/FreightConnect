@@ -24,7 +24,9 @@ module.exports = (io) => {
   const { refreshLoad, messages: pickupRiskMessages, noShowSnapshot, fileNoShowReview } = require('../jobs/pickupRiskMonitor');
   const { estimateEconomics } = require('../utils/loadEconomics');
   const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
-  const { createPostedLoad } = require('../services/loadPostingService');
+  const { createPostedLoad, updatePostedLoad } = require('../services/loadPostingService');
+
+  const TERMS_CHANGED = { error: 'This load was changed by the shipper. Review the new details before accepting.', code: 'TERMS_CHANGED' };
 
   // ── Authorization helpers ──────────────────────────────────────────────────
   // The company (owner id) that the acting account belongs to. Sub-accounts
@@ -474,7 +476,15 @@ const createLoadValidation = [
   body("requireDeliveryPhotos").optional().isBoolean().withMessage("requireDeliveryPhotos must be a boolean"),
 ];
 
-router.post('/', auth, createLoadValidation, validate, async (req, res) => {
+// The posting form can send multipart FormData. Nothing parsed multipart on this route, so req.body was empty and the post
+// failed with a misleading "Title must be text". Text fields are parsed now (JSON-string fields are handled below); files
+// are not stored by this endpoint, so a file part is refused outright instead of being silently dropped.
+const multipartText = (req, res, next) => require('multer')({ storage: require('multer').memoryStorage() }).none()(req, res, (err) => {
+  if (!err) return next();
+  res.status(400).json({ error: err.code === 'LIMIT_UNEXPECTED_FILE' ? 'File attachments are not supported when posting a load.' : 'The form data could not be read.' });
+});
+
+router.post('/', auth, multipartText, createLoadValidation, validate, async (req, res) => {
   try {
     // Verification lives on the company owner, so a shipper sub-account is checked against the company.
     const companyId = req.user.companyOwnerId || req.user.userId;
@@ -561,12 +571,25 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     } = req.body;
 
     // ---------- build & save ---------
-    // Parse array fields that may arrive as JSON strings (FormData uploads)
-    const parseArr = (v) => {
+    // Structured fields (stops, option lists) arrive as JSON strings when the form is sent as multipart FormData.
+    // Parse them here; malformed JSON is a 400, not a silently dropped field.
+    const parseArr = (v, name) => {
       if (Array.isArray(v)) return v;
-      if (typeof v === 'string' && v.startsWith('[')) try { return JSON.parse(v); } catch { /* ignore */ }
+      if (typeof v === 'string' && v.startsWith('[')) {
+        try { return JSON.parse(v); } catch { throw Object.assign(new Error(`${name} is not valid JSON.`), { badRequest: true }); }
+      }
       return undefined;
     };
+    let stopsList, specialHandlingList, accessorialsList, documentsRequiredList;
+    try {
+      stopsList = parseArr(rawStops, 'stops');
+      specialHandlingList = parseArr(specialHandling, 'specialHandling');
+      accessorialsList = parseArr(accessorials, 'accessorials');
+      documentsRequiredList = parseArr(documentsRequired, 'documentsRequired');
+    } catch (e) {
+      if (e.badRequest) return res.status(400).json({ error: e.message });
+      throw e;
+    }
 
     const fields = {
       title,
@@ -601,8 +624,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       dangerousGoodsUN: (hazardousMaterial === true || hazardousMaterial === 'true') ? dangerousGoodsUN : undefined,
 
       // Enterprise fields
-      specialHandling: parseArr(specialHandling),
-      accessorials: parseArr(accessorials),
+      specialHandling: specialHandlingList,
+      accessorials: accessorialsList,
       insuranceRequired: insuranceRequired ? Number(insuranceRequired) : undefined,
       cargoValue: cargoValue ? Number(cargoValue) : undefined,
       paymentTerms: paymentTerms || undefined,
@@ -612,7 +635,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       expirationDateTime: expirationDateTime ? new Date(expirationDateTime) : undefined,
       notes: notes || undefined,
       carrierInstructions: carrierInstructions || undefined,
-      documentsRequired: parseArr(documentsRequired),
+      documentsRequired: documentsRequiredList,
 
       // Reference numbers
       poNumber: poNumber || undefined,
@@ -655,9 +678,9 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         : undefined,
     };
 
-    if (Array.isArray(rawStops) && rawStops.length > 0) {
+    if (Array.isArray(stopsList) && stopsList.length > 0) {
       // slice: one past the service's 20-stop cap is enough for it to refuse an oversized list; null entries become empty stops.
-      fields.stops = rawStops.slice(0, 21).map((s, i) => (s = s || {}, {
+      fields.stops = stopsList.slice(0, 21).map((s, i) => (s = s || {}, {
         sequence: s.sequence ?? i + 1,
         type: s.type || 'delivery',
         address: s.address,
@@ -678,6 +701,23 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     res.status(500).json({ error: 'Failed to post load.' });
   }
 });
+
+  // ----------------------------------------
+  // PUT /api/loads/:id — the posting shipper company edits its OPEN load (JSON body, partial: only the fields sent change).
+  // Same gate/bounds/windows/geocode as posting; a material change bumps termsVersion and voids open bids (see updatePostedLoad).
+  // ----------------------------------------
+  router.put('/:id', auth, param('id').isMongoId(), validate, async (req, res) => {
+    try {
+      if (req.user.role !== 'shipper') return res.status(403).json({ error: 'Only shippers can edit loads.' });
+      const r = await updatePostedLoad({ loadId: req.params.id, shipperCompanyId: companyOf(req), fields: req.body, io });
+      if (!r.load) return res.status(r.status).json({ error: r.error, ...r.extra });
+      const { load, ...flags } = r;
+      res.json({ ...load.toObject(), needsLocation: flags.needsLocation || undefined, materialChange: flags.materialChange, voidedBids: flags.voidedBids });
+    } catch (err) {
+      console.error('[PUT /loads/:id] failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
 
   // ----------------------------------------
   // GET /api/loads/:id/schedule-check — Pre-accept schedule conflict check
@@ -716,6 +756,15 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       // First-look: a non-preferred carrier cannot book a preferred load early.
       if (!(await carrierCanSeeLoad(loadToCheck, companyId))) {
         return res.status(404).json({ error: "Load not found" });
+      }
+
+      // Anti bait-and-switch: a carrier that sends the termsVersion it was looking at is only booked on those terms.
+      // (Loads from before the field existed are version 1.) The same condition is in the atomic update below.
+      let seenVersion = null;
+      if (req.body?.termsVersion != null) {
+        seenVersion = Number(req.body.termsVersion);
+        if (!Number.isInteger(seenVersion) || seenVersion < 1) return res.status(400).json({ error: 'termsVersion must be a positive integer' });
+        if (loadToCheck.status === 'open' && seenVersion !== (loadToCheck.termsVersion || 1)) return res.status(409).json(TERMS_CHANGED);
       }
 
       // Coordinates are required for routing/rate-con/tracking. Check BEFORE booking
@@ -779,15 +828,16 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       if (fraudResult.riskFlags && fraudResult.riskFlags.length > 0) {
         acceptUpdate.riskFlags = fraudResult.riskFlags;
       }
-      const load = await Load.findOneAndUpdate(
-        { _id: req.params.id, status: "open", acceptedBy: null },
-        { $set: acceptUpdate },
-        { new: true }
-      );
+      const acceptFilter = { _id: req.params.id, status: "open", acceptedBy: null };
+      if (seenVersion != null) acceptFilter.termsVersion = seenVersion === 1 ? { $in: [1, null] } : seenVersion;
+      const load = await Load.findOneAndUpdate(acceptFilter, { $set: acceptUpdate }, { new: true });
 
       if (!load) {
         const exists = await Load.findById(req.params.id);
         if (!exists) return res.status(404).json({ error: "Load not found" });
+        if (seenVersion != null && exists.status === 'open' && !exists.acceptedBy && seenVersion !== (exists.termsVersion || 1)) {
+          return res.status(409).json(TERMS_CHANGED);
+        }
         return res.status(409).json({ error: "Load is no longer available — already accepted by another carrier" });
       }
 

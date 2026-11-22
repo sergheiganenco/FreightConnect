@@ -84,6 +84,15 @@ export default function LoadCard({ load, onClick }) {
           />
         )}
 
+        {/* Hidden from carriers until its places are found: the details dialog has the "Fix location" action */}
+        {load.status === 'open' && load.locationProblem?.field && (
+          <Chip
+            label="Location not found"
+            size="small"
+            sx={{ mb: 0.5, mr: 0.5, bgcolor: 'rgba(251,191,36,0.15)', color: '#fbbf24', fontWeight: 700, fontSize: '0.75rem', border: '1px solid rgba(251,191,36,0.4)' }}
+          />
+        )}
+
         <PickupRiskChip load={load} />
 
         {/* Overweight badge */}

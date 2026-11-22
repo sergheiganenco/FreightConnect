@@ -136,6 +136,7 @@ function App() {
           <Route path="/dashboard/shipper" element={<RoleRoute role="shipper"><ChatProvider><ShipperDashboard /></ChatProvider></RoleRoute>}>
             <Route path="loads" element={<ShipperLoadBoardSection />} />
             <Route path="post-load" element={<ShipperPostLoad />} />
+            <Route path="loads/:id/edit" element={<ShipperPostLoad />} />
             <Route path="import-loads" element={<ShipperImportLoads />} />
             <Route path="documents" element={<ShipperDocuments />} />
             <Route path="analytics" element={<ShipperAnalytics />} />

@@ -61,7 +61,7 @@ describe('loadLocator job', () => {
     const notes = await Notification.find({ userId: shipper._id, type: 'load:location_problem' });
     expect(notes).toHaveLength(1);
     expect(notes[0].body).toMatch(/couldn't find the pickup location "Nowhereville, ZZ" for load "Typo"/);
-    expect(notes[0].body).toMatch(/cancel it and re-post/i);
+    expect(notes[0].body).toMatch(/edit the load and correct the location/i);
     expect(fetch).toHaveBeenCalledTimes(1); // the second run did not look it up again
   });
 

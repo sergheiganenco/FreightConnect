@@ -9,8 +9,8 @@
  *
  * - found: coordinates set with a targeted updateOne guarded on status 'open' and the coordinate still missing.
  * - not found (geocoder answered, no match / refused the query string): Load.locationProblem is set (so it is not retried)
- *   and the shipper is notified once. A shipper cannot edit origin/destination on an open load, so the message says cancel
- *   and re-post. Safety valve: if MORE than half of the loads attempted in one run (and at least 3) come back not found, the
+ *   and the shipper is notified once. The message tells the shipper to edit the load (PUT /loads/:id re-resolves the place
+ *   and clears the flag). Safety valve: if MORE than half of the loads attempted in one run (and at least 3) come back not found, the
  *   run is suspect (a geocoder that started refusing everything): nothing is marked, each counts as a failed attempt with
  *   backoff, and one warning is logged; they can be marked on a later run when the pattern is not systemic.
  * - outage (401/403/408/429/5xx/network, anything that is not about the query string): the attempt is counted and the load backs off min(10 min x 2^attempts, 6 h); after 8 failed
@@ -46,7 +46,8 @@ async function flagProblem(load, field, reason, stats) {
   await notifyUserSafe(load.postedBy, {
     type: 'load:location_problem',
     title: 'We could not find a load location',
-    body: `We couldn't find the ${label} location "${place}" for load "${load.title}". Carriers can't see this load until it is corrected. Cancel it and re-post it with the location as City, ST.`,
+    body: `We couldn't find the ${label} location "${place}" for load "${load.title}". Carriers can't see this load until it is corrected. Edit the load and correct the location as City, ST.`,
+    // The shipper fixes it from the load's Edit screen (PUT /loads/:id), which clears this flag and looks the place up again.
     link: '/dashboard/shipper/loads', metadata: { loadId: String(load._id), field },
   });
   stats.notFound++;
@@ -108,7 +109,8 @@ async function locateOne(load, budget, stats) {
   }
   if (!Object.keys(set).length) { await recordFailure(load, failedField || 'origin', stats); return 'retry'; }
   Object.assign(set, { locationAttempts: 0, locationNextAttemptAt: null });
-  const w = await Load.updateOne({ _id: load._id, status: 'open', ...guard }, { $set: set });
+  // origin/destination in the filter: if the shipper edited the place while we were looking it up, these coordinates are stale.
+  const w = await Load.updateOne({ _id: load._id, status: 'open', origin: load.origin, destination: load.destination, ...guard }, { $set: set });
   if (!w.modifiedCount) return 'skipped';
   const full = { ...load, ...set };
   if (['originLat', 'originLng', 'destinationLat', 'destinationLng'].every((k) => isNum(full[k]))) {

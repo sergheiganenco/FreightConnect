@@ -339,4 +339,191 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
   }
 }
 
-module.exports = { createPostedLoad, shipperPostingGate, makeGeocodeBudget, geocode, POSTABLE_FIELDS, MAX_UNLOCATED_PER_COMPANY, _spacing: spacing };
+// ── Editing an OPEN load ─────────────────────────────────────────────────────────────────────────────────────────
+// What a shipper may change after posting: the postable fields minus provenance (source / contract / external ref),
+// plus the windows, stops and requirement flags. Anything else in the body is ignored.
+const EDIT_EXCLUDED = ['source', 'contractId', 'isContractLoad', 'externalRef'];
+const EDITABLE_FIELDS = POSTABLE_FIELDS.filter((k) => !EDIT_EXCLUDED.includes(k));
+const WINDOW_FIELDS = ['pickupTimeWindow', 'deliveryTimeWindow'];
+const BOOLEAN_FIELDS = ['hazardousMaterial', 'allowCarrierBidding', 'overweightAcknowledged'];
+// A change to any of these alters what a carrier priced or planned the load on: it bumps termsVersion and voids open bids.
+const MATERIAL_FIELDS = [
+  'origin', 'destination', 'rate', 'equipmentType', 'loadWeight', 'loadDimensions',
+  'hazardousMaterial', 'hazmatClass', 'hazmatPackingGroup', 'dangerousGoodsUN',
+  'pickupTimeWindow', 'deliveryTimeWindow', 'stops', 'reefer', 'commodityType',
+];
+const REQUIRED_FIELDS = ['title', 'origin', 'destination', 'rate', 'equipmentType'];
+const NOT_EDITABLE = { status: 409, error: 'This load can no longer be edited' };
+const sidesOf = [
+  { key: 'origin', label: 'pickup', lat: 'originLat', lng: 'originLng' },
+  { key: 'destination', label: 'delivery', lat: 'destinationLat', lng: 'destinationLng' },
+];
+const versionIs = (v) => (v === 1 ? { $in: [1, null] } : v); // a load from before the field existed counts as version 1
+
+// Stable form of a value for "did it change": dates by time, empty/undefined dropped, stop bookkeeping ignored.
+function canon(v) {
+  if (v instanceof Date) return v.getTime();
+  if (Array.isArray(v)) return v.map(canon);
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v).sort()) {
+      if (['_id', 'status', 'arrivedAt', 'departedAt', 'lat', 'lng', 'sequence'].includes(k) && 'address' in v) continue; // stop bookkeeping
+      const c = canon(v[k]);
+      if (c !== undefined && c !== null && c !== '') o[k] = c;
+    }
+    return o;
+  }
+  return v === '' ? undefined : v;
+}
+const sameValue = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+
+/**
+ * Edit an OPEN load the shipper company owns. Same bar as posting (gate, field bounds, windows, geocode), one atomic
+ * conditional write (a concurrent accept wins cleanly), and a material change bumps termsVersion and voids open bids.
+ * Never throws for expected problems: returns { load, needsLocation, materialChange, voidedBids } or { status, error }.
+ */
+async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
+  try {
+    const blocked = await shipperPostingGate(shipperCompanyId, { requirePaymentMethod: false });
+    if (blocked) return blocked;
+
+    const cur = await Load.findOne({ _id: loadId, postedBy: shipperCompanyId });
+    if (!cur) return { status: 404, error: 'Load not found' };
+    if (cur.status !== 'open') return NOT_EDITABLE;
+
+    fields = fields && typeof fields === 'object' && !Array.isArray(fields) ? fields : {};
+    const raw = {};
+    for (const k of EDITABLE_FIELDS) if (fields[k] !== undefined) raw[k] = typeof fields[k] === 'string' ? fields[k].trim() : fields[k];
+    for (const k of BOOLEAN_FIELDS) if (raw[k] != null && typeof raw[k] !== 'boolean') return { status: 400, error: `${k} must be true or false.` };
+    if (fields.stops !== undefined) raw.stops = fields.stops === null ? [] : fields.stops;
+    // Hazmat details only mean something on a hazmat load (the posting form drops them the same way).
+    if (raw.hazardousMaterial === false) Object.assign(raw, { hazmatClass: null, hazmatPackingGroup: null, dangerousGoodsUN: null });
+    for (const k of REQUIRED_FIELDS) if (raw[k] !== undefined && !raw[k]) return { status: 400, error: `${k} is required.` };
+
+    // Validate what changes, plus the two places (always required text).
+    const bad = badFieldMessage({ origin: cur.origin, destination: cur.destination, ...raw });
+    if (bad) return { status: 400, error: bad };
+    if (raw.rate !== undefined && !(toNum(raw.rate) > 0)) return { status: 400, error: 'Rate must be a positive number.' };
+    if ((cur.contractId || cur.isContractLoad) && raw.rate !== undefined && toNum(raw.rate) !== cur.rate) {
+      return { status: 400, error: 'The rate of a contract load is set by the contract.' };
+    }
+
+    // Time windows: same strict parse as posting. An empty window clears it.
+    for (const k of WINDOW_FIELDS) {
+      if (fields[k] === undefined) continue;
+      try { raw[k] = parseWindow(fields[k], k) ?? null; } catch (e) { return { status: 400, error: e.message }; }
+    }
+
+    // Requirement flags only (never a code or stored evidence); a flag changes only when it is sent.
+    const set = {};
+    if (fields.pickupVerification && fields.pickupVerification.required !== undefined) set['pickupVerification.required'] = fields.pickupVerification.required === true;
+    for (const k of ['pickup', 'delivery']) {
+      if (fields.evidenceRequired && fields.evidenceRequired[k] !== undefined) set[`evidenceRequired.${k}`] = fields.evidenceRequired[k] === true;
+    }
+    if (Array.isArray(raw.stops)) raw.stops = postableFields({ stops: raw.stops }).stops;
+    else if (raw.stops !== undefined) return { status: 400, error: 'stops must be a list.' };
+
+    // Cast through the schema once: yields the exact stored values, flags bad types/enums/lengths, and lets us compare like with like.
+    const unset = {};
+    const toSet = {};
+    for (const [k, v] of Object.entries(raw)) (v === null || v === '' ? unset : toSet)[k] = v;
+    const probe = new Load(toSet);
+    const invalid = probe.validateSync(Object.keys(toSet));
+    if (invalid) return { status: 400, error: invalid.message };
+    const casted = probe.toObject();
+    for (const k of Object.keys(toSet)) set[k] = casted[k];
+    for (const k of Object.keys(unset)) unset[k] = 1;
+    if (set.rate !== undefined) set.rateCents = Math.round(set.rate * 100);
+
+    const before = cur.toObject();
+    const changed = (k) => (k in set ? !sameValue(before[k], set[k]) : k in unset ? !sameValue(before[k], undefined) : false);
+    const materialChange = MATERIAL_FIELDS.some(changed);
+
+    // Location: a side is re-resolved when its text changed, coordinates were supplied (as posting accepts them), or it
+    // was flagged as not found. Not found / outage leaves the side unlocated for the locator job, and hides the load.
+    const budget = makeGeocodeBudget();
+    const finalC = {};
+    let geoDirty = changed('stops');
+    for (const s of sidesOf) {
+      const supplied = fields[s.lat] && fields[s.lng];
+      const dirty = changed(s.key) || supplied || cur.locationProblem?.field === s.key;
+      finalC[s.key] = { lat: cur[s.lat], lng: cur[s.lng] };
+      if (!dirty) continue;
+      geoDirty = true;
+      const c = supplied ? { lat: Number(fields[s.lat]), lng: Number(fields[s.lng]) } : (await geocode(set[s.key] ?? cur[s.key], budget)) || {};
+      if (hasCoords(c)) { set[s.lat] = c.lat; set[s.lng] = c.lng; finalC[s.key] = c; } else { unset[s.lat] = 1; unset[s.lng] = 1; finalC[s.key] = {}; }
+      Object.assign(set, { locationAttempts: 0, locationNextAttemptAt: null });
+      unset.locationProblem = 1;
+    }
+    const locatedAfter = hasCoords(finalC.origin) && hasCoords(finalC.destination);
+    const locatedBefore = hasCoords({ lat: cur.originLat, lng: cur.originLng }) && hasCoords({ lat: cur.destinationLat, lng: cur.destinationLng });
+    if (!locatedAfter && locatedBefore) {
+      const waiting = await Load.countDocuments({ postedBy: shipperCompanyId, status: 'open', _id: { $ne: cur._id }, $or: UNLOCATED }, { limit: MAX_UNLOCATED_PER_COMPANY });
+      if (waiting >= MAX_UNLOCATED_PER_COMPANY) {
+        return { status: 429, error: `You already have ${MAX_UNLOCATED_PER_COMPANY} open loads waiting for a location lookup. Cancel loads whose locations were not recognised, or wait for the pending ones to be located, then try again.` };
+      }
+    }
+    if (geoDirty) {
+      const d = locatedAfter
+        ? await loadDistanceFields({ originLat: finalC.origin.lat, originLng: finalC.origin.lng, destinationLat: finalC.destination.lat, destinationLng: finalC.destination.lng, stops: set.stops ?? (unset.stops ? [] : before.stops) })
+        : { distanceMiles: null, distanceSource: null };
+      Object.assign(set, d);
+    }
+    for (const k of Object.keys(set)) delete unset[k]; // a path is either set or unset
+
+    const nextVersion = (cur.termsVersion || 1) + 1;
+    if (materialChange) set.termsVersion = nextVersion;
+    const upd = { $set: set };
+    if (Object.keys(unset).length) upd.$unset = unset;
+    if (!Object.keys(set).length && !upd.$unset) return { load: cur, needsLocation: !locatedBefore, materialChange: false, voidedBids: 0 };
+
+    // ONE conditional write: still ours, still open (a concurrent accept makes this match nothing), and for a version bump
+    // still on the version we read (two concurrent edits cannot both claim the same next version).
+    const filter = { _id: cur._id, postedBy: shipperCompanyId, status: 'open' };
+    if (materialChange) filter.termsVersion = versionIs(cur.termsVersion || 1);
+    const updated = await Load.findOneAndUpdate(filter, upd, { new: true });
+    if (!updated) {
+      const again = await Load.findOne({ _id: cur._id, postedBy: shipperCompanyId }).select('status');
+      if (again && again.status === 'open') return { status: 409, error: 'This load was just changed. Reload it and try again.' };
+      return again ? NOT_EDITABLE : { status: 404, error: 'Load not found' };
+    }
+
+    let voidedBids = 0;
+    if (materialChange) voidedBids = await voidBidsAfterChange(updated);
+    try { io.to(`user_${shipperCompanyId}`).emit('load:updated', { loadId: String(updated._id), termsVersion: updated.termsVersion }); } catch (_) { /* owner room only: the load may be private */ }
+    return { load: updated, needsLocation: !locatedAfter, materialChange, voidedBids };
+  } catch (err) {
+    if (err.name === 'ValidationError' || err.name === 'CastError') return { status: 400, error: err.message };
+    console.error('Error updating load:', err);
+    return { status: 500, error: 'Failed to update load.' };
+  }
+}
+
+// The terms changed under open bids: reject them and tell each carrier company to look again.
+async function voidBidsAfterChange(load) {
+  try {
+    const Bid = require('../models/Bid');
+    const live = { loadId: load._id, status: { $in: ['pending', 'countered'] } };
+    const bids = await Bid.find(live).select('carrierId').lean();
+    if (!bids.length) return 0;
+    await Bid.updateMany({ _id: { $in: bids.map((b) => b._id) }, status: { $in: ['pending', 'countered'] } }, {
+      $set: { status: 'rejected' },
+      $push: { history: { actor: 'shipper', action: 'rejected', note: 'Load terms changed' } },
+    });
+    for (const carrierId of new Set(bids.map((b) => String(b.carrierId)))) {
+      await notifyUserSafe(carrierId, {
+        type: 'bid:voided',
+        title: 'Load terms changed',
+        body: `The shipper changed "${load.title}". Your bid was withdrawn: review the new details and bid again.`,
+        link: '/dashboard/carrier/loads',
+        metadata: { loadId: String(load._id), termsVersion: load.termsVersion },
+      });
+    }
+    return bids.length;
+  } catch (err) {
+    console.error('[updatePostedLoad] voiding bids failed:', err.message);
+    return 0;
+  }
+}
+
+module.exports = { createPostedLoad, updatePostedLoad, shipperPostingGate, makeGeocodeBudget, geocode, POSTABLE_FIELDS, MAX_UNLOCATED_PER_COMPANY, _spacing: spacing };

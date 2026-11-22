@@ -17,6 +17,8 @@ import LockIcon from '@mui/icons-material/Lock';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import StarIcon from '@mui/icons-material/Star';
+import EditIcon from '@mui/icons-material/Edit';
+import { useNavigate } from 'react-router-dom';
 import RatingDialog from './RatingDialog';
 import FundEscrowDialog from './FundEscrowDialog';
 import api from '../services/api';
@@ -83,6 +85,7 @@ const TRUCK_ICON = new L.Icon({
 });
 
 export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted, notice, noticeFocus }) {
+  const navigate = useNavigate();
   const [loadState, setLoadState] = useState(load);
   const [route, setRoute] = useState([]);
   const [distance, setDistance] = useState(null);
@@ -371,6 +374,11 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const isOwner = userRole === 'shipper';
   const isCarrier = userRole === 'carrier';
   const isOpen = loadState.status === 'open';
+  // A load without coordinates (or one the locator job gave up on) is hidden from carriers until its places are corrected.
+  const hasCoord = (v) => typeof v === 'number' && Number.isFinite(v);
+  const unlocated = !!loadState.locationProblem?.field
+    || !(hasCoord(loadState.originLat) && hasCoord(loadState.originLng) && hasCoord(loadState.destinationLat) && hasCoord(loadState.destinationLng));
+  const editLoad = () => navigate(`/dashboard/shipper/loads/${loadState._id}/edit`);
 
   // ── Operational: load this carrier's accepted load? ─────────────
   const isAssignedLoad = ['accepted', 'in-transit', 'delivered'].includes(loadState.status);
@@ -584,12 +592,21 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
     setError('');
     setAccepting(true);
     try {
-      await api.put(`/loads/${loadState._id}/accept`, {});
+      // The version of the terms this carrier is looking at: if the shipper changed the load meanwhile, the server refuses.
+      await api.put(`/loads/${loadState._id}/accept`, { termsVersion: loadState.termsVersion ?? 1 });
       setLoadState((prev) => ({ ...prev, status: 'accepted' }));
       setOk('Load accepted!');
       onLoadAccepted?.(loadState._id);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not accept load.');
+      if (err.response?.data?.code === 'TERMS_CHANGED') {
+        // Show the new terms so the carrier can review them (and bid / accept again).
+        try {
+          const { data } = await api.get(`/loads/${loadState._id}`);
+          setLoadState((prev) => ({ ...prev, ...data }));
+          if (data.stops) setStops(data.stops);
+        } catch { /* the message above already tells them to review */ }
+      }
     } finally {
       setAccepting(false);
     }
@@ -679,6 +696,15 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
         {notice && <Alert severity="warning" sx={{ mb: 2 }}>{notice}</Alert>}
         {releaseNote && <Alert severity="success" onClose={() => setReleaseNote('')} sx={{ mb: 2 }}>{releaseNote}</Alert>}
+        {isOwner && isOpen && unlocated && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2 }}
+            action={<Button color="inherit" size="small" onClick={editLoad}>Fix location</Button>}
+          >
+            We couldn&apos;t find {loadState.locationProblem?.place ? `"${loadState.locationProblem.place}"` : 'one of this load\'s locations'} — carriers can&apos;t see this load yet.
+          </Alert>
+        )}
 
         {/* Header */}
         <Box display="flex" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1} mb={2}>
@@ -1842,6 +1868,11 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
               {loadState.status === 'delivered' && (
                 <Button variant="outlined" color="secondary" onClick={() => setRatingOpen(true)} startIcon={<StarIcon />} sx={{ mr: 2, borderRadius: 9999, textTransform: 'none' }}>
                   Rate {userRole === 'carrier' ? 'Shipper' : 'Carrier'}
+                </Button>
+              )}
+              {isOwner && isOpen && (
+                <Button variant="contained" onClick={editLoad} startIcon={<EditIcon />} sx={{ mr: 2, borderRadius: 9999, fontWeight: 700, textTransform: 'none', bgcolor: brand.indigo, '&:hover': { bgcolor: '#5558e6' } }}>
+                  Edit
                 </Button>
               )}
               <Button variant="outlined" onClick={onClose} sx={{ borderRadius: 9999, textTransform: 'none', borderColor: surface.glassBorder, color: T.primary, '&:hover': { borderColor: T.muted, bgcolor: surface.glassSubtle } }}>Close</Button>
