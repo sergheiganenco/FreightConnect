@@ -48,10 +48,10 @@ class DispatchAgent extends Agent {
     for (const load of loads) {
       try {
         // 3. Find verified carriers with matching equipment
-        const carriers = await User.find({
+        const carriers = await require('../services/loadVisibility').filterCarriersWhoCanSee(load, await User.find({
           role: 'carrier',
           'verification.status': 'verified',
-        }).lean();
+        }).lean());
 
         // 4. Score and filter
         const scored = carriers

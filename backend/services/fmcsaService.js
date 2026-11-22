@@ -193,13 +193,29 @@ async function runFullVerification(user, mcNumber, dotNumber) {
       return { success: false, error: 'No FMCSA record found for provided MC/DOT number' };
     }
 
-    const isAuthorized = verifyAuthority(fmcsaData);
-
     user.verification = user.verification || {};
+
+    // The record FMCSA returned must be for the number the user submitted: a lookup
+    // that resolves to a different DOT/MC must not verify this account.
+    const digits = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+/, '');
+    const mismatch = (submitted, returned) => digits(submitted) && digits(returned) && digits(submitted) !== digits(returned);
+    if (mismatch(dotNumber, fmcsaData.dotNumber) || mismatch(mcNumber, fmcsaData.mcNumber)) {
+      user.verification.status = 'rejected';
+      user.verification.fmcsaData = { lastChecked: new Date() }; // nothing confirmed
+      await user.save();
+      return { success: false, error: 'Submitted MC/DOT number does not match the FMCSA record' };
+    }
+
+    const isAuthorized = verifyAuthority(fmcsaData);
+    const prevDot = user.verification.fmcsaData?.dotNumber;
+    if (prevDot && digits(prevDot) !== digits(fmcsaData.dotNumber)) user.verification.identityVerified = false; // different company now
     user.verification.mcNumber = mcNumber || user.verification.mcNumber;
     user.verification.dotNumber = dotNumber || user.verification.dotNumber;
+    // Replaced wholesale so numbers this lookup did not confirm are cleared.
     user.verification.fmcsaData = {
       ...fmcsaData,
+      dotNumber: fmcsaData.dotNumber ? String(fmcsaData.dotNumber) : null,
+      mcNumber: fmcsaData.mcNumber ? String(fmcsaData.mcNumber) : null,
       lastChecked: new Date(),
     };
     user.verification.status = isAuthorized ? 'verified' : 'rejected';

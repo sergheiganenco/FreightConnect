@@ -189,6 +189,10 @@ const UserSchema = new mongoose.Schema({
       legalName: String,
       dbaName: String,
       entityType: String,
+      // Numbers exactly as RETURNED by FMCSA (null = the lookup did not confirm one);
+      // distinct from verification.mcNumber/dotNumber, which are what the user typed.
+      dotNumber: String,
+      mcNumber: String,
       operatingStatus: String,
       safetyRating: String,
       lastChecked: Date,

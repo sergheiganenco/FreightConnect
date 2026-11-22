@@ -123,10 +123,12 @@ async function findMatchesForLoad(loadId, limit = 10) {
   if (!load) return [];
 
   // Only verified carriers with available trucks
-  const carriers = await User.find({
+  let carriers = await User.find({
     role: 'carrier',
     'verification.status': 'verified',
   }).lean();
+  // Never match (and so never notify) a carrier that is not allowed to see this load.
+  carriers = await require('./loadVisibility').filterCarriersWhoCanSee(load, carriers);
 
   const scored = carriers.map((carrier) => ({
     carrier,

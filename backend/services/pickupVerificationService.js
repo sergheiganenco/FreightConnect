@@ -44,11 +44,16 @@ function parseDockToken(token) {
 }
 
 async function carrierIdentity(carrierId) {
-  // Prefer the identity confirmed with FMCSA at verification: companyName/mcNumber/
-  // dotNumber on the profile are user-editable, and the dock relies on this to spot
-  // an impersonator. `identityVerified` tells the dock page which one it is showing.
+  // The dock relies on this to spot an impersonator, so it never presents typed data
+  // as verified. Three states:
+  //  - identityVerified: FMCSA record found AND the account's control of that company
+  //    was confirmed (verification.identityVerified === true).
+  //  - authorityOnFile: FMCSA says this authority exists and is active, but nothing has
+  //    confirmed THIS account controls it (anyone can type a real carrier's DOT number).
+  //  - neither: self-reported profile values only.
+  // Numbers shown for an FMCSA record are only those FMCSA returned (null = not confirmed).
   const c = await User.findById(carrierId)
-    .select('companyName name mcNumber dotNumber verification.status verification.mcNumber verification.dotNumber verification.fmcsaData.legalName verification.fmcsaData.dbaName')
+    .select('companyName name mcNumber dotNumber verification.status verification.identityVerified verification.fmcsaData.legalName verification.fmcsaData.dbaName verification.fmcsaData.dotNumber verification.fmcsaData.mcNumber')
     .lean();
   if (!c) return null;
   const v = c.verification || {};
@@ -56,12 +61,13 @@ async function carrierIdentity(carrierId) {
     return {
       companyName: v.fmcsaData.legalName,
       dbaName: v.fmcsaData.dbaName || null,
-      mcNumber: v.mcNumber || null,
-      dotNumber: v.dotNumber || null,
-      identityVerified: true,
+      mcNumber: v.fmcsaData.mcNumber || null,
+      dotNumber: v.fmcsaData.dotNumber || null,
+      identityVerified: v.identityVerified === true,
+      authorityOnFile: true,
     };
   }
-  return { companyName: c.companyName || c.name, mcNumber: c.mcNumber || null, dotNumber: c.dotNumber || null, identityVerified: false };
+  return { companyName: c.companyName || c.name, mcNumber: c.mcNumber || null, dotNumber: c.dotNumber || null, identityVerified: false, authorityOnFile: false };
 }
 
 function audit(loadId, from, to, userId, reason) {

@@ -898,6 +898,7 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
     // eligibility + anti-fraud enforcement as every other booking path.
     const { evaluateBookingGate, atomicBookLoad } = require("../services/bookingGuard");
     const gate = await evaluateBookingGate({ load, carrierId: user._id, req, carrier: user });
+    if (gate.notVisible) return res.status(404).json({ error: "Load not found." });
     if (!gate.allowed) {
       return res.status(403).json({
         error: "Cannot book this load: " + gate.reasons.join("; "),

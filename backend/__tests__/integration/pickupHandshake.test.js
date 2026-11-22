@@ -166,35 +166,52 @@ describe('pickup handshake', () => {
       expect(info.status).toBe(200);
       expect(info.body.state).toBe('pending');
       // test carrier is not FMCSA-verified, so the dock sees the self-reported profile, flagged as such
-      expect(info.body.carrier).toEqual({ companyName: 'Acme Trucking', mcNumber: '123456', dotNumber: '7654321', identityVerified: false });
+      expect(info.body.carrier).toEqual({ companyName: 'Acme Trucking', mcNumber: '123456', dotNumber: '7654321', identityVerified: false, authorityOnFile: false });
       expect(info.body.facility).toBe('Dock 4');
       const s = JSON.stringify(info.body);
       expect(s).not.toContain(await codeOf(load._id));
       expect(s).not.toMatch(/rate|postedBy|acceptedBy|"code"/i);
     });
 
-    test('FMCSA-verified carrier: dock shows legal name + verified numbers, never the editable profile values', async () => {
-      const shipper = await createTestUser({ role: 'shipper' });
-      const carrier = await verifiedCarrier({
-        companyName: 'Profile Edited Name', mcNumber: '999999', dotNumber: '1111111',
-        verification: {
-          status: 'verified', identityVerified: true, insurance: { status: 'valid' },
-          mcNumber: '555555', dotNumber: '4444444', fmcsaData: { legalName: 'Real Legal Name LLC' },
-        },
-      });
-      const load = await createTestLoad(shipper._id, { pickupVerification: { required: true } });
-      await request(app).put(`/api/loads/${load._id}/accept`).set(bearer(carrier)).send({}).expect(200);
-      const token = await dockLink(shipper, load);
-      const expected = { companyName: 'Real Legal Name LLC', mcNumber: '555555', dotNumber: '4444444', identityVerified: true };
+    describe('FMCSA-verified carrier: three honest states, never the editable profile or typed values', () => {
+      const dockFor = async (verification) => {
+        const shipper = await createTestUser({ role: 'shipper' });
+        const carrier = await verifiedCarrier({
+          companyName: 'Profile Edited Name', mcNumber: '999999', dotNumber: '1111111',
+          verification: { status: 'verified', insurance: { status: 'valid' }, mcNumber: '555555', dotNumber: '4444444', ...verification },
+        });
+        const load = await createTestLoad(shipper._id, { pickupVerification: { required: true } });
+        await request(app).put(`/api/loads/${load._id}/accept`).set(bearer(carrier)).send({}).expect(200);
+        const token = await dockLink(shipper, load);
+        const info = await request(app).get(`/api/dock/${token}`);
+        const ok = await request(app).post(`/api/dock/${token}/verify`).send({ code: await codeOf(load._id) });
+        expect(ok.status).toBe(200);
+        return [info.body, ok.body];
+      };
 
-      const info = await request(app).get(`/api/dock/${token}`);
-      expect(info.body.carrier).toMatchObject(expected);
-      const ok = await request(app).post(`/api/dock/${token}/verify`).send({ code: await codeOf(load._id) });
-      expect(ok.status).toBe(200);
-      expect(ok.body.carrier).toMatchObject(expected);
-      for (const body of [info.body, ok.body]) {
-        expect(JSON.stringify(body)).not.toMatch(/Profile Edited Name|999999|1111111/);
-      }
+      test('identity confirmed: FMCSA-returned name + numbers, identityVerified true', async () => {
+        const expected = { companyName: 'Real Legal Name LLC', mcNumber: '777777', dotNumber: '8888888', identityVerified: true, authorityOnFile: true };
+        const bodies = await dockFor({ identityVerified: true, fmcsaData: { legalName: 'Real Legal Name LLC', mcNumber: '777777', dotNumber: '8888888' } });
+        for (const body of bodies) {
+          expect(body.carrier).toMatchObject(expected);
+          expect(JSON.stringify(body)).not.toMatch(/Profile Edited Name|999999|1111111|555555|4444444/);
+        }
+      });
+
+      test('authority on file but control unconfirmed: identityVerified false, authorityOnFile true', async () => {
+        const bodies = await dockFor({ fmcsaData: { legalName: 'Real Legal Name LLC', mcNumber: '777777', dotNumber: '8888888' } });
+        for (const body of bodies) {
+          expect(body.carrier).toMatchObject({ companyName: 'Real Legal Name LLC', dotNumber: '8888888', identityVerified: false, authorityOnFile: true });
+        }
+      });
+
+      test('numbers FMCSA did not return are null, not the typed verification.* values', async () => {
+        const bodies = await dockFor({ identityVerified: true, fmcsaData: { legalName: 'Real Legal Name LLC' } });
+        for (const body of bodies) {
+          expect(body.carrier).toMatchObject({ mcNumber: null, dotNumber: null, authorityOnFile: true });
+          expect(JSON.stringify(body)).not.toMatch(/555555|4444444|999999|1111111/);
+        }
+      });
     });
 
     test('unverified carrier: dock shows profile values with identityVerified false', async () => {
@@ -208,7 +225,7 @@ describe('pickup handshake', () => {
       await Load.updateOne({ _id: load._id }, { $set: { acceptedBy: carrier._id } });
       const token = await dockLink(shipper, load);
       const info = await request(app).get(`/api/dock/${token}`);
-      expect(info.body.carrier).toEqual({ companyName: 'Acme Trucking', mcNumber: '123456', dotNumber: '7654321', identityVerified: false });
+      expect(info.body.carrier).toEqual({ companyName: 'Acme Trucking', mcNumber: '123456', dotNumber: '7654321', identityVerified: false, authorityOnFile: false });
       expect(JSON.stringify(info.body)).not.toContain('Should Not Show');
     });
 

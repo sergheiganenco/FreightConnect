@@ -35,4 +35,14 @@ async function carrierCanSeeLoad(load, companyId) {
   return !!(await PreferredCarrier.exists({ shipper: load.postedBy, carrier: companyId, isActive: true }));
 }
 
-module.exports = { carrierOpenVisibleConditions, carrierCanSeeLoad, FIRST_LOOK_MS };
+/** Batch form of carrierCanSeeLoad: one PreferredCarrier query for all candidate carrier users (sub-accounts resolve to their company). */
+async function filterCarriersWhoCanSee(load, carriers) {
+  const visibility = load.loadVisibility || 'public';
+  if (load.status !== 'open' || visibility === 'public') return carriers;
+  if (visibility === 'preferred' && new Date(load.createdAt).getTime() <= Date.now() - FIRST_LOOK_MS) return carriers;
+  const entries = await PreferredCarrier.find({ shipper: load.postedBy, isActive: true }).select('carrier').lean();
+  const allowed = new Set(entries.map((e) => String(e.carrier)));
+  return carriers.filter((c) => allowed.has(String(c.parentAccountId || c._id)));
+}
+
+module.exports = { carrierOpenVisibleConditions, carrierCanSeeLoad, filterCarriersWhoCanSee, FIRST_LOOK_MS };

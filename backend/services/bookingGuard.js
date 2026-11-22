@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Load = require('../models/Load');
 const { checkLoadEligibility } = require('./loadEligibility');
 const antiFraudGuard = require('./antiFraudGuard');
+const { carrierCanSeeLoad } = require('./loadVisibility');
 
 /**
  * Shared booking gate + atomic booking.
@@ -12,6 +13,12 @@ const antiFraudGuard = require('./antiFraudGuard');
  * checks; this is the single place they live.
  */
 async function evaluateBookingGate({ load, carrierId, req = null, carrier = null }) {
+  // Visibility first: a carrier that cannot see a first-look/private load must not
+  // book it on ANY path. `notVisible` lets callers answer 404 without revealing it.
+  if (!(await carrierCanSeeLoad(load, carrierId))) {
+    return { allowed: false, notVisible: true, reasons: ['Load not found'], verificationStatus: 'unverified' };
+  }
+
   const carrierDoc = carrier || await User.findById(carrierId)
     .select('role verification fleet carrierEndorsements');
 

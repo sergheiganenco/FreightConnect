@@ -59,9 +59,15 @@ export default function DockVerify() {
             <Box my={2} p={1.5} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="caption">Booked carrier — must match the truck and driver in front of you</Typography>
               <Typography variant="h6">{carrier?.companyName}</Typography>
-              <Typography variant="body2">MC {carrier?.mcNumber || 'n/a'} · DOT {carrier?.dotNumber || 'n/a'}</Typography>
-              {carrier && carrier.identityVerified === false && (
-                <Alert severity="warning" sx={{ mt: 1 }}>This carrier's name and numbers are self-reported and not yet confirmed with FMCSA. Check the truck's door markings and the driver's ID carefully.</Alert>
+              <Typography variant="body2">MC {carrier?.mcNumber || 'not confirmed'} · DOT {carrier?.dotNumber || 'not confirmed'}{carrier?.authorityOnFile ? ' (from FMCSA record)' : ''}</Typography>
+              {carrier?.identityVerified === true && (
+                <Alert severity="success" sx={{ mt: 1 }}>Identity confirmed: this account is verified as controlling this FMCSA-registered company.</Alert>
+              )}
+              {carrier && carrier.identityVerified !== true && carrier.authorityOnFile && (
+                <Alert severity="warning" sx={{ mt: 1 }}>Operating authority found for {carrier.companyName} (DOT {carrier.dotNumber || 'not confirmed'}). This account's control of that company has not been independently confirmed — check door markings and driver ID.</Alert>
+              )}
+              {carrier && !carrier.identityVerified && !carrier.authorityOnFile && (
+                <Alert severity="warning" sx={{ mt: 1 }}>This carrier's name and numbers are self-reported only and not confirmed with FMCSA. Check the truck's door markings and the driver's ID carefully.</Alert>
               )}
               {(info.driverName || info.truckId) && (
                 <Typography variant="body2">{[info.driverName && `Driver: ${info.driverName}`, info.truckId && `Truck: ${info.truckId}`].filter(Boolean).join(' · ')}</Typography>

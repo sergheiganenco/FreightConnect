@@ -15,6 +15,7 @@ const cron = require('node-cron');
 const Load = require('../models/Load');
 const User = require('../models/User');
 const AlertPreference = require('../models/AlertPreference');
+const { carrierOpenVisibleConditions } = require('../services/loadVisibility');
 
 async function sendDigestEmail(to, subject, html) {
   try {
@@ -129,7 +130,7 @@ async function runDigest() {
 
   try {
     // Get all carriers
-    const carriers = await User.find({ role: 'carrier' }).select('name email preferences');
+    const carriers = await User.find({ role: 'carrier' }).select('name email preferences parentAccountId');
 
     for (const carrier of carriers) {
       try {
@@ -174,6 +175,9 @@ async function runDigest() {
         if (minRate > 0) {
           loadFilter.rate = { $gte: minRate };
         }
+
+        // Only loads this carrier's company is allowed to see (first-look / private)
+        loadFilter.$or = await carrierOpenVisibleConditions(carrier.parentAccountId || carrier._id);
 
         // Fetch candidate loads
         const candidateLoads = await Load.find(loadFilter)
