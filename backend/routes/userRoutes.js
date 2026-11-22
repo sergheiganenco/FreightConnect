@@ -22,6 +22,7 @@ const crypto = require('crypto');
 const { sendEmailWithAttachment, sendEmail } = require('../services/emailService');
 const verificationService = require('../services/verificationService');
 const mfaService = require('../services/mfaService');
+const { pickupBlockers, deliveryBlockers } = require('../services/evidenceService');
 
 
 
@@ -1157,6 +1158,9 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
         reason: 'pickup_verification_required',
       });
     }
+
+    const photoBlock = (await pickupBlockers(load)) || (await deliveryBlockers(load));
+    if (photoBlock) return res.status(409).json(photoBlock);
 
     // 4. Mark as delivered and free up truck
     truck.status = "Available";           // Truck is free again

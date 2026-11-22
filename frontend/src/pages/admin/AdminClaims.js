@@ -24,6 +24,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import GavelIcon from '@mui/icons-material/Gavel';
 import SendIcon from '@mui/icons-material/Send';
 import api from '../../services/api';
+import LoadEvidencePanel from '../../features/shared/LoadEvidencePanel';
 import {
   brand, semantic, claimStatus as EX_STATUS, surface,
   text as T, tint, status as ST, gradient,
@@ -273,6 +274,9 @@ function ClaimDrawer({ claim, onClose, onUpdated }) {
           </Stack>
         </>
       )}
+
+      {/* Load photo record (read-only, same record both parties see on the load) */}
+      {(load?._id || typeof load === 'string') && <LoadEvidencePanel loadId={load._id || load} readOnly />}
 
       <Divider sx={{ borderColor: surface.glassBorder, mb: 2 }} />
 

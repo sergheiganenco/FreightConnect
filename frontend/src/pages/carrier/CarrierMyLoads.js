@@ -102,6 +102,26 @@ export default function CarrierMyLoads({ embedded = false }) {
     }
   };
 
+  /* ── required photos: explain BEFORE the signature pad / status call ── */
+  // Returns true (and opens the load's photo section) when the shipper required photos that are missing.
+  const photosMissing = async (load, stages) => {
+    const req = load?.evidenceRequired || {};
+    if (!stages.some((s) => req[s])) return false;
+    try {
+      const { data } = await api.get(`/loads/${load._id}/evidence`);
+      const has = (s, kinds) => data.data.items.some((i) => i.stage === s && (!kinds || kinds.includes(i.kind)));
+      const need = [];
+      if (stages.includes('pickup') && req.pickup && !has('pickup', ['cargo', 'seal'])) need.push('at least one pickup photo of the freight or the seal');
+      if (stages.includes('delivery') && req.delivery && !has('delivery')) need.push('at least one delivery photo');
+      if (!need.length) return false;
+      setError(`The shipper requires ${need.join(' and ')} before this can continue. Open the load and add the photo(s) under "Photo record".`);
+      setSelected(load);
+      return true;
+    } catch (err) {
+      return false; // the server enforces the rule and its message is shown by applyStatus
+    }
+  };
+
   /* ── update status on dropdown change ─────────────────────── */
   // Transitioning to in-transit = pickup: capture a BOL e-signature first.
   const updateStatus = async (id, newStatus) => {
@@ -115,8 +135,13 @@ export default function CarrierMyLoads({ embedded = false }) {
         return;
       }
       setBlocked(null);
+      if (await photosMissing(load, ['pickup'])) return;
       setSigPad({ open: true, loadId: id });
       return;
+    }
+    if (newStatus === 'delivered') {
+      const load = loads.find((l) => l._id === id);
+      if (await photosMissing(load, load?.status === 'accepted' ? ['pickup', 'delivery'] : ['delivery'])) return;
     }
     await applyStatus(id, newStatus);
   };

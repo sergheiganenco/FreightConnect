@@ -24,6 +24,7 @@ import { getSocket } from '../services/socket';
 import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
 import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
 import PickupHandshakePanel from '../features/shared/PickupHandshakePanel';
+import LoadEvidencePanel from '../features/shared/LoadEvidencePanel';
 import ReputationBadges from './ReputationBadges';
 import {
   brand, status as ST, semantic, severity as SEV, exceptionStatus as EXC_ST,
@@ -1485,6 +1486,11 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
         {/* ── Pickup handshake (anti-impersonation) ── */}
         <PickupHandshakePanel load={loadState} userRole={userRole} />
+
+        {/* ── Photo record at pickup / delivery ── */}
+        {['accepted', 'in-transit', 'delivered'].includes(loadState.status) && ['carrier', 'shipper', 'admin'].includes(userRole) && (
+          <LoadEvidencePanel loadId={loadState._id} userRole={userRole} />
+        )}
 
         {/* ── Exceptions section ── */}
         {canFileException && (

@@ -92,6 +92,9 @@ const initialLoad = {
   overweightPermitNumber: "",
   // Pickup handshake: dock must verify the driver's code before pickup
   requirePickupVerification: false,
+  // Photo evidence the driver must add before pickup / delivery can be completed
+  requirePickupPhotos: false,
+  requireDeliveryPhotos: false,
 };
 
 const EQUIPMENT_SUBTYPES = {
@@ -1433,6 +1436,28 @@ export default function ShipperPostLoad() {
                 />
               }
               label="Require pickup verification code at the dock"
+              sx={{ color: "#fff" }}
+            />
+          </Grid>
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newLoad.requirePickupPhotos}
+                  onChange={e => handleChange("requirePickupPhotos", e.target.checked)}
+                />
+              }
+              label="Require pickup photos (freight or seal) before the driver can start the trip"
+              sx={{ color: "#fff" }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newLoad.requireDeliveryPhotos}
+                  onChange={e => handleChange("requireDeliveryPhotos", e.target.checked)}
+                />
+              }
+              label="Require delivery photos before the load can be marked delivered"
               sx={{ color: "#fff" }}
             />
           </Grid>

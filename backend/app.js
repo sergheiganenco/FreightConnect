@@ -171,6 +171,9 @@ app.post('/api/documents/upload', auth, upload.single('file'), (req, res) => {
 const nosniff = (res) => res.setHeader('X-Content-Type-Options', 'nosniff');
 app.use('/documents/uploads', express.static(path.join(__dirname, 'public/documents/uploads'), { setHeaders: nosniff }));
 app.use('/documents/receipts', express.static(path.join(__dirname, 'public/documents/receipts'), { setHeaders: nosniff }));
+// Load photo evidence is PRIVATE: stored on the persistent disk under documents/ but never
+// served statically - explicit 404 so a future broader static mount cannot expose it.
+app.use('/documents/load-evidence', (req, res) => res.status(404).end());
 app.use('/documents/evidence', express.static(path.join(__dirname, 'public/documents/evidence'), {
   setHeaders: (res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -474,6 +477,8 @@ app.use('/api/tracking-portal', trackingPortalRoutes);
 
 // Pickup handshake: carrier code, shipper verify/unlock, public no-account dock link
 app.use('/api', require('./routes/pickupVerificationRoutes'));
+// Photo evidence at pickup/delivery (files stream only through authenticated endpoints)
+app.use('/api', require('./routes/evidenceRoutes'));
 
 // QuickPay Routes
 const quickPayRoutes = require('./routes/quickPayRoutes');

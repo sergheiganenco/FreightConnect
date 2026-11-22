@@ -6,6 +6,7 @@ const puppeteer = require('puppeteer');
 const multer = require('multer');
 const auth = require('../middlewares/authMiddleware');
 const Load = require('../models/Load');
+const { pickupBlockers } = require('../services/evidenceService');
 const User = require('../models/User');
 const { generateBOL, generateRateConfirmation } = require('../utils/pdfGenerator');
 
@@ -396,6 +397,8 @@ router.post('/:loadId/pickup-signature', auth, async (req, res) => {
     if (load.pickupVerification?.required && !load.pickupVerification.verifiedAt) {
       return res.status(409).json({ error: 'Pickup verification required before the pickup signature can be captured', reason: 'pickup_verification_required' });
     }
+    const photoBlock = await pickupBlockers(load);
+    if (photoBlock) return res.status(409).json(photoBlock);
     const dataUrl = parseSignatureDataUrl(req.body.dataUrl || req.body.signatureData);
     if (!dataUrl) return res.status(400).json({ error: 'A valid PNG signature (data:image/png;base64,...) is required' });
 

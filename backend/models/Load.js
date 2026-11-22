@@ -293,6 +293,36 @@ const LoadSchema = new mongoose.Schema({
     failedAttempts: { type: Number, default: 0 },
     lockedAt:       Date,
   },
+
+  // ── Photo evidence at pickup/delivery (append-only; no update path) ───────
+  // select:false keeps the bounded array out of list/detail responses; read it via
+  // GET /loads/:id/evidence. `file` is a bare stored filename in the PRIVATE
+  // load-evidence dir (never client-named, never served statically).
+  evidenceRequired: {
+    pickup:   { type: Boolean, default: false },
+    delivery: { type: Boolean, default: false },
+  },
+  evidence: {
+    type: [{
+      stage:    { type: String, enum: ['pickup', 'delivery'], required: true },
+      kind:     { type: String, enum: ['cargo', 'seal', 'damage', 'paperwork', 'other'], default: 'cargo' },
+      file:     { type: String, required: true },
+      mimeType: String,
+      sizeBytes: Number,
+      sha256:   String,
+      capturedAt: Date,
+      uploadedAt: { type: Date, default: Date.now },
+      uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      companyId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      latitude: Number,
+      longitude: Number,
+      accuracyMeters: Number,
+      facilityDistanceMiles: { type: Number, default: null },
+      sealNumber: String,
+      note: String,
+    }],
+    select: false,
+  },
 }, { timestamps: true });
 
 // Keep rateCents in sync with rate (so existing code that sets `rate` still works)

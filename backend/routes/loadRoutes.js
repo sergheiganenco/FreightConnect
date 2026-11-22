@@ -16,6 +16,7 @@ module.exports = (io) => {
   const { checkScheduleConflicts } = require('../services/scheduleConflictService');
   const PreferredCarrier = require('../models/PreferredCarrier');
   const { notifyUserSafe } = require('../utils/notifyUser');
+  const { pickupBlockers, deliveryBlockers } = require('../services/evidenceService');
   const antiFraudGuard = require('../services/antiFraudGuard');
   const { checkLoadEligibility } = require('../services/loadEligibility');
   const { carrierOpenVisibleConditions, carrierCanSeeLoad } = require('../services/loadVisibility');
@@ -146,37 +147,37 @@ module.exports = (io) => {
   // ----------------------------------------
   // GET /api/loads - Return all loads (open + carrier's accepted)
   // ---------------------------------------
-  // Trip miles / rate-per-mile (and, for carrier managers, profit) annotation shared by the
-  // board list and GET /:id so a load opened from anywhere shows the same figures.
-  const annotateTrip = (l, deadheadMiles, wantsEconomics, costPerMileCents) => {
-    const hasO = Number.isFinite(l.originLat) && Number.isFinite(l.originLng);
-    const hasD = Number.isFinite(l.destinationLat) && Number.isFinite(l.destinationLng);
-    // Stored road miles when present; otherwise straight-line (understates driven miles).
-    const isRoad = Number.isFinite(l.distanceMiles) && l.distanceMiles > 0;
-    let tripMiles = null;
-    if (isRoad) tripMiles = l.distanceMiles;
-    else if (hasO && hasD) {
-      tripMiles = round(haversineMiles(l.originLat, l.originLng, l.destinationLat, l.destinationLng), 0);
-    }
-    const milesBasis = tripMiles == null ? null : isRoad ? 'road' : 'straight_line';
-    const rateCents = Number.isInteger(l.rateCents) ? l.rateCents
-      : typeof l.rate === 'number' ? Math.round(l.rate * 100) : null;
-    // Same cents and same miles as the economics block below.
-    const ratePerMile =
-      rateCents > 0 && tripMiles && tripMiles > 0
-        ? round(rateCents / 100 / tripMiles, 2)
-        : null;
-
-    const out = { ...l, deadheadMiles, tripMiles, ratePerMile, milesBasis };
-    if (wantsEconomics) {
-      // Trip miles are road miles when stored, else straight-line (profit optimistic).
-      // Deadhead is always straight-line.
-      const e = estimateEconomics({ rateCents, tripMiles, deadheadMiles, costPerMileCents });
-      out.economics = e && { ...e, rateCents, costPerMileCents, milesBasis, deadheadBasis: e.includesDeadhead ? 'straight_line' : null };
-    }
-    return out;
-  };
-
+  // Trip miles / rate-per-mile (and, for carrier managers, profit) annotation shared by the
+  // board list and GET /:id so a load opened from anywhere shows the same figures.
+  const annotateTrip = (l, deadheadMiles, wantsEconomics, costPerMileCents) => {
+    const hasO = Number.isFinite(l.originLat) && Number.isFinite(l.originLng);
+    const hasD = Number.isFinite(l.destinationLat) && Number.isFinite(l.destinationLng);
+    // Stored road miles when present; otherwise straight-line (understates driven miles).
+    const isRoad = Number.isFinite(l.distanceMiles) && l.distanceMiles > 0;
+    let tripMiles = null;
+    if (isRoad) tripMiles = l.distanceMiles;
+    else if (hasO && hasD) {
+      tripMiles = round(haversineMiles(l.originLat, l.originLng, l.destinationLat, l.destinationLng), 0);
+    }
+    const milesBasis = tripMiles == null ? null : isRoad ? 'road' : 'straight_line';
+    const rateCents = Number.isInteger(l.rateCents) ? l.rateCents
+      : typeof l.rate === 'number' ? Math.round(l.rate * 100) : null;
+    // Same cents and same miles as the economics block below.
+    const ratePerMile =
+      rateCents > 0 && tripMiles && tripMiles > 0
+        ? round(rateCents / 100 / tripMiles, 2)
+        : null;
+
+    const out = { ...l, deadheadMiles, tripMiles, ratePerMile, milesBasis };
+    if (wantsEconomics) {
+      // Trip miles are road miles when stored, else straight-line (profit optimistic).
+      // Deadhead is always straight-line.
+      const e = estimateEconomics({ rateCents, tripMiles, deadheadMiles, costPerMileCents });
+      out.economics = e && { ...e, rateCents, costPerMileCents, milesBasis, deadheadBasis: e.includesDeadhead ? 'straight_line' : null };
+    }
+    return out;
+  };
+
   router.get("/", auth, async (req, res) => {
     try {
       const { status, equipmentType, minRate, maxRate, pickupStart, pickupEnd, sortBy, sortOrder } = req.query;
@@ -431,6 +432,8 @@ const createLoadValidation = [
     .notEmpty()
     .withMessage("Equipment type is required"),
   body("requirePickupVerification").optional().isBoolean().withMessage("requirePickupVerification must be a boolean"),
+  body("requirePickupPhotos").optional().isBoolean().withMessage("requirePickupPhotos must be a boolean"),
+  body("requireDeliveryPhotos").optional().isBoolean().withMessage("requireDeliveryPhotos must be a boolean"),
 ];
 
 router.post('/', auth, createLoadValidation, validate, async (req, res) => {
@@ -537,6 +540,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
 
       // Pickup handshake (anti-impersonation) — optional opt-in
       requirePickupVerification,
+      requirePickupPhotos,
+      requireDeliveryPhotos,
     } = req.body;
 
     if (!title || !origin || !destination || !rate || !equipmentType) {
@@ -669,6 +674,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       overweightPermitNumber: overweightPermitNumber || undefined,
 
       pickupVerification: { required: requirePickupVerification === true || requirePickupVerification === 'true' },
+      evidenceRequired: {
+        pickup: requirePickupPhotos === true || requirePickupPhotos === 'true',
+        delivery: requireDeliveryPhotos === true || requireDeliveryPhotos === 'true',
+      },
 
       // Reefer settings (convert F→C if needed)
       reefer: equipmentType === 'Reefer'
@@ -1137,6 +1146,9 @@ router.put("/:id/deliver", auth, async (req, res) => {
       return res.status(403).json({ error: haulerCheck.reason });
     }
 
+    const photoBlock = (await pickupBlockers(load)) || (await deliveryBlockers(load));
+    if (photoBlock) return res.status(409).json(photoBlock);
+
     // Atomic, audited transition via the state machine (in-transit/accepted → delivered)
     const result = await transitionLoadStatus(
       req.params.id,
@@ -1200,6 +1212,11 @@ router.put("/:id/status", auth, async (req, res) => {
         reason: 'pickup_verification_required',
       });
     }
+
+    // Photo evidence the shipper required (pickup photos before pickup/delivery, delivery photos before delivery).
+    const photoBlock = status === 'in-transit' ? await pickupBlockers(existingLoad)
+      : status === 'delivered' ? (await pickupBlockers(existingLoad)) || (await deliveryBlockers(existingLoad)) : null;
+    if (photoBlock) return res.status(409).json(photoBlock);
 
     // On delivery, also stamp deliveredAt (so the timestamp + downstream docs are recorded)
     const updateFields = status === 'delivered' ? { deliveredAt: new Date() } : {};

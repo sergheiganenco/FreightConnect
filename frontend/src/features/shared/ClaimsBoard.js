@@ -30,6 +30,7 @@ import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import api from '../../services/api';
+import LoadEvidencePanel from './LoadEvidencePanel';
 import {
   brand, semantic, claimStatus as EX_STATUS, surface,
   text as T, tint, status as ST, gradient,
@@ -431,6 +432,9 @@ function ClaimDrawer({ claim, myId, onClose, onUpdated }) {
           </Stack>
         </>
       )}
+
+      {/* Load photo record (read-only, same record both parties see on the load) */}
+      {(load?._id || typeof load === 'string') && <LoadEvidencePanel loadId={load._id || load} readOnly />}
 
       {/* Resolution (read-only, if closed) */}
       {claim.resolution && (

@@ -3,6 +3,8 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Alert, ActivityIndicator,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import api from '../services/api';
 import { startBackgroundTracking, stopBackgroundTracking, isTracking } from '../services/tracking';
 import { COLORS } from '../constants/config';
@@ -19,6 +21,52 @@ export default function LoadDetailScreen({ route, navigation }) {
   const [tracking, setTracking] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [pickup, setPickup] = useState(null); // { code } | { verifiedAt } — pickup handshake
+
+  // Photo evidence (pickup / delivery). Server stores who/when/where + a fingerprint; photos are immutable.
+  const addPhoto = (stage) => {
+    Alert.alert(`${stage === 'pickup' ? 'Pickup' : 'Delivery'} photo`, 'What are you photographing?', [
+      { text: 'Freight', onPress: () => takeEvidence(stage, 'cargo') },
+      { text: 'Seal', onPress: () => takeEvidence(stage, 'seal') },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+  const takeEvidence = async (stage, kind) => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (perm.status !== 'granted') {
+      Alert.alert('Permission Required', 'Camera access is needed to take photos.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
+    if (result.canceled || !result.assets?.[0]) return;
+    setActionLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('stage', stage);
+      fd.append('kind', kind);
+      // GPS only if location permission was already granted (no new prompt here).
+      let located = false;
+      try {
+        const lp = await Location.getForegroundPermissionsAsync();
+        if (lp.granted) {
+          const pos = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+          ]);
+          fd.append('latitude', String(pos.coords.latitude));
+          fd.append('longitude', String(pos.coords.longitude));
+          if (pos.coords.accuracy != null) fd.append('accuracyMeters', String(pos.coords.accuracy));
+          located = true;
+        }
+      } catch (_) { /* proceed without location */ }
+      fd.append('capturedAt', new Date().toISOString());
+      fd.append('file', { uri: result.assets[0].uri, name: `evidence_${stage}.jpg`, type: 'image/jpeg' });
+      await api.post(`/loads/${load._id}/evidence`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      Alert.alert('Photo saved', located ? 'Photo added to the load record.' : 'Photo added, marked "location not provided".');
+    } catch (err) {
+      Alert.alert('Upload Failed', err.response?.data?.error || 'Could not upload photo');
+    }
+    setActionLoading(false);
+  };
 
   // Pickup handshake: the booked carrier's account is the only place the dock code is shown.
   useEffect(() => {
@@ -226,6 +274,24 @@ export default function LoadDetailScreen({ route, navigation }) {
 
         {load.status === 'in-transit' && (
           <ActionButton label="Mark Delivered" color={COLORS.success} onPress={handleDeliver} disabled={actionLoading} />
+        )}
+
+        {['accepted', 'in-transit'].includes(load.status) && (
+          <ActionButton
+            label={`Pickup photos${load.evidenceRequired?.pickup ? ' (required)' : ''}`}
+            color={COLORS.indigo}
+            onPress={() => addPhoto('pickup')}
+            disabled={actionLoading}
+          />
+        )}
+
+        {load.status === 'in-transit' && (
+          <ActionButton
+            label={`Delivery photos${load.evidenceRequired?.delivery ? ' (required)' : ''}`}
+            color={COLORS.indigo}
+            onPress={() => addPhoto('delivery')}
+            disabled={actionLoading}
+          />
         )}
 
         {['accepted', 'in-transit'].includes(load.status) && (
