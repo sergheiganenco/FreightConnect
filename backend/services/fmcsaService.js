@@ -84,7 +84,11 @@ function extractInsuranceOnFile(c) {
 // allowedToOperate as 'Y'/'N', statusCode as 'A'/'I', safetyRating as a letter
 // code ('S'/'C'/'U' or null), and an oosDate when the carrier is out of service.
 function normalizeCarrierData(raw) {
-  const c = raw?.content?.carrier || raw?.content || raw?.carrier || raw || {};
+  let content = raw?.content;
+  // QCMobile docket-number lookups can return content as an ARRAY of { carrier }.
+  // Exactly one carrier is usable; zero or several is ambiguous → empty record (fails closed).
+  if (Array.isArray(content)) content = content.length === 1 ? content[0] : {};
+  const c = content?.carrier || content || raw?.carrier || raw || {};
   const allowed = (c.allowedToOperate ?? c.operating_status ?? '').toString().trim();
   return {
     legalName: c.legalName || c.legal_name || null,
@@ -114,10 +118,23 @@ function isUnsatisfactory(carrierData) {
   return r === 'u' || r === 'unsatisfactory';
 }
 
+// Strict input normalisers: return digits-only string, or null when invalid.
+// Nothing else may reach the FMCSA URL.
+function normalizeDot(v) {
+  const s = String(v ?? '').trim();
+  return /^\d{1,8}$/.test(s) ? s : null;
+}
+function normalizeMc(v) {
+  const m = String(v ?? '').trim().match(/^(?:mc[-\s]?)?(\d{1,8})$/i);
+  return m ? m[1] : null;
+}
+
 /**
  * Lookup carrier by MC number
  */
-async function lookupByMC(mcNumber) {
+async function lookupByMC(mcInput) {
+  const mcNumber = normalizeMc(mcInput);
+  if (!mcNumber) throw new Error('Invalid MC number');
   const key = `mc_${mcNumber}`;
   const cached = fromCache(key);
   if (cached) return cached;
@@ -125,7 +142,7 @@ async function lookupByMC(mcNumber) {
   const apiKey = process.env.FMCSA_API_KEY;
   if (!apiKey) throw new Error('FMCSA_API_KEY not configured');
 
-  const url = `${FMCSA_BASE}/docket-number/${mcNumber}?webKey=${apiKey}`;
+  const url = `${FMCSA_BASE}/docket-number/${encodeURIComponent(mcNumber)}?webKey=${encodeURIComponent(apiKey)}`;
   const raw = await fetchWithRetry(url);
   const data = normalizeCarrierData(raw);
   toCache(key, data);
@@ -135,7 +152,9 @@ async function lookupByMC(mcNumber) {
 /**
  * Lookup carrier by DOT number
  */
-async function lookupByDOT(dotNumber) {
+async function lookupByDOT(dotInput) {
+  const dotNumber = normalizeDot(dotInput);
+  if (!dotNumber) throw new Error('Invalid DOT number');
   const key = `dot_${dotNumber}`;
   const cached = fromCache(key);
   if (cached) return cached;
@@ -143,7 +162,7 @@ async function lookupByDOT(dotNumber) {
   const apiKey = process.env.FMCSA_API_KEY;
   if (!apiKey) throw new Error('FMCSA_API_KEY not configured');
 
-  const url = `${FMCSA_BASE}/${dotNumber}?webKey=${apiKey}`;
+  const url = `${FMCSA_BASE}/${encodeURIComponent(dotNumber)}?webKey=${encodeURIComponent(apiKey)}`;
   const raw = await fetchWithRetry(url);
   const data = normalizeCarrierData(raw);
   toCache(key, data);
@@ -179,13 +198,22 @@ function verifyAuthority(carrierData) {
  * Run full FMCSA verification for a user and update their record
  * Returns: { success, data, error }
  */
-async function runFullVerification(user, mcNumber, dotNumber) {
+async function runFullVerification(user, mcInput, dotInput) {
+  // Defensive validation: nothing unvalidated reaches the FMCSA URL.
+  const mcNumber = mcInput == null ? undefined : normalizeMc(mcInput);
+  const dotNumber = dotInput == null ? undefined : normalizeDot(dotInput);
+  if (mcNumber === null || dotNumber === null) {
+    return { success: false, error: 'Invalid MC/DOT number format' };
+  }
+  if (!mcNumber && !dotNumber) {
+    return { success: false, error: 'Provide an MC or DOT number' };
+  }
   try {
     let fmcsaData = null;
 
     if (mcNumber) {
       fmcsaData = await lookupByMC(mcNumber);
-    } else if (dotNumber) {
+    } else {
       fmcsaData = await lookupByDOT(dotNumber);
     }
 
@@ -196,10 +224,11 @@ async function runFullVerification(user, mcNumber, dotNumber) {
     user.verification = user.verification || {};
 
     // The record FMCSA returned must be for the number the user submitted: a lookup
-    // that resolves to a different DOT/MC must not verify this account.
+    // that resolves to a different DOT/MC must not verify this account. Fail closed:
+    // a record with no DOT number can never verify.
     const digits = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+/, '');
     const mismatch = (submitted, returned) => digits(submitted) && digits(returned) && digits(submitted) !== digits(returned);
-    if (mismatch(dotNumber, fmcsaData.dotNumber) || mismatch(mcNumber, fmcsaData.mcNumber)) {
+    if (!digits(fmcsaData.dotNumber) || mismatch(dotNumber, fmcsaData.dotNumber) || mismatch(mcNumber, fmcsaData.mcNumber)) {
       user.verification.status = 'rejected';
       user.verification.fmcsaData = { lastChecked: new Date() }; // nothing confirmed
       await user.save();
@@ -210,8 +239,9 @@ async function runFullVerification(user, mcNumber, dotNumber) {
     const prevDot = user.verification.fmcsaData?.dotNumber;
     // Fail closed: keep an identity confirmation only when it is provably for this same DOT.
     if (!prevDot || digits(prevDot) !== digits(fmcsaData.dotNumber)) user.verification.identityVerified = false;
-    user.verification.mcNumber = mcNumber || user.verification.mcNumber;
-    user.verification.dotNumber = dotNumber || user.verification.dotNumber;
+    // Readers of verification.dotNumber/mcNumber see FMCSA-confirmed values, never typed ones.
+    user.verification.dotNumber = String(fmcsaData.dotNumber);
+    user.verification.mcNumber = digits(fmcsaData.mcNumber) ? String(fmcsaData.mcNumber) : undefined;
     // Replaced wholesale so numbers this lookup did not confirm are cleared.
     user.verification.fmcsaData = {
       ...fmcsaData,
@@ -256,9 +286,7 @@ async function runFullVerification(user, mcNumber, dotNumber) {
     console.error('FMCSA verification error:', err.message);
     // Network failure → set to pending for retry
     if (user.verification) {
-      user.verification.status = 'pending';
-      user.verification.mcNumber = mcNumber || user.verification.mcNumber;
-      user.verification.dotNumber = dotNumber || user.verification.dotNumber;
+      user.verification.status = 'pending'; // unconfirmed typed numbers are NOT stored
       await user.save();
     }
     return { success: false, error: 'FMCSA service unavailable — set to pending for retry' };
@@ -267,5 +295,5 @@ async function runFullVerification(user, mcNumber, dotNumber) {
 
 module.exports = {
   lookupByMC, lookupByDOT, verifyAuthority, isUnsatisfactory, runFullVerification,
-  normalizeCarrierData, extractInsuranceOnFile,
+  normalizeCarrierData, extractInsuranceOnFile, normalizeDot, normalizeMc,
 };

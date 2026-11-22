@@ -36,8 +36,8 @@ router.post(
   '/carrier/start',
   auth,
   [
-    body('mcNumber').optional().trim().notEmpty(),
-    body('dotNumber').optional().trim().notEmpty(),
+    body('mcNumber').optional().custom((v) => !!fmcsaService.normalizeMc(v)).withMessage('mcNumber must be 1-8 digits, optionally prefixed with MC'),
+    body('dotNumber').optional().custom((v) => !!fmcsaService.normalizeDot(v)).withMessage('dotNumber must be 1-8 digits'),
   ],
   validate,
   async (req, res) => {

@@ -15,7 +15,7 @@ const cron = require('node-cron');
 const Load = require('../models/Load');
 const User = require('../models/User');
 const AlertPreference = require('../models/AlertPreference');
-const { carrierOpenVisibleConditions } = require('../services/loadVisibility');
+const { carrierOpenVisibleConditions, blockedOwnerIds } = require('../services/loadVisibility');
 
 async function sendDigestEmail(to, subject, html) {
   try {
@@ -130,7 +130,14 @@ async function runDigest() {
 
   try {
     // Get all carriers
-    const carriers = await User.find({ role: 'carrier' }).select('name email preferences parentAccountId');
+    // Skip deactivated accounts, suspended/rejected carriers, and sub-accounts of a
+    // deactivated/suspended owner (deactivation does not cascade to sub-accounts).
+    const carriers = await User.find({
+      role: 'carrier',
+      active: { $ne: false },
+      'verification.status': { $nin: ['suspended', 'rejected'] },
+      parentAccountId: { $nin: await blockedOwnerIds() },
+    }).select('name email preferences parentAccountId');
 
     for (const carrier of carriers) {
       try {

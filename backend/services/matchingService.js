@@ -125,6 +125,7 @@ async function findMatchesForLoad(loadId, limit = 10) {
   // Only verified carriers with available trucks
   let carriers = await User.find({
     role: 'carrier',
+    active: { $ne: false },
     'verification.status': 'verified',
   }).lean();
   // Never match (and so never notify) a carrier that is not allowed to see this load.

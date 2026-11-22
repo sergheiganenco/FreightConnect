@@ -49,6 +49,7 @@ describe('fmcsaMonitor — authority re-verification', () => {
     const carrier = await createVerifiedCarrier();
     fmcsaService.lookupByDOT.mockResolvedValue({
       legalName: 'Test Trucking LLC',
+      dotNumber: '1234567',
       operatingStatus: 'OUT-OF-SERVICE',
       safetyRating: 'None',
     });
@@ -65,6 +66,7 @@ describe('fmcsaMonitor — authority re-verification', () => {
     const carrier = await createVerifiedCarrier();
     fmcsaService.lookupByDOT.mockResolvedValue({
       legalName: 'Test Trucking LLC',
+      dotNumber: '1234567',
       operatingStatus: 'AUTHORIZED FOR Property',
       safetyRating: 'Unsatisfactory',
     });
@@ -79,6 +81,7 @@ describe('fmcsaMonitor — authority re-verification', () => {
     const carrier = await createVerifiedCarrier();
     fmcsaService.lookupByDOT.mockResolvedValue({
       legalName: 'Test Trucking LLC',
+      dotNumber: '1234567',
       operatingStatus: 'AUTHORIZED FOR Property',
       safetyRating: 'Satisfactory',
     });
@@ -111,6 +114,28 @@ describe('fmcsaMonitor — authority re-verification', () => {
     expect(fmcsaService.lookupByDOT).not.toHaveBeenCalled();
     const fresh = await User.findById(carrier._id);
     expect(fresh.verification.status).toBe('verified');
+  });
+});
+
+describe('fmcsaMonitor — confirmed-DOT identity', () => {
+  test('re-checks the FMCSA-confirmed DOT, not the typed one', async () => {
+    await createVerifiedCarrier({
+      verification: { status: 'verified', dotNumber: '1111111', fmcsaData: { legalName: 'T', dotNumber: '2222222' } },
+    });
+    fmcsaService.lookupByDOT.mockResolvedValue({ legalName: 'T', dotNumber: '2222222', operatingStatus: 'AUTHORIZED FOR Property' });
+    await runFmcsaCheck();
+    expect(fmcsaService.lookupByDOT).toHaveBeenCalledWith('2222222');
+  });
+
+  test('ignores (no suspend, no overwrite) a result for a different DOT or with no DOT', async () => {
+    const carrier = await createVerifiedCarrier();
+    for (const bad of [{ dotNumber: '9999999' }, {}]) {
+      fmcsaService.lookupByDOT.mockResolvedValue({ legalName: 'Other Co', operatingStatus: 'OUT-OF-SERVICE', ...bad });
+      await runFmcsaCheck();
+      const fresh = await User.findById(carrier._id);
+      expect(fresh.verification.status).toBe('verified');
+      expect(fresh.verification.fmcsaData.legalName).toBe('Test Trucking LLC');
+    }
   });
 });
 

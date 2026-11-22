@@ -22,9 +22,16 @@ async function resolveAccount(userId) {
   const cached = activeCache.get(key);
   if (cached && Date.now() - cached.at < ACTIVE_TTL_MS) return cached;
 
-  const u = await User.findById(userId).select('active mustChangePassword').lean();
+  const u = await User.findById(userId).select('active mustChangePassword parentAccountId').lean();
+  let active = u ? u.active !== false : null; // missing field => treat as active
+  // Deactivating a company owner switches off its dispatcher/driver logins too
+  // (takes effect within the cache TTL for sessions already in flight).
+  if (active && u.parentAccountId) {
+    const owner = await User.findById(u.parentAccountId).select('active').lean();
+    if (!owner || owner.active === false) active = false;
+  }
   const entry = {
-    active: u ? u.active !== false : null, // missing field => treat as active
+    active,
     mustChangePassword: !!(u && u.mustChangePassword),
     at: Date.now(),
   };

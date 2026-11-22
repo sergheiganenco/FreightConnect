@@ -117,8 +117,8 @@ exports.generateBOL = (load, carrier, shipper) => {
     y = infoRow(doc, 'Shipper Email', (shipper && shipper.email) || 'N/A', y);
     y = infoRow(doc, 'Carrier (Company)', (carrier && (carrier.companyName || carrier.name)) || 'N/A', y);
     y = infoRow(doc, 'Carrier Email', (carrier && carrier.email) || 'N/A', y);
-    y = infoRow(doc, 'MC Number', (carrier && (carrier.mcNumber || (carrier.verification && carrier.verification.mcNumber))) || 'N/A', y);
-    y = infoRow(doc, 'DOT Number', (carrier && (carrier.dotNumber || (carrier.verification && carrier.verification.dotNumber))) || 'N/A', y);
+    y = infoRow(doc, 'MC Number', (carrier && ((carrier.verification && carrier.verification.mcNumber) || carrier.mcNumber)) || 'N/A', y);
+    y = infoRow(doc, 'DOT Number', (carrier && ((carrier.verification && carrier.verification.dotNumber) || carrier.dotNumber)) || 'N/A', y);
     y += 8; drawHRule(doc, y); y += 12;
 
     // Shipment Details
@@ -191,7 +191,7 @@ exports.generateSettlementStatement = (settlement, driver, company) => {
     // Parties
     y = sectionTitle(doc, 'PARTIES', y);
     y = infoRow(doc, 'Carrier (Company)', (company && (company.companyName || company.name)) || 'N/A', y);
-    y = infoRow(doc, 'MC Number', (company && (company.mcNumber || (company.verification && company.verification.mcNumber))) || 'N/A', y);
+    y = infoRow(doc, 'MC Number', (company && ((company.verification && company.verification.mcNumber) || company.mcNumber)) || 'N/A', y);
     y = infoRow(doc, 'Driver', (driver && driver.name) || settlement.driverName || 'N/A', y);
     y = infoRow(doc, 'Statement #', settlement.settlementNumber || String(settlement._id), y);
     y += 8; drawHRule(doc, y); y += 12;
@@ -263,8 +263,8 @@ exports.generateRateConfirmation = (load, carrier, shipper) => {
     y = infoRow(doc, 'Shipper Contact', (shipper && shipper.email) || 'N/A', y);
     y = infoRow(doc, 'Carrier', (carrier && (carrier.companyName || carrier.name)) || 'N/A', y);
     y = infoRow(doc, 'Carrier Contact', (carrier && carrier.email) || 'N/A', y);
-    y = infoRow(doc, 'MC Number', (carrier && (carrier.mcNumber || (carrier.verification && carrier.verification.mcNumber))) || 'N/A', y);
-    y = infoRow(doc, 'DOT Number', (carrier && (carrier.dotNumber || (carrier.verification && carrier.verification.dotNumber))) || 'N/A', y);
+    y = infoRow(doc, 'MC Number', (carrier && ((carrier.verification && carrier.verification.mcNumber) || carrier.mcNumber)) || 'N/A', y);
+    y = infoRow(doc, 'DOT Number', (carrier && ((carrier.verification && carrier.verification.dotNumber) || carrier.dotNumber)) || 'N/A', y);
     y += 8; drawHRule(doc, y); y += 12;
 
     // Load Details

@@ -35,7 +35,8 @@ async function runFmcsaCheck() {
 
     for (const carrier of carriers) {
       try {
-        const dot = carrier.verification?.dotNumber || carrier.dotNumber;
+        // Prefer the FMCSA-confirmed DOT; typed numbers are only a legacy fallback.
+        const dot = carrier.verification?.fmcsaData?.dotNumber || carrier.verification?.dotNumber || carrier.dotNumber;
         if (!dot) continue; // nothing to re-check against
 
         const result = await verificationService.verifyCarrierFMCSA(dot);
@@ -43,6 +44,14 @@ async function runFmcsaCheck() {
 
         // Availability failure or no data → skip, never suspend on a flaky API
         if (!result.data) continue;
+
+        // The record must be for the DOT we asked about — never overwrite this
+        // account with another company's data (or a record carrying no DOT).
+        const digits = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+/, '');
+        if (!digits(result.data.dotNumber) || digits(result.data.dotNumber) !== digits(dot)) {
+          console.warn(`[FmcsaMonitor] Ignoring FMCSA result for carrier ${carrier._id}: returned DOT does not match ${dot}`);
+          continue;
+        }
 
         // Record what FMCSA said (audit trail either way)
         carrier.verification.fmcsaData = {

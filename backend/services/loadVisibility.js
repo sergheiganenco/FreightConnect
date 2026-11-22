@@ -7,6 +7,7 @@
  * return-load suggestions, single-load browse) must apply the same rule.
  */
 const PreferredCarrier = require('../models/PreferredCarrier');
+const User = require('../models/User');
 
 const FIRST_LOOK_MS = 2 * 60 * 60 * 1000;
 
@@ -35,8 +36,23 @@ async function carrierCanSeeLoad(load, companyId) {
   return !!(await PreferredCarrier.exists({ shipper: load.postedBy, carrier: companyId, isActive: true }));
 }
 
+/**
+ * Accounts whose sub-accounts must not receive load alerts: deactivated owners
+ * (deactivation does not cascade to sub-accounts today) and suspended/rejected carriers.
+ */
+function blockedOwnerIds() {
+  return User.distinct('_id', { $or: [{ active: false }, { 'verification.status': { $in: ['suspended', 'rejected'] } }] });
+}
+
 /** Batch form of carrierCanSeeLoad: one PreferredCarrier query for all candidate carrier users (sub-accounts resolve to their company). */
 async function filterCarriersWhoCanSee(load, carriers) {
+  // Deactivated accounts, and sub-accounts of a deactivated/suspended/rejected owner,
+  // never receive load details — checked BEFORE the public early return.
+  carriers = carriers.filter((c) => c.active !== false);
+  if (carriers.some((c) => c.parentAccountId)) {
+    const blocked = new Set((await blockedOwnerIds()).map(String));
+    carriers = carriers.filter((c) => !c.parentAccountId || !blocked.has(String(c.parentAccountId)));
+  }
   const visibility = load.loadVisibility || 'public';
   if (load.status !== 'open' || visibility === 'public') return carriers;
   if (visibility === 'preferred' && new Date(load.createdAt).getTime() <= Date.now() - FIRST_LOOK_MS) return carriers;
@@ -45,4 +61,4 @@ async function filterCarriersWhoCanSee(load, carriers) {
   return carriers.filter((c) => allowed.has(String(c.parentAccountId || c._id)));
 }
 
-module.exports = { carrierOpenVisibleConditions, carrierCanSeeLoad, filterCarriersWhoCanSee, FIRST_LOOK_MS };
+module.exports = { carrierOpenVisibleConditions, carrierCanSeeLoad, filterCarriersWhoCanSee, blockedOwnerIds, FIRST_LOOK_MS };

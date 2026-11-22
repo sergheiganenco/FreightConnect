@@ -50,6 +50,7 @@ class DispatchAgent extends Agent {
         // 3. Find verified carriers with matching equipment
         const carriers = await require('../services/loadVisibility').filterCarriersWhoCanSee(load, await User.find({
           role: 'carrier',
+          active: { $ne: false },
           'verification.status': 'verified',
         }).lean());
 

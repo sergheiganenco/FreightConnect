@@ -165,4 +165,135 @@ describe('FMCSA verification checks the returned record against the submitted nu
     expect(fresh.verification.fmcsaData.dotNumber).toBe('3000003');
     expect(fresh.verification.fmcsaData.mcNumber).toBeFalsy();
   });
+
+  const carrierUser = () => createTestUser({ role: 'carrier', verification: { status: 'pending' } });
+
+  test('FMCSA record with no DOT number never verifies (fails closed)', async () => {
+    axios.get.mockResolvedValue(record({ dotNumber: undefined }));
+    const user = await carrierUser();
+    const r = await fmcsa.runFullVerification(user, undefined, '4000004');
+    expect(r.success).toBe(false);
+    expect((await User.findById(user._id)).verification.status).toBe('rejected');
+  });
+
+  test.each(['12a45', '123456789', '', '  ', '12 34', '1e5'])('DOT %j is rejected before any HTTP call', async (bad) => {
+    const user = await carrierUser();
+    const r = await fmcsa.runFullVerification(user, undefined, bad);
+    expect(r.success).toBe(false);
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  test.each(['MC-', 'MCX123', '123456789', '12/../3', ''])('MC %j is rejected before any HTTP call', async (bad) => {
+    const user = await carrierUser();
+    const r = await fmcsa.runFullVerification(user, bad, undefined);
+    expect(r.success).toBe(false);
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  test('MC "MC-500001", "mc 500002", "500003" normalise; the URL carries only the digits', async () => {
+    axios.get.mockResolvedValue(record({ dotNumber: 5000005 }));
+    for (const [input, digits] of [['MC-500001', '500001'], ['mc 500002', '500002'], ['500003', '500003']]) {
+      const r = await fmcsa.runFullVerification(await carrierUser(), input, undefined);
+      expect(r.success).toBe(true);
+      expect(axios.get.mock.calls.pop()[0]).toBe(`https://mobile.fmcsa.dot.gov/qc/services/carriers/docket-number/${digits}?webKey=k`);
+    }
+  });
+
+  test('MC-only lookup: FMCSA-returned DOT is stored; MC unconfirmed when FMCSA returns none', async () => {
+    axios.get.mockResolvedValue(record({ dotNumber: 5000010 }));
+    const user = await carrierUser();
+    expect((await fmcsa.runFullVerification(user, 'MC-500010')).success).toBe(true);
+    const fresh = await User.findById(user._id);
+    expect(fresh.verification.dotNumber).toBe('5000010');
+    expect(fresh.verification.mcNumber).toBeFalsy();
+    expect(fresh.verification.fmcsaData.mcNumber).toBeFalsy();
+  });
+
+  test('MC returned by FMCSA is compared; a different one is rejected', async () => {
+    axios.get.mockResolvedValue(record({ dotNumber: 5000011, mcNumber: '999' }));
+    const user = await carrierUser();
+    expect((await fmcsa.runFullVerification(user, '500011', undefined)).success).toBe(false);
+    axios.get.mockResolvedValue(record({ dotNumber: 5000012, mcNumber: '500012' }));
+    const u2 = await carrierUser();
+    expect((await fmcsa.runFullVerification(u2, '500012', undefined)).success).toBe(true);
+    expect((await User.findById(u2._id)).verification.mcNumber).toBe('500012');
+  });
+
+  test('leading zeros typed by the user: stored DOT is the FMCSA value', async () => {
+    axios.get.mockResolvedValue(record({ dotNumber: 600006 }));
+    const user = await carrierUser();
+    expect((await fmcsa.runFullVerification(user, undefined, '00600006')).success).toBe(true);
+    const fresh = await User.findById(user._id);
+    expect(fresh.verification.dotNumber).toBe('600006');
+    expect(fresh.verification.fmcsaData.dotNumber).toBe('600006');
+  });
+
+  test('QCMobile array-shaped content: single carrier unwrapped, several fail closed', async () => {
+    const carrier = { legalName: 'Real LLC', allowedToOperate: 'Y', statusCode: 'A', dotNumber: 7000007 };
+    axios.get.mockResolvedValue({ data: { content: [{ carrier }] } });
+    const ok = await carrierUser();
+    expect((await fmcsa.runFullVerification(ok, '700007')).success).toBe(true);
+    expect((await User.findById(ok._id)).verification.dotNumber).toBe('7000007');
+
+    axios.get.mockResolvedValue({ data: { content: [{ carrier }, { carrier: { ...carrier, dotNumber: 7000008 } }] } });
+    const amb = await carrierUser();
+    expect((await fmcsa.runFullVerification(amb, '700008')).success).toBe(false);
+    expect((await User.findById(amb._id)).verification.status).toBe('rejected');
+  });
+
+  test('production with no FMCSA_API_KEY does not verify', async () => {
+    const env = process.env.NODE_ENV;
+    delete process.env.FMCSA_API_KEY;
+    process.env.NODE_ENV = 'production';
+    try {
+      const user = await carrierUser();
+      const r = await fmcsa.runFullVerification(user, undefined, '8000008');
+      expect(r.success).toBe(false);
+      expect(axios.get).not.toHaveBeenCalled();
+      expect((await User.findById(user._id)).verification.status).not.toBe('verified');
+    } finally { process.env.NODE_ENV = env; }
+  });
+});
+
+describe('deactivated / suspended carriers get no load details', () => {
+  let shipper, ok, inactive, inactiveSub, inactiveOwnerSub, suspended, rejected;
+  const ids = (m) => m.map(({ carrier }) => String(carrier._id));
+  beforeEach(async () => {
+    mockSendMail.mockClear();
+    process.env.EMAIL_USER = 'x@example.com';
+    process.env.EMAIL_PASS = 'x';
+    shipper = await createTestUser({ role: 'shipper' });
+    ok = await verified();
+    inactive = await verified({ active: false });
+    inactiveSub = await verified({ parentAccountId: ok._id, active: false });
+    const deadOwner = await verified({ active: false });
+    inactiveOwnerSub = await verified({ parentAccountId: deadOwner._id });
+    suspended = await verified({ verification: { status: 'suspended', insurance: { status: 'valid' } } });
+    rejected = await verified({ verification: { status: 'rejected', insurance: { status: 'valid' } } });
+  });
+  const bad = () => [inactive, inactiveSub, inactiveOwnerSub, suspended, rejected].map((u) => String(u._id));
+
+  test('findMatchesForLoad (public load) only returns the active carrier', async () => {
+    const load = await createTestLoad(shipper._id);
+    const got = ids(await findMatchesForLoad(load._id));
+    expect(got).toContain(String(ok._id));
+    for (const id of bad()) expect(got).not.toContain(id);
+  });
+
+  test('digest (public load) is emailed only to the active carrier', async () => {
+    await createTestLoad(shipper._id, { origin: 'Everyone, IL' });
+    await runDigest();
+    const to = mockSendMail.mock.calls.map(([m]) => m.to);
+    expect(to).toContain(ok.email);
+    for (const u of [inactive, inactiveSub, inactiveOwnerSub, suspended, rejected]) expect(to).not.toContain(u.email);
+  });
+
+  test('filterCarriersWhoCanSee (auto-dispatch pool) drops deactivated ones even for public loads; keeps the active one', async () => {
+    const { filterCarriersWhoCanSee } = require('../../services/loadVisibility');
+    const load = (await createTestLoad(shipper._id)).toObject();
+    const all = await User.find({ role: 'carrier' }).lean();
+    const got = (await filterCarriersWhoCanSee(load, all)).map((c) => String(c._id));
+    expect(got).toContain(String(ok._id));
+    for (const id of [inactive, inactiveSub, inactiveOwnerSub].map((u) => String(u._id))) expect(got).not.toContain(id);
+  });
 });
