@@ -105,24 +105,40 @@ function getFacilityCheckpoints(load) {
  * @param {string} carrierId  - The carrier's user ID
  * @param {number} latitude   - Carrier's current GPS latitude
  * @param {number} longitude  - Carrier's current GPS longitude
+ * @param {Object} [opts]
+ * @param {string} [opts.loadId] - Scope the check to this one load (must still be
+ *   this carrier's and active). A ping belongs to one truck/load; without this,
+ *   every active load of the carrier company is checked (legacy behaviour).
  * @returns {Object} { checkedIn: [], checkedOut: [] } - arrays of DwellEvent IDs affected
  */
-async function checkGeofence(carrierId, latitude, longitude) {
+async function checkGeofence(carrierId, latitude, longitude, { loadId } = {}) {
   if (!carrierId || latitude == null || longitude == null) return { checkedIn: [], checkedOut: [] };
 
   const result = { checkedIn: [], checkedOut: [] };
 
   try {
     // Find all active loads for this carrier
-    const activeLoads = await Load.find({
+    const loadFilter = {
       acceptedBy: carrierId,
       status: { $in: ['accepted', 'in-transit'] },
-    }).select(
+    };
+    if (loadId) loadFilter._id = loadId;
+    const activeLoads = await Load.find(loadFilter).select(
       '_id postedBy origin destination originLat originLng destinationLat destinationLng ' +
       'pickupFacilityName pickupAddress deliveryFacilityName deliveryAddress stops'
     );
 
     if (activeLoads.length === 0) return result;
+
+    // One query for all open dwell events of the loads being checked.
+    const openEvents = await DwellEvent.find({
+      load: { $in: activeLoads.map((l) => l._id) },
+      carrier: carrierId,
+      departedAt: null,
+    });
+    const openByKey = new Map(
+      openEvents.map((e) => [`${e.load}:${e.stopType}:${e.stopIndex}`, e])
+    );
 
     for (const load of activeLoads) {
       const checkpoints = getFacilityCheckpoints(load);
@@ -131,13 +147,7 @@ async function checkGeofence(carrierId, latitude, longitude) {
         const within = isWithinGeofence(latitude, longitude, cp.lat, cp.lng);
 
         // Find existing open dwell event for this load + stop
-        const existingEvent = await DwellEvent.findOne({
-          load: load._id,
-          carrier: carrierId,
-          stopType: cp.type,
-          stopIndex: cp.stopIndex,
-          departedAt: null, // still on-site (no departure yet)
-        });
+        const existingEvent = openByKey.get(`${load._id}:${cp.type}:${cp.stopIndex}`);
 
         if (within && !existingEvent) {
           // ── ENTER geofence: auto-check-in ────────────────────────────

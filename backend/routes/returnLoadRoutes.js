@@ -21,7 +21,7 @@ router.get(
   [
     query('lat').isFloat({ min: -90, max: 90 }).withMessage('lat must be a valid latitude'),
     query('lng').isFloat({ min: -180, max: 180 }).withMessage('lng must be a valid longitude'),
-    query('equipmentType').optional().isString(),
+    query('equipmentType').optional().isString().trim().isLength({ max: 50 }),
     query('radius').optional().isInt({ min: 1, max: 500 }).withMessage('radius must be 1-500 miles'),
   ],
   validate,
@@ -39,13 +39,14 @@ router.get(
       const suggestions = await findReturnLoads({
         lat,
         lng,
-        carrierId: req.user.userId,
+        carrierId: req.user.companyOwnerId,
         equipmentTypes,
         radiusMiles,
       });
 
       res.json({
         success: true,
+        distanceMethod: 'straight-line',
         location: { lat, lng },
         radiusMiles,
         count: suggestions.length,
@@ -53,7 +54,7 @@ router.get(
       });
     } catch (err) {
       console.error('[returnLoads/from-location] failed:', err.message);
-      res.status(500).json({ error: err.message || 'Server error' });
+      res.status(500).json({ error: 'Server error' });
     }
   }
 );
@@ -64,6 +65,7 @@ router.get(
   auth,
   [
     param('loadId').isMongoId().withMessage('Invalid load ID'),
+    query('radius').optional().isInt({ min: 1, max: 500 }).withMessage('radius must be 1-500 miles'),
   ],
   validate,
   async (req, res) => {
@@ -77,8 +79,8 @@ router.get(
         return res.status(404).json({ error: 'Load not found' });
       }
 
-      // Carrier must be the one who accepted this load
-      if (String(load.acceptedBy) !== String(req.user.userId)) {
+      // The load must belong to the caller's company (owner id; dispatchers/drivers act for it)
+      if (String(load.acceptedBy) !== String(req.user.companyOwnerId)) {
         return res.status(403).json({ error: 'You can only get return load suggestions for your own loads' });
       }
 
@@ -86,23 +88,30 @@ router.get(
         return res.status(400).json({ error: 'Return load suggestions are only available for accepted, in-transit, or delivered loads' });
       }
 
-      const suggestions = await findReturnLoadsForLoad(req.params.loadId, req.user.userId);
+      if (load.destinationLat == null || load.destinationLng == null) {
+        return res.status(422).json({ error: 'This load has no destination coordinates, so nearby loads cannot be searched' });
+      }
+
+      const radius = req.query.radius ? parseInt(req.query.radius, 10) : undefined;
+      const suggestions = await findReturnLoadsForLoad(load, req.user.companyOwnerId, radius);
 
       res.json({
         success: true,
+        distanceMethod: 'straight-line',
         sourceLoad: {
           _id: load._id,
           title: load.title,
           destination: load.destination,
           destinationLat: load.destinationLat,
           destinationLng: load.destinationLng,
+          deliveryEnd: load.deliveryTimeWindow?.end || null,
         },
         count: suggestions.length,
         suggestions,
       });
     } catch (err) {
       console.error('[returnLoads/:loadId] failed:', err.message);
-      res.status(500).json({ error: err.message || 'Server error' });
+      res.status(500).json({ error: 'Server error' });
     }
   }
 );

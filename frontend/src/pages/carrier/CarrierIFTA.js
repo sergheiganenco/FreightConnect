@@ -461,7 +461,7 @@ export default function CarrierIFTA() {
                   {fuel.map((f) => (
                     <TableRow key={f._id} hover>
                       <TableCell sx={{ color: '#fff' }}>
-                        {f.date ? new Date(f.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                        {f.date ? new Date(f.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '—'}
                       </TableCell>
                       <TableCell sx={{ color: '#fff' }}>
                         {f.jurisdiction}{STATE_NAME[f.jurisdiction] ? ` — ${STATE_NAME[f.jurisdiction]}` : ''}
@@ -502,7 +502,7 @@ export default function CarrierIFTA() {
                         {f.jurisdiction}{STATE_NAME[f.jurisdiction] ? ` — ${STATE_NAME[f.jurisdiction]}` : ''}
                       </Typography>
                       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-                        {f.date ? new Date(f.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                        {f.date ? new Date(f.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '—'}
                       </Typography>
                     </Box>
                     <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>

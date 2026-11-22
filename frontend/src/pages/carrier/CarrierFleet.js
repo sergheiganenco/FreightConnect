@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   Box, Typography, Card, CardContent, CardActions, Button, Grid, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Tooltip, Chip,
-  CircularProgress, MenuItem
+  CircularProgress, MenuItem, TablePagination, Alert
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
@@ -12,6 +12,7 @@ import LocationOnIcon from "@mui/icons-material/LocationOn";
 import DirectionsCarIcon from "@mui/icons-material/DirectionsCar";
 import UndoIcon from "@mui/icons-material/Undo";
 import api from "../../services/api";
+import CsvImportDialog from "../../features/shared/CsvImportDialog";
 import { getSocket } from "../../services/socket";
 
 // Status color mapping
@@ -27,7 +28,19 @@ const statusColors = {
   Offline: "default",
 };
 
+const TRUCK_COLUMNS = [
+  { name: "truckId", required: true, note: "max 50 chars, unique" },
+  { name: "driverName" },
+  { name: "status", note: `default Available; one of ${Object.keys(statusColors).concat("Unavailable").join(", ")}` },
+];
+
 export default function CarrierFleet() {
+  const isDriver = localStorage.getItem("companyRole") === "driver";
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
   const [fleet, setFleet] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -210,13 +223,28 @@ export default function CarrierFleet() {
     } catch (err) { /* Optionally: error handling */ }
   }
 
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? fleet.filter((t) => [t.truckId, t.driverName, t.status].some((v) => (v || "").toLowerCase().includes(q)))
+    : fleet;
+  const maxPage = Math.max(0, Math.ceil(filtered.length / rowsPerPage) - 1);
+  const safePage = Math.min(page, maxPage);
+  const visible = filtered.slice(safePage * rowsPerPage, safePage * rowsPerPage + rowsPerPage);
+
   // --- UI ---
   return (
-    <Box sx={{ pt: 4, maxWidth: 1400, mx: "auto", width: "100%" }}>
+    <Box sx={{ pt: 4, pb: 10, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
         <Typography variant="h5" fontWeight={700} sx={{ color: "#fff", flex: 1 }}>
           Fleet / My Trucks
         </Typography>
+        {!isDriver && (
+          <Button variant="outlined" onClick={() => setImportOpen(true)}
+            sx={{ mr: 1, borderRadius: 3, fontWeight: 600, color: "#fff", borderColor: "rgba(255,255,255,0.5)" }}>
+            Import CSV
+          </Button>
+        )}
+        {!isDriver && (
         <Button
           variant="contained"
           startIcon={<AddIcon />}
@@ -230,15 +258,27 @@ export default function CarrierFleet() {
         >
           Add Truck
         </Button>
+        )}
       </Box>
+
+      {importMsg && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setImportMsg("")}>{importMsg}</Alert>}
+      <TextField
+        size="small"
+        placeholder="Search truck ID, driver, status"
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+        sx={{ mb: 2, minWidth: 280, bgcolor: "rgba(255,255,255,0.15)", borderRadius: 1, "& input": { color: "#fff" } }}
+      />
 
       {loading ? (
         <CircularProgress sx={{ color: "#fff", mt: 4 }} />
       ) : fleet.length === 0 ? (
         <Typography sx={{ color: "#eee" }}>No trucks in your fleet yet.</Typography>
+      ) : filtered.length === 0 ? (
+        <Typography sx={{ color: "#eee" }}>No trucks match your search.</Typography>
       ) : (
         <Grid container spacing={3} alignItems="stretch">
-          {fleet.map((truck) => (
+          {visible.map((truck) => (
             <Grid item xs={12} sm={6} md={4} lg={3} key={truck.truckId} sx={{ display: "flex" }}>
               <Card
                 sx={{
@@ -330,6 +370,7 @@ export default function CarrierFleet() {
                     borderTop: "1px solid rgba(255,255,255,0.07)",
                   }}
                 >
+                  {!isDriver && (<>
                   <Tooltip title="Edit Truck">
                     <span>
                       <IconButton onClick={() => handleDialogOpen(truck)} size="small">
@@ -344,6 +385,7 @@ export default function CarrierFleet() {
                       </IconButton>
                     </span>
                   </Tooltip>
+                  </>)}
                   <Tooltip title="Move Truck (simulate)">
                     <span>
                       <IconButton onClick={() => handleMove(truck)} size="small">
@@ -387,6 +429,30 @@ export default function CarrierFleet() {
           ))}
         </Grid>
       )}
+      {!loading && filtered.length > 0 && (
+        <TablePagination
+          component="div"
+          count={filtered.length}
+          page={safePage}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }}
+          rowsPerPageOptions={[25, 50, 100]}
+          sx={{ color: "#fff", "& .MuiSvgIcon-root": { color: "#fff" } }}
+        />
+      )}
+
+      <CsvImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(n) => { setImportMsg(`Imported ${n} truck(s).`); fetchFleet(); }}
+        title="Import trucks from CSV"
+        endpoint="/users/fleet/bulk"
+        bodyKey="trucks"
+        columns={TRUCK_COLUMNS}
+        example={["TRK-101", "Jane Driver", "Available"]}
+        templateName="trucks-template.csv"
+      />
 
       {/* Add/Edit Truck Dialog */}
       <Dialog open={dialogOpen} onClose={handleDialogClose} maxWidth="xs" fullWidth>

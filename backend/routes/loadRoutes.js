@@ -19,6 +19,8 @@ module.exports = (io) => {
   const antiFraudGuard = require('../services/antiFraudGuard');
   const { checkLoadEligibility } = require('../services/loadEligibility');
   const { haversineMiles, boundingBox, round } = require('../utils/geo');
+  const { estimateEconomics } = require('../utils/loadEconomics');
+  const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
 
   // ── Authorization helpers ──────────────────────────────────────────────────
   // The company (owner id) that the acting account belongs to. Sub-accounts
@@ -138,6 +140,37 @@ module.exports = (io) => {
   // ----------------------------------------
   // GET /api/loads - Return all loads (open + carrier's accepted)
   // ---------------------------------------
+  // Trip miles / rate-per-mile (and, for carrier managers, profit) annotation shared by the
+  // board list and GET /:id so a load opened from anywhere shows the same figures.
+  const annotateTrip = (l, deadheadMiles, wantsEconomics, costPerMileCents) => {
+    const hasO = Number.isFinite(l.originLat) && Number.isFinite(l.originLng);
+    const hasD = Number.isFinite(l.destinationLat) && Number.isFinite(l.destinationLng);
+    // Stored road miles when present; otherwise straight-line (understates driven miles).
+    const isRoad = Number.isFinite(l.distanceMiles) && l.distanceMiles > 0;
+    let tripMiles = null;
+    if (isRoad) tripMiles = l.distanceMiles;
+    else if (hasO && hasD) {
+      tripMiles = round(haversineMiles(l.originLat, l.originLng, l.destinationLat, l.destinationLng), 0);
+    }
+    const milesBasis = tripMiles == null ? null : isRoad ? 'road' : 'straight_line';
+    const rateCents = Number.isInteger(l.rateCents) ? l.rateCents
+      : typeof l.rate === 'number' ? Math.round(l.rate * 100) : null;
+    // Same cents and same miles as the economics block below.
+    const ratePerMile =
+      rateCents > 0 && tripMiles && tripMiles > 0
+        ? round(rateCents / 100 / tripMiles, 2)
+        : null;
+
+    const out = { ...l, deadheadMiles, tripMiles, ratePerMile, milesBasis };
+    if (wantsEconomics) {
+      // Trip miles are road miles when stored, else straight-line (profit optimistic).
+      // Deadhead is always straight-line.
+      const e = estimateEconomics({ rateCents, tripMiles, deadheadMiles, costPerMileCents });
+      out.economics = e && { ...e, rateCents, costPerMileCents, milesBasis, deadheadBasis: e.includesDeadhead ? 'straight_line' : null };
+    }
+    return out;
+  };
+
   router.get("/", auth, async (req, res) => {
     try {
       const { status, equipmentType, minRate, maxRate, pickupStart, pickupEnd, sortBy, sortOrder } = req.query;
@@ -247,6 +280,15 @@ module.exports = (io) => {
 
       let loads = await Load.find(filter).sort(sortCriteria).lean();
 
+      // Profit estimate: carrier managers only (drivers never see company margin), and the
+      // COMPANY OWNER's cost-per-mile, loaded once per request.
+      let costPerMileCents = null;
+      const wantsEconomics = req.user.role === "carrier" && req.user.companyRole !== "driver";
+      if (wantsEconomics) {
+        const owner = await User.findById(companyId).select("preferences.costPerMileCents").lean();
+        costPerMileCents = owner?.preferences?.costPerMileCents ?? null;
+      }
+
       // Refine the bounding box to the true radius and annotate each load with
       // trip miles, rate-per-mile, and (when an origin is given) deadhead miles.
       loads = loads
@@ -258,16 +300,7 @@ module.exports = (io) => {
           if (hasOriginSearch && hasO) {
             deadheadMiles = round(haversineMiles(oLat, oLng, l.originLat, l.originLng), 0);
           }
-          let tripMiles = null;
-          if (hasO && hasD) {
-            tripMiles = round(haversineMiles(l.originLat, l.originLng, l.destinationLat, l.destinationLng), 0);
-          }
-          const ratePerMile =
-            typeof l.rate === 'number' && tripMiles && tripMiles > 0
-              ? round(l.rate / tripMiles, 2)
-              : null;
-
-          return { ...l, deadheadMiles, tripMiles, ratePerMile };
+          return annotateTrip(l, deadheadMiles, wantsEconomics, costPerMileCents);
         })
         // Enforce the exact circle (bounding box is a superset).
         .filter((l) => {
@@ -543,6 +576,13 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       ? { lat: Number(req.body.destinationLat), lng: Number(req.body.destinationLng) }
       : (await fetchCoords(destination)) || {};
 
+    // Road miles (bounded by the ORS timeout, never throws; null on any failure or multi-stop).
+    const distFields = await loadDistanceFields({
+      originLat: originC.lat, originLng: originC.lng,
+      destinationLat: destinationC.lat, destinationLng: destinationC.lng,
+      stops: rawStops,
+    });
+
     // ---------- build & save ---------
     // Parse array fields that may arrive as JSON strings (FormData uploads)
     const parseArr = (v) => {
@@ -559,6 +599,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       destination,
       destinationLat: destinationC.lat,
       destinationLng: destinationC.lng,
+      ...distFields,
       rate,
       equipmentType,
       // Attribute ownership to the company so any of its sub-accounts can manage it.
@@ -943,6 +984,15 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
       // A party can always see their load; carriers can browse OPEN loads. Non-open
       // loads you aren't party to (private/accepted/in-transit) are not readable.
       if (!canBrowseLoad(load, req)) return res.status(403).json({ error: "Forbidden" });
+      if (req.user.role === "carrier") {
+        // Same annotations as the board list (optional ?deadheadMiles= from the caller's context).
+        const dh = req.query.deadheadMiles === undefined ? NaN : Number(req.query.deadheadMiles);
+        const wantsEconomics = req.user.companyRole !== "driver";
+        const owner = wantsEconomics
+          ? await User.findById(req.user.companyOwnerId || req.user.userId).select("preferences.costPerMileCents").lean()
+          : null;
+        return res.json(annotateTrip(load.toObject(), Number.isFinite(dh) && dh >= 0 ? dh : null, wantsEconomics, owner?.preferences?.costPerMileCents ?? null));
+      }
       res.json(load);
     } catch (err) {
       res.status(500).json({ error: "Server error fetching load by ID" });
@@ -1022,33 +1072,26 @@ router.get("/shipper-my-loads", auth, async (req, res) => {
         });
       }
 
-      const apiKey = process.env.ORS_API_KEY;
-      if (!apiKey) {
+      if (!process.env.ORS_API_KEY) {
         return res
           .status(500)
           .json({ error: "ORS_API_KEY is not set on the server" });
       }
 
-      const routeUrl = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${load.originLng},${load.originLat}&end=${load.destinationLng},${load.destinationLat}`;
+      const r = await fetchOrsRoute(load.originLat, load.originLng, load.destinationLat, load.destinationLng);
+      if (!r) return res.status(400).json({ error: "No valid route found." });
 
-      const response = await axios.get(routeUrl);
-      if (!response.data || !response.data.features) {
-        return res.status(400).json({ error: "No valid route found." });
+      const stored = plausibleMiles(r.meters, load.originLat, load.originLng, load.destinationLat, load.destinationLng);
+      // Heal old loads: persist the road miles (not for multi-stop: route ignores stops).
+      if (load.distanceMiles == null && stored != null && !(load.stops && load.stops.length)) {
+        await Load.updateOne({ _id: load._id, distanceMiles: null }, { $set: { distanceMiles: stored, distanceSource: 'ors' } });
       }
 
-      const route = response.data.features[0].geometry.coordinates || [];
-      const distanceMeters =
-        response.data.features[0]?.properties?.segments[0]?.distance || 0;
-      const timeSeconds =
-        response.data.features[0]?.properties?.segments[0]?.duration || 0;
-
-      const distanceMiles = (distanceMeters / 1609).toFixed(2);
-      const estimatedHours = (timeSeconds / 3600).toFixed(2);
-
       res.json({
-        route,
-        distance: distanceMiles,
-        estimatedTime: estimatedHours,
+        route: r.coordinates,
+        // Prefer the stored figure so card and modal agree.
+        distance: (load.distanceMiles ?? (stored ?? r.meters / 1609.344)).toFixed(2),
+        estimatedTime: (r.seconds / 3600).toFixed(2),
       });
     } catch (err) {
       console.error("❌ Error fetching route:", err);
@@ -1307,6 +1350,9 @@ router.put('/:id/stops', auth, async (req, res) => {
     }));
 
     load.stops = enriched;
+    // Stored O->D road miles would silently exclude stops.
+    if (enriched.length) { load.distanceMiles = null; load.distanceSource = null; }
+    else Object.assign(load, await loadDistanceFields(load));
     await load.save();
     res.json({ stops: load.stops });
   } catch (err) {
@@ -1932,6 +1978,9 @@ router.post('/voice-command', auth, async (req, res) => {
       load.destination = newDestination;
       if (newDestinationLat != null) load.destinationLat = newDestinationLat;
       if (newDestinationLng != null) load.destinationLng = newDestinationLng;
+      // Destination changed: recompute road miles (null if unknown) rather than keep a stale one.
+      Object.assign(load, newDestinationLat != null && newDestinationLng != null
+        ? await loadDistanceFields(load) : { distanceMiles: null, distanceSource: null });
 
       if (fee > 0) {
         load.accessorialCharges.push({

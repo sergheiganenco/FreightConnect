@@ -6,6 +6,7 @@ const validate = require('../middlewares/validate');
 const { managerOnly } = require('../middlewares/companyRoles');
 const User = require('../models/User');
 const { encrypt, maskField } = require('../utils/fieldCrypto');
+const { bulkImport } = require('../utils/bulkImport');
 
 const ALLOWED_ENDORSEMENTS = ['hazmat', 'tanker', 'doubles_triples', 'passenger', 'school_bus'];
 
@@ -107,6 +108,57 @@ router.post(
       res.status(500).json({ error: 'Server error' });
     }
   }
+);
+
+// ── POST /bulk  — import many drivers (all-or-nothing; ?dryRun=true to validate) ──
+// Roster only; login accounts are NOT created. Pay config uses schema defaults.
+router.post(
+  '/bulk',
+  auth,
+  managerOnly,
+  [body('drivers').isArray({ min: 1 }).withMessage('drivers must be a non-empty array')],
+  validate,
+  (req, res) => bulkImport(req, res, {
+    arrayName: 'drivers',
+    bodyKey: 'drivers',
+    idField: 'driverId',
+    genId: (taken) => {
+      let id;
+      do { id = generateDriverId([]); } while (taken.has(id.toLowerCase()));
+      return id;
+    },
+    parseRow: (raw, r, err) => {
+      let endorsements = [];
+      if (raw.endorsements !== undefined && raw.endorsements !== null && raw.endorsements !== '') {
+        if (!Array.isArray(raw.endorsements) || raw.endorsements.some((e) => typeof e !== 'string')) {
+          err('endorsements', 'endorsements must be a list of strings');
+        } else {
+          endorsements = raw.endorsements.map((e) => e.trim().toLowerCase()).filter(Boolean);
+          const bad = endorsements.find((e) => !ALLOWED_ENDORSEMENTS.includes(e));
+          if (bad) err('endorsements', `Unknown endorsement "${bad}". Allowed: ${ALLOWED_ENDORSEMENTS.join(', ')}`);
+        }
+      }
+      let licenseState = r.get('licenseState', { max: 2 });
+      if (licenseState !== undefined) {
+        licenseState = licenseState.toUpperCase();
+        if (!/^[A-Z]{2}$/.test(licenseState)) { err('licenseState', 'licenseState must be 2 letters'); licenseState = undefined; }
+      }
+      const licenseNumber = r.get('licenseNumber', { max: 50 });
+      return {
+        driverId: r.get('driverId', { max: 50 }),
+        name: r.get('name', { required: true }),
+        phone: r.get('phone', { max: 30 }),
+        licenseNumber: licenseNumber ? encrypt(licenseNumber) : undefined, // PII, same as single-create
+        licenseState,
+        licenseExpiry: r.date('licenseExpiry'),
+        endorsements,
+        hazmatExpiry: r.date('hazmatExpiry'),
+        medicalCardExpiry: r.date('medicalCardExpiry'),
+        status: r.oneOf('status', ['active', 'inactive', 'on_leave'], 'active'),
+        createdAt: new Date(),
+      };
+    },
+  })
 );
 
 // ── PUT /endorsements  — set carrier-level endorsements ─────────────────────

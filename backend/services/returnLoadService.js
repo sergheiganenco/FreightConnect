@@ -7,37 +7,36 @@
 
 const Load = require('../models/Load');
 const User = require('../models/User');
+const { haversineMiles, boundingBox } = require('../utils/geo');
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const DEFAULT_RADIUS_MILES = 50;
 const MAX_RESULTS = 10;
-const EARTH_RADIUS_MILES = 3958.8;
+const CANDIDATE_LIMIT = 100; // hard cap on docs pulled from Mongo
 const DELIVERY_BUFFER_HOURS = 2; // minimum hours between delivery and next pickup
 
-// ── Haversine distance (miles) ───────────────────────────────────────────────
-function haversineDistance(lat1, lng1, lat2, lng2) {
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 2 * EARTH_RADIUS_MILES * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+// All distances are straight-line (great-circle), NOT road miles.
+const haversineDistance = haversineMiles;
+
+// ── Authoritative money: integer cents (Load.rateCents, falling back to rate*100)
+function loadRateCents(load) {
+  if (Number.isInteger(load.rateCents)) return load.rateCents;
+  return Number.isFinite(load.rate) ? Math.round(load.rate * 100) : 0;
 }
 
-// ── Estimate load distance (origin → destination) ────────────────────────────
+// ── Load distance (origin → destination): stored road miles, else straight-line ─
 function estimateLoadMiles(load) {
-  if (load.originLat && load.originLng && load.destinationLat && load.destinationLng) {
-    return haversineDistance(load.originLat, load.originLng, load.destinationLat, load.destinationLng);
-  }
-  return null;
+  if (Number.isFinite(load.distanceMiles) && load.distanceMiles > 0) return load.distanceMiles;
+  const { originLat, originLng, destinationLat, destinationLng } = load;
+  if ([originLat, originLng, destinationLat, destinationLng].some((v) => v == null)) return null;
+  return haversineMiles(originLat, originLng, destinationLat, destinationLng);
 }
 
-// ── Rate per mile ────────────────────────────────────────────────────────────
-function ratePerMile(load) {
+// ── Rate per mile in integer cents (null if distance unknown) ────────────────
+function ratePerMileCents(load) {
   const miles = estimateLoadMiles(load);
-  if (!miles || miles < 1) return 0;
-  return load.rate / miles;
+  if (!miles || miles < 1) return null;
+  return Math.round(loadRateCents(load) / miles);
 }
 
 // ── Scoring weights ──────────────────────────────────────────────────────────
@@ -65,7 +64,7 @@ function scoreCandidate(candidate, context, distance, radiusMiles) {
   breakdown.proximity = Math.max(0, 1 - distance / radiusMiles) * WEIGHTS.proximity;
 
   // 2. Rate per mile (normalize: $3+/mi = perfect, $0 = zero)
-  const rpm = ratePerMile(candidate);
+  const rpm = (ratePerMileCents(candidate) || 0) / 100;
   breakdown.ratePerMile = Math.min(1, rpm / 3) * WEIGHTS.ratePerMile;
 
   // 3. Equipment match
@@ -143,7 +142,7 @@ async function buildLaneHistory(carrierId) {
 async function findReturnLoads({
   lat,
   lng,
-  carrierId,
+  carrierId, // company owner id (sub-accounts act for their company)
   equipmentTypes,
   deliveryEndTime,
   radiusMiles = DEFAULT_RADIUS_MILES,
@@ -153,25 +152,32 @@ async function findReturnLoads({
     throw new Error('Latitude and longitude are required');
   }
 
-  // Rough bounding box filter (1 degree latitude ~ 69 miles)
-  const latDelta = radiusMiles / 69;
-  const lngDelta = radiusMiles / (69 * Math.cos((lat * Math.PI) / 180));
-
+  const box = boundingBox(lat, lng, radiusMiles);
   const filter = {
     status: 'open',
-    originLat: { $gte: lat - latDelta, $lte: lat + latDelta },
-    originLng: { $gte: lng - lngDelta, $lte: lng + lngDelta },
+    originLat: { $gte: box.latMin, $lte: box.latMax },
+    originLng: { $gte: box.lngMin, $lte: box.lngMax },
+    postedBy: { $ne: carrierId }, // never suggest the company's own postings
   };
 
   if (excludeLoadId) {
     filter._id = { $ne: excludeLoadId };
   }
 
-  // Fetch candidate loads
+  // Pickup must not close before delivery + buffer.
+  if (deliveryEndTime) {
+    const earliest = new Date(new Date(deliveryEndTime).getTime() + DELIVERY_BUFFER_HOURS * 3600000);
+    filter.$or = [
+      { 'pickupTimeWindow.end': { $gte: earliest } },
+      { 'pickupTimeWindow.end': null, 'pickupTimeWindow.start': { $gte: earliest } },
+    ];
+  }
+
+  // Fetch candidate loads (bounded: status + bounding box + limit)
   const candidates = await Load.find(filter)
-    .select('title origin originLat originLng destination destinationLat destinationLng rate equipmentType pickupTimeWindow deliveryTimeWindow postedBy status loadWeight commodityType')
+    .select('distanceMiles title origin originLat originLng destination destinationLat destinationLng rate rateCents equipmentType pickupTimeWindow deliveryTimeWindow postedBy status loadWeight commodityType')
     .populate('postedBy', 'name companyName')
-    .limit(100)
+    .limit(CANDIDATE_LIMIT)
     .lean();
 
   // Build carrier context
@@ -195,15 +201,14 @@ async function findReturnLoads({
   // Score each candidate
   const scored = [];
   for (const candidate of candidates) {
-    if (!candidate.originLat || !candidate.originLng) continue;
+    if (candidate.originLat == null || candidate.originLng == null) continue;
 
-    const distance = haversineDistance(lat, lng, candidate.originLat, candidate.originLng);
+    const distance = haversineMiles(lat, lng, candidate.originLat, candidate.originLng);
     if (distance > radiusMiles) continue; // precise Haversine check after bounding-box filter
 
     const { score, breakdown } = scoreCandidate(candidate, context, distance, radiusMiles);
 
     const loadMiles = estimateLoadMiles(candidate);
-    const rpm = loadMiles && loadMiles > 0 ? Math.round((candidate.rate / loadMiles) * 100) / 100 : null;
 
     scored.push({
       load: {
@@ -216,6 +221,7 @@ async function findReturnLoads({
         destinationLat: candidate.destinationLat,
         destinationLng: candidate.destinationLng,
         rate: candidate.rate,
+        rateCents: loadRateCents(candidate),
         equipmentType: candidate.equipmentType,
         pickupTimeWindow: candidate.pickupTimeWindow,
         deliveryTimeWindow: candidate.deliveryTimeWindow,
@@ -223,9 +229,10 @@ async function findReturnLoads({
         commodityType: candidate.commodityType,
         postedBy: candidate.postedBy,
       },
-      distanceFromLocation: Math.round(distance * 10) / 10, // miles, 1 decimal
+      approxDeadheadMiles: Math.round(distance * 10) / 10, // straight-line miles, 1 decimal
       loadMiles: loadMiles ? Math.round(loadMiles) : null,
-      ratePerMile: rpm,
+      milesBasis: loadMiles ? (candidate.distanceMiles > 0 ? 'road' : 'straight_line') : null,
+      ratePerMileCents: ratePerMileCents(candidate),
       matchScore: Math.round(score),      // 0-100
       matchBreakdown: breakdown,
       equipmentMatch: carrierEquipment.includes(candidate.equipmentType),
@@ -241,13 +248,10 @@ async function findReturnLoads({
 }
 
 /**
- * Find return loads for a specific load the carrier has accepted/is delivering.
+ * Find return loads for a load document (caller has already authorised access).
  */
-async function findReturnLoadsForLoad(loadId, carrierId) {
-  const load = await Load.findById(loadId).lean();
-  if (!load) throw new Error('Load not found');
-
-  if (!load.destinationLat || !load.destinationLng) {
+async function findReturnLoadsForLoad(load, carrierId, radiusMiles) {
+  if (load.destinationLat == null || load.destinationLng == null) {
     throw new Error('Load destination coordinates are missing');
   }
 
@@ -256,7 +260,8 @@ async function findReturnLoadsForLoad(loadId, carrierId) {
     lng: load.destinationLng,
     carrierId,
     deliveryEndTime: load.deliveryTimeWindow?.end || null,
-    excludeLoadId: loadId,
+    excludeLoadId: load._id,
+    ...(radiusMiles ? { radiusMiles } : {}),
   });
 }
 

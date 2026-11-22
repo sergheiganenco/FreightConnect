@@ -11,6 +11,9 @@ const LoadSchema = new mongoose.Schema({
   rate: { type: Number, required: true },
   // Canonical money field (integer cents). `rate` (float dollars) kept for backward-compat.
   rateCents: { type: Number, default: null },
+  // Road miles origin->destination (1 decimal). Null for multi-stop loads or when unknown.
+  distanceMiles: { type: Number, default: null },
+  distanceSource: { type: String, enum: ['ors', null], default: null },
   equipmentType: { type: String, required: true },
   pickupTimeWindow: {
     start: Date,

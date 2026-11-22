@@ -789,7 +789,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
           </Box>
           <Box>
             <Typography variant="caption" sx={{ color: T.muted, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: 1 }}>Distance</Typography>
-            <Typography fontWeight={600}>{distance ? `${distance} miles` : 'Calculating\u2026'}</Typography>
+            <Typography fontWeight={600}>{(loadState.distanceMiles || distance) ? `${loadState.distanceMiles || distance} miles` : 'Calculating\u2026'}</Typography>
           </Box>
           <Box>
             <Typography variant="caption" sx={{ color: T.muted, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: 1 }}>ETA</Typography>
@@ -802,6 +802,45 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
             </Box>
           )}
         </Box>
+
+        {/* Estimated profit (carrier managers only; server omits economics for drivers/shippers) */}
+        {isCarrier && loadState.economics !== undefined && (() => {
+          const e = loadState.economics;
+          if (e === null) {
+            return (
+              <Typography variant="caption" sx={{ color: T.muted, display: 'block', mt: 1.5 }}>
+                Estimated profit is off. <a href="/dashboard/carrier/profile" style={{ color: 'inherit' }}>Set your operating cost per mile</a> in your profile to see it.
+              </Typography>
+            );
+          }
+          // Prefer the stored road miles (same figure as the card), else the route call's.
+          const road = Number(loadState.distanceMiles || distance);
+          const useRoad = Number.isFinite(road) && road > 0;
+          const dh = e.includesDeadhead ? loadState.deadheadMiles : 0;
+          const miles = useRoad ? road + dh : e.totalMiles;
+          const cost = useRoad ? Math.round(e.costPerMileCents * miles) : e.costCents;
+          const profit = e.rateCents - cost;
+          const ppm = Math.round(profit / miles);
+          const $ = (c) => (c < 0 ? '-' : '') + '$' + (Math.abs(c) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const row = (k, v, color) => (
+            <Box display="flex" justifyContent="space-between"><Typography variant="body2" sx={{ color: T.muted }}>{k}</Typography><Typography variant="body2" fontWeight={600} sx={color ? { color } : undefined}>{v}</Typography></Box>
+          );
+          return (
+            <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, border: '1px solid rgba(255,255,255,0.12)' }}>
+              <Typography variant="caption" sx={{ color: T.muted, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: 1 }}>Estimated profit</Typography>
+              {row('Rate', $(e.rateCents))}
+              {row('Miles used', `${miles.toLocaleString(undefined, { maximumFractionDigits: 2 })} (trip ${(useRoad ? road : e.totalMiles - dh).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${useRoad ? 'road' : 'straight-line'}${e.includesDeadhead ? ` + ${dh.toLocaleString()} deadhead straight-line` : ', deadhead not included'})`)}
+              {row('Your cost per mile', $(e.costPerMileCents))}
+              {row('Estimated cost', $(cost))}
+              {row('Estimated profit', $(profit), profit < 0 ? '#ef4444' : '#34d399')}
+              {row('Profit per mile', $(ppm))}
+              <Typography variant="caption" sx={{ color: T.muted, display: 'block', mt: 0.5 }}>
+                Estimate from your own cost per mile; excludes tolls, detention and accessorials.
+                {useRoad ? '' : ' Uses straight-line miles, which understate real driving distance, so actual profit is likely lower.'}
+              </Typography>
+            </Box>
+          );
+        })()}
 
         {/* Overweight alert */}
         {loadState.overweightAcknowledged && (

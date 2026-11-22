@@ -44,6 +44,7 @@ export default function FooterFull() {
         pt: 6,
         pb: 3,
         px: { xs: 3, md: 8 },
+        overflowX: 'clip', // the Grid container's negative-margin spacing must not widen the page on phones
       }}
     >
       <Grid container spacing={4} sx={{ maxWidth: 1200, mx: 'auto' }}>
@@ -162,17 +163,6 @@ export default function FooterFull() {
         </Typography>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {/* SOC2 badge placeholder */}
-          <Box sx={{
-            px: 1.5, py: 0.5, borderRadius: 1,
-            border: `1px solid ${surface.glassBorder}`,
-            display: 'flex', alignItems: 'center', gap: 0.5,
-          }}>
-            <Typography variant="caption" sx={{ color: text.muted, fontWeight: 600, letterSpacing: 1 }}>
-              SOC 2
-            </Typography>
-          </Box>
-
           {/* Social icons */}
           <Stack direction="row" spacing={0.5}>
             <IconButton

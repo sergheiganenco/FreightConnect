@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, Button, Grid, Paper, Chip, Stack, IconButton,
   CircularProgress, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Tooltip,
+  TextField, FormControl, InputLabel, Select, MenuItem, OutlinedInput, Tooltip, TablePagination,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -12,6 +12,7 @@ import BadgeIcon from '@mui/icons-material/Badge';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import api from '../../services/api';
+import CsvImportDialog from '../../features/shared/CsvImportDialog';
 import {
   glassCard, surface, text as T, brand, semantic, tint, darkFieldSx, radius,
 } from '../../theme/tokens';
@@ -28,7 +29,7 @@ const ENDORSEMENT_LABEL = Object.fromEntries(ENDORSEMENT_OPTIONS.map(e => [e.val
 const STATUS_COLOR = {
   active:    semantic.success,
   inactive:  semantic.muted,
-  suspended: semantic.error,
+  on_leave:  semantic.warning,
 };
 
 const emptyForm = {
@@ -43,6 +44,21 @@ const emptyForm = {
   status: 'active',
 };
 
+const DRIVER_COLUMNS = [
+  { name: 'name', required: true },
+  { name: 'driverId', note: 'optional; generated if blank' },
+  { name: 'phone' },
+  { name: 'licenseNumber' },
+  { name: 'licenseState', note: '2 letters' },
+  { name: 'licenseExpiry', note: 'YYYY-MM-DD' },
+  { name: 'medicalCardExpiry', note: 'YYYY-MM-DD' },
+  { name: 'hazmatExpiry', note: 'YYYY-MM-DD' },
+  { name: 'endorsements', note: 'separate with ; from hazmat, tanker, doubles_triples, passenger, school_bus' },
+  { name: 'status', note: 'active, inactive or on_leave; default active' },
+];
+// endorsements arrive as "hazmat;tanker" -> array
+const driverRow = (r) => (r.endorsements ? { ...r, endorsements: r.endorsements.split(';').map((e) => e.trim()).filter(Boolean) } : r);
+
 function toDateInput(v) {
   if (!v) return '';
   const d = new Date(v);
@@ -51,6 +67,11 @@ function toDateInput(v) {
 }
 
 export default function CarrierDrivers() {
+  const isDriver = localStorage.getItem('companyRole') === 'driver';
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [importOpen, setImportOpen] = useState(false);
   const [drivers, setDrivers]   = useState([]);
   const [alerts, setAlerts]     = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -106,7 +127,7 @@ export default function CarrierDrivers() {
   };
 
   const openEdit = (d) => {
-    setEditing(d._id || d.driverId);
+    setEditing(d.driverId); // the API keys drivers by driverId, not the subdocument _id
     setForm({
       name: d.name || '',
       phone: d.phone || '',
@@ -164,7 +185,7 @@ export default function CarrierDrivers() {
   };
 
   const handleDelete = async (d) => {
-    const id = d._id || d.driverId;
+    const id = d.driverId;
     if (!window.confirm(`Remove driver ${d.name}?`)) return;
     try {
       await api.delete(`/drivers/${id}`);
@@ -188,14 +209,31 @@ export default function CarrierDrivers() {
     }
   };
 
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? drivers.filter((d) => [d.name, d.licenseNumber, d.phone].some((v) => (v || '').toLowerCase().includes(q)))
+    : drivers;
+  const safePage = Math.min(page, Math.max(0, Math.ceil(filtered.length / rowsPerPage) - 1));
+  const visible = filtered.slice(safePage * rowsPerPage, safePage * rowsPerPage + rowsPerPage);
+
   /* ── render ──────────────────────────────────────────────────── */
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', width: '100%', pt: 2 }}>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', width: '100%', pt: 2, pb: 10 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
         <BadgeIcon sx={{ color: brand.indigoLight, fontSize: 30, mr: 1.5 }} />
         <Typography variant="h5" fontWeight={800} sx={{ color: T.primary, flex: 1 }}>
           Drivers
         </Typography>
+        {!isDriver && (
+          <Button
+            variant="outlined"
+            onClick={() => setImportOpen(true)}
+            sx={{ mr: 1, borderRadius: radius.pill, borderColor: surface.glassBorder, color: T.primary, fontWeight: 700 }}
+          >
+            Import CSV
+          </Button>
+        )}
+        {!isDriver && (
         <Button
           variant="contained"
           startIcon={<AddIcon />}
@@ -204,6 +242,7 @@ export default function CarrierDrivers() {
         >
           Add Driver
         </Button>
+        )}
       </Box>
 
       {/* Compliance alerts banner */}
@@ -248,6 +287,7 @@ export default function CarrierDrivers() {
             <InputLabel>Endorsements</InputLabel>
             <Select
               multiple
+              disabled={isDriver}
               value={carrierEndorsements}
               onChange={(e) => setCarrierEndorsements(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
               input={<OutlinedInput label="Endorsements" />}
@@ -265,7 +305,7 @@ export default function CarrierDrivers() {
           <Button
             variant="outlined"
             onClick={handleSaveCarrierEndorsements}
-            disabled={savingCarrierEnd}
+            disabled={savingCarrierEnd || isDriver}
             sx={{ borderRadius: radius.pill, borderColor: surface.glassBorder, color: T.primary, fontWeight: 700, '&:hover': { borderColor: T.muted, bgcolor: surface.glassSubtle } }}
           >
             {savingCarrierEnd ? <CircularProgress size={18} /> : 'Save'}
@@ -276,6 +316,14 @@ export default function CarrierDrivers() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {snack && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSnack('')}>{snack}</Alert>}
 
+      <TextField
+        size="small"
+        placeholder="Search name, licence, phone"
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+        sx={{ ...darkFieldSx, mb: 2, minWidth: 280 }}
+      />
+
       {/* Driver roster */}
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 6 }}>
@@ -285,9 +333,13 @@ export default function CarrierDrivers() {
         <Paper sx={{ ...glassCard.subtle, p: 4, textAlign: 'center' }}>
           <Typography sx={{ color: T.secondary }}>No drivers yet. Add your first driver to start tracking compliance.</Typography>
         </Paper>
+      ) : filtered.length === 0 ? (
+        <Paper sx={{ ...glassCard.subtle, p: 4, textAlign: 'center' }}>
+          <Typography sx={{ color: T.secondary }}>No drivers match your search.</Typography>
+        </Paper>
       ) : (
         <Grid container spacing={2}>
-          {drivers.map((d) => {
+          {visible.map((d) => {
             const sColor = STATUS_COLOR[d.status] || semantic.muted;
             return (
               <Grid item xs={12} sm={6} md={4} key={d._id || d.driverId}>
@@ -297,7 +349,7 @@ export default function CarrierDrivers() {
                       <Typography fontWeight={700} sx={{ color: T.primary }}>{d.name}</Typography>
                       {d.phone && <Typography variant="caption" sx={{ color: T.secondary }}>{d.phone}</Typography>}
                     </Box>
-                    <Chip label={d.status || 'active'} size="small"
+                    <Chip label={(d.status || 'active').replace('_', ' ')} size="small"
                       sx={{ bgcolor: tint(sColor, 0.2), color: sColor, fontWeight: 700, textTransform: 'capitalize' }} />
                   </Stack>
 
@@ -308,7 +360,7 @@ export default function CarrierDrivers() {
                     </Typography>
                     {d.licenseExpiry && (
                       <Typography variant="caption" sx={{ color: T.secondary }}>
-                        CDL exp: {new Date(d.licenseExpiry).toLocaleDateString()}
+                        CDL exp: {new Date(d.licenseExpiry).toLocaleDateString(undefined, { timeZone: 'UTC' })}
                       </Typography>
                     )}
                   </Box>
@@ -317,12 +369,12 @@ export default function CarrierDrivers() {
                     <Box sx={{ mb: 1 }}>
                       {d.medicalCardExpiry && (
                         <Typography variant="caption" sx={{ color: T.secondary, display: 'block' }}>
-                          Medical exp: {new Date(d.medicalCardExpiry).toLocaleDateString()}
+                          Medical exp: {new Date(d.medicalCardExpiry).toLocaleDateString(undefined, { timeZone: 'UTC' })}
                         </Typography>
                       )}
                       {d.hazmatExpiry && (
                         <Typography variant="caption" sx={{ color: T.secondary, display: 'block' }}>
-                          Hazmat exp: {new Date(d.hazmatExpiry).toLocaleDateString()}
+                          Hazmat exp: {new Date(d.hazmatExpiry).toLocaleDateString(undefined, { timeZone: 'UTC' })}
                         </Typography>
                       )}
                     </Box>
@@ -337,6 +389,7 @@ export default function CarrierDrivers() {
                     </Stack>
                   )}
 
+                  {!isDriver && (
                   <Stack direction="row" justifyContent="flex-end" spacing={0.5} sx={{ mt: 'auto', pt: 1 }}>
                     <Tooltip title="Edit">
                       <IconButton size="small" onClick={() => openEdit(d)}>
@@ -349,12 +402,38 @@ export default function CarrierDrivers() {
                       </IconButton>
                     </Tooltip>
                   </Stack>
+                  )}
                 </Paper>
               </Grid>
             );
           })}
         </Grid>
       )}
+      {!loading && filtered.length > 0 && (
+        <TablePagination
+          component="div"
+          count={filtered.length}
+          page={safePage}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }}
+          rowsPerPageOptions={[25, 50, 100]}
+          sx={{ color: T.primary, '& .MuiSvgIcon-root': { color: T.primary } }}
+        />
+      )}
+
+      <CsvImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(n) => { setSnack(`Imported ${n} driver(s).`); fetchDrivers(); fetchAlerts(); }}
+        title="Import drivers from CSV"
+        endpoint="/drivers/bulk"
+        bodyKey="drivers"
+        columns={DRIVER_COLUMNS}
+        example={['Jane Driver', '', '555-123-4567', 'D1234567', 'TX', '2027-05-01', '2027-03-01', '', 'hazmat;tanker', 'active']}
+        templateName="drivers-template.csv"
+        toRow={driverRow}
+      />
 
       {/* Add / Edit dialog */}
       <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="sm" fullWidth
@@ -408,7 +487,7 @@ export default function CarrierDrivers() {
               <Select value={form.status} label="Status" onChange={(e) => setField('status', e.target.value)}>
                 <MenuItem value="active">Active</MenuItem>
                 <MenuItem value="inactive">Inactive</MenuItem>
-                <MenuItem value="suspended">Suspended</MenuItem>
+                <MenuItem value="on_leave">On leave</MenuItem>
               </Select>
             </FormControl>
             {formError && <Alert severity="error">{formError}</Alert>}

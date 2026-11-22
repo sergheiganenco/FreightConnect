@@ -26,9 +26,10 @@ export default function AdminProfileSection() {
     try {
       const res = await api.put("/users/me", edit);
       setProfile(res.data);
+      setEdit(p => ({ ...p, currentPassword: "" }));
       setSnackbar({ open: true, message: "Profile updated!", severity: "success" });
-    } catch {
-      setSnackbar({ open: true, message: "Update failed.", severity: "error" });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.error || "Update failed.", severity: "error" });
     }
     setSaving(false);
   };
@@ -77,6 +78,24 @@ export default function AdminProfileSection() {
           InputLabelProps={{ sx: { color: "#bcbcff" } }}
           sx={{ mb: 3 }}
         />
+        {edit.email !== profile.email && (
+          <TextField
+            label="Current password"
+            type="password"
+            name="currentPassword"
+            value={edit.currentPassword || ""}
+            onChange={e => setEdit(p => ({ ...p, currentPassword: e.target.value }))}
+            helperText="Required to change your email"
+            fullWidth
+            variant="filled"
+            InputProps={{
+              sx: { bgcolor: "rgba(255,255,255,0.12)", color: "#fff", borderRadius: 3 }
+            }}
+            InputLabelProps={{ sx: { color: "#bcbcff" } }}
+            FormHelperTextProps={{ sx: { color: "#bcbcff" } }}
+            sx={{ mt: 3 }}
+          />
+        )}
         <TextField
           label="Phone"
           name="phone"

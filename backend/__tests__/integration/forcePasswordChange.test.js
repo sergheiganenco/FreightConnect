@@ -15,6 +15,7 @@ function buildApp() {
   const app = express();
   app.use(express.json());
   app.use('/api/users', require('../../routes/userRoutes'));
+  app.use('/api/loads', require('../../routes/loadRoutes')({ to: () => ({ emit: () => {} }), emit: () => {} }));
   app.use('/api/admin', require('../../routes/adminRoutes'));
   return app;
 }
@@ -76,5 +77,77 @@ describe('forced password change (admin-created accounts)', () => {
     const login = await request(app).post('/api/users/login').send({ email: user.email, password: 'SelfSignup123' });
     expect(login.status).toBe(200);
     expect(login.body.user.mustChangePassword).toBe(false);
+  });
+
+  test('server blocks a flagged account on ordinary endpoints until the password is changed', async () => {
+    const email = `flag-${Date.now()}@acme.com`;
+    const owner = await createTestUser({ role: 'carrier', companyRole: 'owner' });
+    const created = await request(app).post('/api/users/team')
+      .set('Authorization', `Bearer ${generateToken(owner)}`)
+      .send({ name: 'Flagged', email, password: 'TempPass123', companyRole: 'dispatcher' });
+    expect(created.status).toBe(201);
+
+    const login = await request(app).post('/api/users/login').send({ email, password: 'TempPass123' });
+    const token = login.body.token;
+    const auth = (r) => r.set('Authorization', `Bearer ${token}`);
+
+    // Ordinary read + write are blocked with the machine-readable code.
+    const blocked = await auth(request(app).get('/api/loads/my-loads'));
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe('password_change_required');
+    const blockedWrite = await auth(request(app).put('/api/users/me')).send({ name: 'Hacker' });
+    expect(blockedWrite.status).toBe(403);
+    expect(blockedWrite.body.code).toBe('password_change_required');
+
+    // Identity read stays available so the client can show the change form.
+    expect((await auth(request(app).get('/api/users/me'))).status).toBe(200);
+
+    // Changing the password lifts the block on the SAME token immediately (cache invalidated).
+    const change = await auth(request(app).post('/api/users/change-password'))
+      .send({ currentPassword: 'TempPass123', newPassword: 'BrandNewPass9' });
+    expect(change.status).toBe(200);
+    const after = await auth(request(app).get('/api/loads/my-loads'));
+    expect(after.status).toBe(200);
+  });
+});
+
+// Production mounting order (app.js): tosGuard globally before route auth, then routes.
+describe('new team member: ToS + temp password (no deadlock)', () => {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/', require('../../middlewares/tosGuard'));
+  app.use('/api/users', require('../../routes/userRoutes'));
+  app.use('/api/loads', require('../../routes/loadRoutes')({ to: () => ({ emit: () => {} }), emit: () => {} }));
+  app.use('/api/tos', require('../../routes/tosRoutes'));
+
+  test('login -> change-password -> ToS required -> accept ToS -> normal endpoint works', async () => {
+    const owner = await createTestUser({ role: 'carrier', companyRole: 'owner', tosAccepted: true, tosVersion: '1.0' });
+    const email = `tos-hire-${Date.now()}@acme.com`;
+    const created = await request(app).post('/api/users/team')
+      .set('Authorization', `Bearer ${generateToken(owner)}`)
+      .send({ name: 'Tos Hire', email, password: 'TempPass123', companyRole: 'dispatcher' });
+    expect(created.status).toBe(201);
+
+    const login = await request(app).post('/api/users/login').send({ email, password: 'TempPass123' });
+    expect(login.status).toBe(200);
+    const auth = (r) => r.set('Authorization', `Bearer ${login.body.token}`);
+    const pw = { currentPassword: 'TempPass123', newPassword: 'BrandNewPass9' };
+
+    // ToS not yet accepted, but ordinary routes are blocked by the temp password first.
+    const early = await auth(request(app).get('/api/loads/my-loads'));
+    expect(early.status).toBe(403);
+
+    // Changing the password is exempt from the ToS gate, so there is no deadlock
+    // and the user is not bounced out of the form.
+    expect((await auth(request(app).post('/api/users/change-password')).send(pw)).status).toBe(200);
+
+    // ToS is still enforced afterwards...
+    const gated = await auth(request(app).get('/api/loads/my-loads'));
+    expect(gated.status).toBe(403);
+    expect(gated.body.tosRequired).toBe(true);
+
+    // ...and accepting it opens the app.
+    expect((await auth(request(app).post('/api/tos/accept'))).status).toBe(200);
+    expect((await auth(request(app).get('/api/loads/my-loads'))).status).toBe(200);
   });
 });

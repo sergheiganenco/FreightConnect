@@ -1,5 +1,5 @@
 // ── src/pages/CarrierMyLoads.js ─────────────────────────────────
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Typography,
   Box,
@@ -16,6 +16,7 @@ import {
 import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
+import ReturnLoadSuggestions from '../../components/ReturnLoadSuggestions';
 import SignaturePad from '../../components/SignaturePad';
 import { glassCard } from '../../theme/tokens';
 
@@ -33,22 +34,22 @@ export default function CarrierMyLoads({ embedded = false }) {
   const [sigPad, setSigPad] = useState({ open: false, loadId: null });
 
   /* ── fetch loads once ─────────────────────────────────────── */
-  useEffect(() => {
-    (async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const { data } = await api.get('/loads/my-loads', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setLoads(data);
-      } catch (err) {
-        setError('Failed to fetch loads. Please try again later.');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const fetchLoads = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const { data } = await api.get('/loads/my-loads', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setLoads(data);
+    } catch (err) {
+      setError('Failed to fetch loads. Please try again later.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { fetchLoads(); }, [fetchLoads]);
 
   /* ── sort helper ──────────────────────────────────────────── */
   const sortLoads = (list) => {
@@ -192,9 +193,11 @@ export default function CarrierMyLoads({ embedded = false }) {
                     display="flex"
                     justifyContent="space-between"
                     alignItems="center"
+                    flexWrap="wrap"
+                    gap={1}
                     mb={1}
                   >
-                    <Typography fontWeight={600}>
+                    <Typography fontWeight={600} sx={{ minWidth: 0, flex: '1 1 160px' }}>
                       {l.origin} → {l.destination}
                     </Typography>
                     <FormControl
@@ -254,6 +257,13 @@ export default function CarrierMyLoads({ embedded = false }) {
                   {l.status !== 'delivered' && (
                     <StatusChip status={l.status} />
                   )}
+
+                  {/* Return-load suggestions: collapsed, fetched on expand */}
+                  {['accepted', 'in-transit'].includes(l.status) && (
+                    <Box mt={1.5} onClick={(e) => e.stopPropagation()}>
+                      <ReturnLoadSuggestions loadId={l._id} onViewLoad={setSelected} />
+                    </Box>
+                  )}
                 </Paper>
               </Grid>
             ))
@@ -281,9 +291,9 @@ export default function CarrierMyLoads({ embedded = false }) {
           load={selected}
           userRole="carrier"
           onClose={() => setSelected(null)}
-          onLoadAccepted={(id) => {
-            // remove from list immediately if you like:
-            setLoads((prev) => prev.filter((l) => l._id !== id));
+          onLoadAccepted={() => {
+            // The accepted load may not be in this list yet (e.g. a return-load suggestion) — refetch.
+            fetchLoads();
             setSelected(null);
           }}
         />

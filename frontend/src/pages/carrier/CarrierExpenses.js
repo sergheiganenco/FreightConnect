@@ -358,7 +358,7 @@ export default function CarrierExpenses() {
                 {expenses.map(exp => (
                   <TableRow key={exp._id} hover sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}>
                     <TableCell sx={{ color: '#fff' }} onClick={() => openDetail(exp)}>
-                      {new Date(exp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {new Date(exp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
                     </TableCell>
                     <TableCell onClick={() => openDetail(exp)}>
                       <Chip
@@ -429,7 +429,7 @@ export default function CarrierExpenses() {
                       </Typography>
                     )}
                     <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block', mt: 0.5 }}>
-                      {new Date(exp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {new Date(exp.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
                     </Typography>
                   </Box>
                   <Typography sx={{ color: '#ef4444', fontWeight: 800, flexShrink: 0 }}>
@@ -574,7 +574,7 @@ export default function CarrierExpenses() {
               <Grid container spacing={2}>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="rgba(255,255,255,0.5)">DATE</Typography>
-                  <Typography color="#fff">{new Date(detailExpense.date).toLocaleDateString('en-US')}</Typography>
+                  <Typography color="#fff">{new Date(detailExpense.date).toLocaleDateString('en-US', { timeZone: 'UTC' })}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="rgba(255,255,255,0.5)">VENDOR</Typography>

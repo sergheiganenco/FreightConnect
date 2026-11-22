@@ -12,6 +12,7 @@ const dayjs    = require('dayjs');
 const utc      = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const Contract = require('../models/Contract');
+const { loadDistanceFields } = require('../services/routingService');
 const Load     = require('../models/Load');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
@@ -67,7 +68,14 @@ async function runAutoPost() {
           return dayjs.tz(`${today} ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`, tz).toDate();
         };
 
+        const laneFields = {
+          originLat:     contract.lane.origin.latitude,
+          originLng:     contract.lane.origin.longitude,
+          destinationLat:contract.lane.destination.latitude,
+          destinationLng:contract.lane.destination.longitude,
+        };
         const load = await Load.create({
+          ...(await loadDistanceFields(laneFields)),
           title:         tpl.title || `${contract.contractNumber} — Auto-Posted`,
           origin:        `${contract.lane.origin.city}, ${contract.lane.origin.state}`,
           originLat:     contract.lane.origin.latitude,

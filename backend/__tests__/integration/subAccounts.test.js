@@ -24,6 +24,7 @@ function buildApp() {
   app.use('/api/loads', require('../../routes/loadRoutes')(mockIo));
   app.use('/api/drivers', require('../../routes/driverRoutes'));
   app.use('/api/eld', require('../../routes/eldRoutes'));
+  app.use('/api/verification', require('../../routes/verificationRoutes'));
   return app;
 }
 
@@ -41,6 +42,19 @@ describe('company sub-accounts', () => {
       .post('/api/users/team')
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ name: 'Dan Dispatcher', email: `d-${Date.now()}@acme.com`, password: 'DispatchPass1', companyRole: 'dispatcher', ...overrides });
+  }
+
+  // A new member logs in with the owner's temporary password, is forced to change
+  // it (server blocks everything else until then), then carries on with the same
+  // session token. (Not re-logging in keeps us under the login rate limiter.)
+  async function loginAfterPasswordChange(email, tempPassword) {
+    const first = await request(app).post('/api/users/login').send({ email, password: tempPassword });
+    const newPassword = `${tempPassword}-New9`;
+    const change = await request(app).post('/api/users/change-password')
+      .set('Authorization', `Bearer ${first.body.token}`)
+      .send({ currentPassword: tempPassword, newPassword });
+    expect(change.status).toBe(200);
+    return first;
   }
 
   test('owner creates a dispatcher sub-account and it appears in the team list', async () => {
@@ -106,7 +120,7 @@ describe('company sub-accounts', () => {
   test('a non-owner cannot manage the team', async () => {
     const email = `d3-${Date.now()}@acme.com`;
     await addDispatcher({ email, password: 'DispatchPass1' });
-    const login = await request(app).post('/api/users/login').send({ email, password: 'DispatchPass1' });
+    const login = await loginAfterPasswordChange(email, 'DispatchPass1');
     const dispToken = login.body.token;
 
     const res = await request(app)
@@ -132,7 +146,7 @@ describe('company sub-accounts', () => {
     await request(app).post('/api/users/team')
       .set('Authorization', `Bearer ${bookingOwnerToken}`)
       .send({ name: 'Book Dispatcher', email, password: 'DispatchPass1', companyRole: 'dispatcher' });
-    const login = await request(app).post('/api/users/login').send({ email, password: 'DispatchPass1' });
+    const login = await loginAfterPasswordChange(email, 'DispatchPass1');
     const dispToken = login.body.token;
 
     const res = await request(app)
@@ -153,7 +167,7 @@ describe('company sub-accounts', () => {
   test('a dispatcher manages the company fleet and driver roster', async () => {
     const email = `disp-fleet-${Date.now()}@acme.com`;
     await addDispatcher({ email, password: 'DispatchPass1' });
-    const login = await request(app).post('/api/users/login').send({ email, password: 'DispatchPass1' });
+    const login = await loginAfterPasswordChange(email, 'DispatchPass1');
     const dispToken = login.body.token;
 
     // Add a truck to the COMPANY fleet as the dispatcher.
@@ -184,7 +198,7 @@ describe('company sub-accounts', () => {
     const mk = async (n) => {
       const email = `hos-driver-${n}-${Date.now()}@acme.com`;
       await addDispatcher({ email, password: 'DriverPass12', companyRole: 'driver' });
-      const login = await request(app).post('/api/users/login').send({ email, password: 'DriverPass12' });
+      const login = await loginAfterPasswordChange(email, 'DriverPass12');
       return login.body.token;
     };
     const d1 = await mk(1);
@@ -210,7 +224,7 @@ describe('company sub-accounts', () => {
   test('a driver sub-account cannot edit the fleet or driver roster', async () => {
     const email = `ro-driver-${Date.now()}@acme.com`;
     await addDispatcher({ email, password: 'DriverPass12', companyRole: 'driver' });
-    const login = await request(app).post('/api/users/login').send({ email, password: 'DriverPass12' });
+    const login = await loginAfterPasswordChange(email, 'DriverPass12');
     const driverToken = login.body.token;
 
     const addTruck = await request(app).post('/api/users/fleet').set('Authorization', `Bearer ${driverToken}`).send({ truckId: 'NO-1' });
@@ -218,6 +232,12 @@ describe('company sub-accounts', () => {
 
     const addDriver = await request(app).post('/api/drivers').set('Authorization', `Bearer ${driverToken}`).send({ name: 'Nope' });
     expect(addDriver.status).toBe(403);
+
+    // Sub-accounts see the OWNER's verification status (banner must not nag drivers).
+    await User.updateOne({ _id: owner._id }, { $set: { 'verification.status': 'verified' } });
+    const ver = await request(app).get('/api/verification/carrier/status').set('Authorization', `Bearer ${driverToken}`);
+    expect(ver.status).toBe(200);
+    expect(ver.body.status).toBe('verified');
   });
 
   test('a dispatcher sees the company loads (board scoped to the owner)', async () => {
@@ -228,11 +248,12 @@ describe('company sub-accounts', () => {
 
     const email = `d4-${Date.now()}@acme.com`;
     await addDispatcher({ email, password: 'DispatchPass1' });
-    const login = await request(app).post('/api/users/login').send({ email, password: 'DispatchPass1' });
+    const login = await loginAfterPasswordChange(email, 'DispatchPass1');
     const dispToken = login.body.token;
 
     const res = await request(app).get('/api/loads/my-loads').set('Authorization', `Bearer ${dispToken}`);
     expect(res.status).toBe(200);
     expect(res.body.map((l) => l.title)).toContain('Company Load');
   });
+
 });

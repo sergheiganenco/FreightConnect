@@ -90,6 +90,7 @@ export default function Profile() {
     preferredLanes: [],
     minRate: "",
     maxMileage: "",
+    costPerMile: "", // dollars in the UI; stored as integer cents
     homeBase: { city: "", state: "" },
   });
   const [prefSaving, setPrefSaving] = useState(false);
@@ -119,6 +120,7 @@ export default function Profile() {
             preferredLanes: data.preferences.preferredLanes || [],
             minRate: data.preferences.minRate || "",
             maxMileage: data.preferences.maxMileage || "",
+            costPerMile: data.preferences.costPerMileCents ? String(data.preferences.costPerMileCents / 100) : "",
             homeBase: data.preferences.homeBase || { city: "", state: "" },
           });
         }
@@ -142,12 +144,15 @@ export default function Profile() {
     try {
       const res = await api.put("/users/me", edit);
       setUser(res.data);
+      setEdit(p => ({ ...p, currentPassword: "" }));
       setSnackbar({ open: true, message: "Profile updated!", severity: "success" });
-    } catch {
-      setSnackbar({ open: true, message: "Update failed.", severity: "error" });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.error || "Update failed.", severity: "error" });
     }
     setSaving(false);
   };
+
+  const isCostOwner = !user?.companyRole || user.companyRole === "owner";
 
   const handleSavePrefs = async () => {
     setPrefSaving(true);
@@ -156,6 +161,9 @@ export default function Profile() {
         ...prefs,
         minRate: prefs.minRate ? Number(prefs.minRate) : 0,
         maxMileage: prefs.maxMileage ? Number(prefs.maxMileage) : null,
+        // Only the account owner edits the company cost (a dispatcher's own profile
+        // would show it blank and a save would wrongly clear the owner's value).
+        ...(isCostOwner ? { costPerMileCents: prefs.costPerMile === "" ? null : Math.round(Number(prefs.costPerMile) * 100) } : {}),
       });
       setSnackbar({ open: true, message: "Preferences saved!", severity: "success" });
     } catch {
@@ -333,6 +341,24 @@ export default function Profile() {
             }}
             InputLabelProps={{ sx: { color: "#bcbcff" } }}
           />
+        {edit.email !== user.email && (
+          <TextField
+            label="Current password"
+            type="password"
+            name="currentPassword"
+            value={edit.currentPassword || ""}
+            onChange={handleChange}
+            helperText="Required to change your email"
+            fullWidth
+            variant="filled"
+            InputProps={{
+              sx: { bgcolor: "rgba(255,255,255,0.12)", color: "#fff", borderRadius: 3 }
+            }}
+            InputLabelProps={{ sx: { color: "#bcbcff" } }}
+            FormHelperTextProps={{ sx: { color: "#bcbcff" } }}
+            sx={{ mt: 3 }}
+          />
+        )}
           {/* Carrier-specific fields */}
           {user.role === "carrier" && (
             <>
@@ -502,6 +528,25 @@ export default function Profile() {
                   fullWidth
                 />
               </Stack>
+
+              {isCostOwner && (
+                <TextField
+                  label="Operating cost per mile ($)"
+                  type="number"
+                  value={prefs.costPerMile}
+                  onChange={(e) => setPrefs((p) => ({ ...p, costPerMile: e.target.value }))}
+                  variant="filled"
+                  helperText="All-in: fuel, driver, maintenance, insurance ($0.01-$20.00). Used for estimated profit on loads. Leave blank to turn off."
+                  inputProps={{ min: 0.01, max: 20, step: 0.01 }}
+                  InputProps={{
+                    sx: { bgcolor: "rgba(255,255,255,0.12)", color: "#fff", borderRadius: 3 },
+                    startAdornment: <InputAdornment position="start"><Typography sx={{ color: "#bcbcff" }}>$</Typography></InputAdornment>,
+                  }}
+                  InputLabelProps={{ sx: { color: "#bcbcff" } }}
+                  FormHelperTextProps={{ sx: { color: "#bcbcff" } }}
+                  fullWidth
+                />
+              )}
 
               {/* Home base */}
               <Stack direction="row" spacing={2}>

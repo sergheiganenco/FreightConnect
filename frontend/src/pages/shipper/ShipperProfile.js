@@ -78,9 +78,10 @@ export default function ShipperProfile() {
     try {
       const res = await api.put("/users/me", edit);
       setUser(res.data);
+      setEdit(p => ({ ...p, currentPassword: "" }));
       setSnackbar({ open: true, message: "Profile updated!", severity: "success" });
-    } catch {
-      setSnackbar({ open: true, message: "Update failed.", severity: "error" });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.error || "Update failed.", severity: "error" });
     }
     setSaving(false);
   };
@@ -195,6 +196,24 @@ export default function ShipperProfile() {
             }}
             InputLabelProps={{ sx: { color: "#bcbcff" } }}
           />
+        {edit.email !== user.email && (
+          <TextField
+            label="Current password"
+            type="password"
+            name="currentPassword"
+            value={edit.currentPassword || ""}
+            onChange={handleChange}
+            helperText="Required to change your email"
+            fullWidth
+            variant="filled"
+            InputProps={{
+              sx: { bgcolor: "rgba(255,255,255,0.12)", color: "#fff", borderRadius: 3 }
+            }}
+            InputLabelProps={{ sx: { color: "#bcbcff" } }}
+            FormHelperTextProps={{ sx: { color: "#bcbcff" } }}
+            sx={{ mt: 3 }}
+          />
+        )}
           <TextField
             label="Company Name"
             name="companyName"

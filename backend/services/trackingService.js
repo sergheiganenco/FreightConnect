@@ -196,12 +196,12 @@ async function recordLocation({
     }
 
     // ── 6. Unified geofence/dwell check (mirrors app.js call exactly) ──────────
-    // app.js calls: checkGeofence(carrierId, latitude, longitude). The carrier
-    // here is load.acceptedBy.
+    // Scoped to this load: acceptedBy is the carrier company (many trucks), so
+    // without loadId a ping would check in/out against the company's other loads.
     if (load.acceptedBy) {
       try {
         const { checkGeofence } = require('./geofenceService');
-        await checkGeofence(load.acceptedBy, lat, lng);
+        await checkGeofence(load.acceptedBy, lat, lng, { loadId: load._id });
       } catch (geoErr) {
         // Non-fatal — dwell tracking is secondary to location updates.
         if (geoErr && geoErr.message !== 'Cannot read properties of undefined') {

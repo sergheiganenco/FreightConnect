@@ -57,7 +57,9 @@ export default function CarrierDashboard() {
     let active = true;
     api.get('/users/me')
       .then(({ data }) => {
-        if (active && data && data.onboardingComplete !== true) {
+        // Sub-accounts (dispatcher/driver) act for the owner's company — the owner onboards.
+        const isSub = (localStorage.getItem('companyRole') || 'owner') !== 'owner';
+        if (active && data && data.onboardingComplete !== true && !isSub) {
           setShowOnboarding(true);
         }
       })

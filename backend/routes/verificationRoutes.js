@@ -80,7 +80,8 @@ router.post(
 // ----------------------------------------
 router.get('/carrier/status', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select(
+    // Sub-accounts act for the owner's company, so report the OWNER's verification.
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId).select(
       'verification.status verification.fmcsaData verification.insurance verification.documentsOnFile verification.verifiedAt'
     );
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -197,7 +198,7 @@ router.get('/shipper/status', auth, async (req, res) => {
     if (req.user.role !== 'shipper') {
       return res.status(403).json({ error: 'Only shippers' });
     }
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.companyOwnerId || req.user.userId); // owner's status for sub-accounts
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const assessment = shipperVerifService.assessVerificationLevel(user);

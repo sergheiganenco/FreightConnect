@@ -38,12 +38,31 @@ export function AuthProvider({ children }) {
     if (data.mfaRequired && !data.token) {
       return data;
     }
+    // Temporary password: the server blocks everything but change-password until it is
+    // changed. Keep only the token (so the api interceptor can use it) - no user/socket,
+    // so the app is not entered and a relaunch won't restore a half-session.
+    if (data.user?.mustChangePassword) {
+      await SecureStore.setItemAsync('token', data.token);
+      return data;
+    }
     await SecureStore.setItemAsync('token', data.token);
     await SecureStore.setItemAsync('user', JSON.stringify(data.user || data));
     setUser(data.user || data);
     await getSocket();
     return data;
   };
+
+  // Second step of a temporary-password login: change it, then finish the normal login.
+  const completePasswordChange = async (loginData, currentPassword, newPassword) => {
+    await api.post('/users/change-password', { currentPassword, newPassword });
+    const u = { ...loginData.user, mustChangePassword: false };
+    await SecureStore.setItemAsync('user', JSON.stringify(u));
+    setUser(u);
+    await getSocket();
+  };
+
+  // User backed out of the password step: drop the token kept by login().
+  const cancelPasswordChange = () => SecureStore.deleteItemAsync('token');
 
   const logout = async () => {
     // Unregister this device's push token before clearing the session (so a shared
@@ -62,7 +81,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, completePasswordChange, cancelPasswordChange }}>
       {children}
     </AuthContext.Provider>
   );

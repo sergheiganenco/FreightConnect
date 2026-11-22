@@ -1,6 +1,6 @@
 // src/features/carrierDashboard/components/LoadCard.jsx
 import React from 'react';
-import { Paper, Typography, Box, Chip } from '@mui/material';
+import { Paper, Typography, Box, Chip, Tooltip } from '@mui/material';
 import { motion } from 'framer-motion';
 import StatusChip from './StatusChip';
 import { status as ST, surface, shadow, statusColor } from '../../../../theme/tokens';
@@ -10,6 +10,10 @@ const fmtDate = (raw) => {
   const d = new Date(raw);
   return isNaN(d) ? null : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
+
+// cents -> "$1,234.56" / "-$12.30" (display only; math stays in integer cents)
+const fmtMoney = (cents) =>
+  (cents < 0 ? '-' : '') + '$' + (Math.abs(cents) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function LoadCard({ load, onClick }) {
   const origin      = load.origin      || 'Origin TBD';
@@ -31,6 +35,12 @@ export default function LoadCard({ load, onClick }) {
   const tripMiles = Number.isFinite(load.tripMiles) ? load.tripMiles : null;
   const rpm = Number.isFinite(load.ratePerMile) ? load.ratePerMile : null;
   const deadhead = Number.isFinite(load.deadheadMiles) ? load.deadheadMiles : null;
+
+  // Estimated profit (integer cents from the server); null/absent => show nothing.
+  const eco = load.economics || null;
+  const loss = eco && eco.profitCents < 0;
+  const profitFg = loss ? '#ef4444' : '#34d399';
+  const profitBg = loss ? 'rgba(239,68,68,0.15)' : 'rgba(52,211,153,0.15)';
 
   return (
     <motion.div
@@ -107,6 +117,22 @@ export default function LoadCard({ load, onClick }) {
             Pickup {pickupDate}{deliveryDate ? ' \u2192 Del ' + deliveryDate : ''}
           </Typography>
         </Box>
+
+        {/* Estimated profit (server-computed from the carrier's own cost/mile) */}
+        {eco && (
+          <Box display="flex" flexWrap="wrap" gap={1} alignItems="center" mt={0.5}>
+            <Tooltip title={`Estimate: rate minus your cost/mile x ${eco.totalMiles.toLocaleString()} ${eco.milesBasis === 'road' ? 'road' : 'straight-line'} miles (${eco.includesDeadhead ? 'incl.' : 'excl.'} deadhead${eco.includesDeadhead ? ', straight-line' : ''}). ${eco.milesBasis === 'road' ? '' : 'Real road miles are higher, so actual profit is likely lower. '}Excludes tolls, detention and accessorials.`}>
+              <Chip
+                label={`Est. profit ${fmtMoney(eco.profitCents)}`}
+                size="small"
+                sx={{ bgcolor: profitBg, color: profitFg, fontWeight: 700, fontSize: '0.8rem', border: '1px solid ' + profitFg }}
+              />
+            </Tooltip>
+            <Typography variant="caption" color="text.secondary">
+              {fmtMoney(eco.profitPerMileCents)}/mi &middot; est., {eco.milesBasis === 'road' ? 'road' : 'straight-line'} miles{eco.includesDeadhead ? '' : ', excl. deadhead'}
+            </Typography>
+          </Box>
+        )}
       </Paper>
     </motion.div>
   );

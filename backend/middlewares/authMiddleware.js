@@ -13,17 +13,35 @@ function invalidateActive(userId) {
   if (userId) activeCache.delete(String(userId));
 }
 
-/** Returns true (active), false (deactivated), or null (account not found). */
-async function resolveActive(userId) {
+/**
+ * Returns { active, mustChangePassword }. active is true, false (deactivated),
+ * or null (account not found).
+ */
+async function resolveAccount(userId) {
   const key = String(userId);
   const cached = activeCache.get(key);
-  if (cached && Date.now() - cached.at < ACTIVE_TTL_MS) return cached.active;
+  if (cached && Date.now() - cached.at < ACTIVE_TTL_MS) return cached;
 
-  const u = await User.findById(userId).select('active').lean();
-  const active = u ? u.active !== false : null; // missing field => treat as active
-  if (active !== null) activeCache.set(key, { active, at: Date.now() });
-  return active;
+  const u = await User.findById(userId).select('active mustChangePassword').lean();
+  const entry = {
+    active: u ? u.active !== false : null, // missing field => treat as active
+    mustChangePassword: !!(u && u.mustChangePassword),
+    at: Date.now(),
+  };
+  if (entry.active !== null) activeCache.set(key, entry);
+  return entry;
 }
+
+// While a temporary password is in force the account may only read its own
+// identity and change the password — enforced here, not just by the UI redirect.
+const PASSWORD_CHANGE_ALLOWED = [
+  ['POST', '/users/change-password'],
+  ['GET', '/users/me'],
+  ['GET', '/users/whoami'],
+  // ToS must stay acceptable first: tosGuard blocks change-password until it is.
+  ['POST', '/tos/accept'],
+  ['GET', '/tos/status'],
+];
 
 const auth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -44,12 +62,19 @@ const auth = async (req, res, next) => {
   // Account-status revocation: a deactivated (or deleted) account's still-valid
   // token must stop working immediately, not linger until the 1-day expiry.
   try {
-    const active = await resolveActive(decoded.userId);
+    const { active, mustChangePassword } = await resolveAccount(decoded.userId);
     if (active === false) {
       return res.status(401).json({ error: 'This account has been deactivated', code: 'account_deactivated' });
     }
     if (active === null) {
       return res.status(401).json({ error: 'Account not found' });
+    }
+    if (mustChangePassword) {
+      const path = req.originalUrl.split('?')[0].replace(/\/$/, '');
+      const allowed = PASSWORD_CHANGE_ALLOWED.some(([m, p]) => req.method === m && path.endsWith(p));
+      if (!allowed) {
+        return res.status(403).json({ error: 'You must change your temporary password before continuing', code: 'password_change_required' });
+      }
     }
   } catch (_) {
     // DB error → fail OPEN so a transient DB issue can't lock everyone out. Login

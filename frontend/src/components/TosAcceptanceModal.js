@@ -77,7 +77,7 @@ export default function TosAcceptanceModal({ open, onAccepted }) {
         }}
       >
         <Gavel size={24} />
-        <Typography variant="h6" sx={{ fontWeight: 700, flex: 1 }}>
+        <Typography component="span" variant="h6" sx={{ fontWeight: 700, flex: 1 }}>
           Terms of Service
         </Typography>
         {tosVersion && (

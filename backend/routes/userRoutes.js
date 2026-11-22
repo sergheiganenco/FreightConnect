@@ -271,6 +271,7 @@ router.post('/change-password', auth, changePasswordValidation, validate, async 
     user.password = await bcrypt.hash(newPassword, 10);
     user.mustChangePassword = false;
     await user.save();
+    auth.invalidateActive(user._id); // lift the temporary-password block immediately
 
     return res.json({ success: true, message: 'Password changed successfully' });
   } catch (err) {
@@ -567,6 +568,7 @@ router.post('/team',
         companyId: owner.companyId || undefined,
         companyName: owner.companyName || undefined,
         emailVerified: true, // provisioned by a trusted owner, not self-signup
+        mustChangePassword: true, // owner-chosen password is temporary
         active: true,
       });
 
@@ -629,11 +631,46 @@ router.get('/me', auth, async (req, res) => {
   }
 });
 // PUT user profile
-router.put('/me', auth, async (req, res) => {
+const profileValidation = [
+  body('name').optional().isString().trim().notEmpty().isLength({ max: 120 }).withMessage('Name must be 1-120 characters'),
+  body('email').optional().isString().isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('currentPassword').optional().isString().isLength({ max: 200 }).withMessage('Invalid current password'),
+  body('phone').optional().isString().isLength({ max: 30 }).withMessage('Phone must be a string up to 30 characters'),
+  body('companyName').optional().isString().trim().isLength({ max: 120 }).withMessage('Company name must be a string up to 120 characters'),
+  body('mcNumber').optional().isString().isLength({ max: 20 }).withMessage('MC number must be a string up to 20 characters'),
+  body('dotNumber').optional().isString().isLength({ max: 20 }).withMessage('DOT number must be a string up to 20 characters'),
+  body('type').optional({ values: 'falsy' }).isIn(['carrier', 'shipper', 'broker', 'other']).withMessage('Invalid company type'),
+];
+
+router.put('/me', auth, profileValidation, validate, async (req, res) => {
   try {
-    const { name, email, phone, companyName, mcNumber, dotNumber, type } = req.body;
-    const user = await User.findById(req.user.userId);
+    const { name, email, phone, companyName, mcNumber, dotNumber, type, currentPassword } = req.body;
+    const user = await User.findById(req.user.userId).select('+password');
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Sub-accounts (dispatcher/driver) must not change company identity fields.
+    if (['dispatcher', 'driver'].includes(req.user.companyRole)) {
+      const company = type ? await Company.findById(user.companyId).select('type') : null;
+      const changed =
+        (companyName && companyName !== user.companyName) ||
+        (mcNumber && mcNumber !== (user.mcNumber || '')) ||
+        (dotNumber && dotNumber !== (user.dotNumber || '')) ||
+        (type && (!company || company.type !== type));
+      if (changed) return res.status(403).json({ error: 'Only the account owner can change company details' });
+    }
+
+    // Changing the login email requires re-entering the current password.
+    if (email && email !== user.email) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required to change your email' });
+      }
+      if (!(await bcrypt.compare(currentPassword, user.password))) {
+        return res.status(400).json({ error: 'Current password is incorrect' });
+      }
+      if (await User.exists({ email, _id: { $ne: user._id } })) {
+        return res.status(409).json({ error: 'A user already exists with this email' });
+      }
+    }
 
     user.name = name ?? user.name;
     user.email = email ?? user.email;
@@ -671,9 +708,12 @@ router.put('/me', auth, async (req, res) => {
       user.companyName = company.name;
     }
 
-    const updatedUser = await user.save();
+    const saved = await user.save();
+    const updatedUser = saved.toObject();
+    delete updatedUser.password;
     res.json(updatedUser);
   } catch (err) {
+    if (err.code === 11000) return res.status(409).json({ error: 'A user already exists with this email' });
     console.error("PUT /me error:", err);
     res.status(500).json({ error: "Failed to update profile" });
   }
@@ -717,6 +757,22 @@ router.get('/fleet', auth, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch fleet" });
   }
 });
+
+// Bulk-add trucks (owner/dispatcher only). All-or-nothing; ?dryRun=true validates only.
+router.post('/fleet/bulk', auth, managerOnly,
+  [body('trucks').isArray({ min: 1 }).withMessage('trucks must be a non-empty array')], validate,
+  (req, res) => require('../utils/bulkImport').bulkImport(req, res, {
+    arrayName: 'fleet',
+    bodyKey: 'trucks',
+    idField: 'truckId',
+    parseRow: (raw, r) => ({
+      truckId: r.get('truckId', { required: true, max: 50 }),
+      driverName: r.get('driverName') || '',
+      status: r.oneOf('status', ['Available', 'Assigned', 'At Pickup', 'Loading', 'In Transit', 'At Delivery', 'Delivered', 'Maintenance', 'Offline', 'Unavailable'], 'Available'),
+      location: {},
+      assignedLoadId: null,
+    }),
+  }));
 
 // Add a Truck to Fleet (owner/dispatcher only)
 router.post('/fleet', auth, managerOnly, async (req, res) => {
@@ -1364,6 +1420,24 @@ router.put('/me/preferences', auth, async (req, res) => {
     if (maxMileage !== undefined) update['preferences.maxMileage'] = maxMileage ? Number(maxMileage) : null;
     if (homeBase !== undefined) update['preferences.homeBase'] = homeBase;
 
+    // Company-wide operating cost: integer cents 1..2000 or null to clear. Stored on the
+    // company OWNER's doc (that is what GET /loads reads); drivers may not change it.
+    const { costPerMileCents } = req.body;
+    if (costPerMileCents !== undefined) {
+      if (req.user.companyRole && req.user.companyRole !== 'owner') {
+        return res.status(403).json({ error: 'Only the company owner can change the cost per mile' });
+      }
+      if (costPerMileCents !== null && !(Number.isInteger(costPerMileCents) && costPerMileCents >= 1 && costPerMileCents <= 2000)) {
+        return res.status(400).json({ error: 'costPerMileCents must be an integer between 1 and 2000, or null' });
+      }
+      const ownerId = req.user.companyOwnerId || req.user.userId;
+      await User.findByIdAndUpdate(ownerId, { $set: { 'preferences.costPerMileCents': costPerMileCents } });
+    }
+
+    if (Object.keys(update).length === 0) {
+      const me = await User.findById(req.user.userId).select('preferences').lean();
+      return res.json({ preferences: me.preferences });
+    }
     const user = await User.findByIdAndUpdate(req.user.userId, { $set: update }, { new: true });
     res.json({ preferences: user.preferences });
   } catch (err) {

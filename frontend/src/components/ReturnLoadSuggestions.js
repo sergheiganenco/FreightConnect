@@ -38,8 +38,25 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [fetched, setFetched] = useState(false);
   const [sourceInfo, setSourceInfo] = useState(null);
+  const [openingId, setOpeningId] = useState(null);
+  const [openError, setOpenError] = useState(null);
+
+  // The suggestion carries a partial load; fetch the full one (with trip/profit annotations) first.
+  const openDetails = async (s) => {
+    setOpeningId(s.load._id);
+    setOpenError(null);
+    try {
+      const { data } = await api.get(`/loads/${s.load._id}`, { params: { deadheadMiles: s.approxDeadheadMiles } });
+      onViewLoad && onViewLoad(data);
+    } catch (err) {
+      setOpenError(err.response?.data?.error || 'Could not open this load. Please try again.');
+    } finally {
+      setOpeningId(null);
+    }
+  };
 
   const fetchSuggestions = useCallback(async () => {
     setLoading(true);
@@ -66,12 +83,18 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
       setSuggestions([]);
     } finally {
       setLoading(false);
+      setFetched(true);
     }
   }, [loadId, lat, lng, equipmentType]);
 
+  // Fetch lazily: only the first time the panel is expanded.
   useEffect(() => {
-    fetchSuggestions();
-  }, [fetchSuggestions]);
+    if (expanded && !fetched) fetchSuggestions();
+  }, [expanded, fetched, fetchSuggestions]);
+
+  // Money comes from integer cents; format only, no float math.
+  const usd = (cents) =>
+    (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
   const formatDate = (dateStr) => {
     if (!dateStr) return null;
@@ -114,10 +137,10 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
           <TrendingDownIcon sx={{ color: '#7c8cf8', fontSize: 28 }} />
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: '1.1rem' }}>
-              Reduce Deadhead
+              Find a return load
             </Typography>
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem' }}>
-              Return loads near {destinationLabel}
+              Open loads picking up near {destinationLabel}
             </Typography>
           </Box>
         </Box>
@@ -178,11 +201,11 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
           )}
 
           {/* Empty state */}
-          {!loading && !error && suggestions.length === 0 && (
+          {!loading && !error && fetched && suggestions.length === 0 && (
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <LocalShippingIcon sx={{ fontSize: 48, color: 'rgba(255,255,255,0.2)', mb: 1 }} />
               <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
-                No return loads found near {destinationLabel}
+                No open loads near {destinationLabel} after delivery
               </Typography>
               <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.35)', mt: 0.5 }}>
                 Check back later as new loads are posted
@@ -246,7 +269,7 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
                   {/* Details row */}
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 1.5 }}>
                     <Chip
-                      label={`$${s.load.rate?.toLocaleString()}`}
+                      label={usd(s.load.rateCents ?? 0)}
                       size="small"
                       sx={{
                         bgcolor: 'rgba(76,175,80,0.15)',
@@ -255,9 +278,9 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
                         fontSize: '0.8rem',
                       }}
                     />
-                    {s.ratePerMile != null && (
+                    {s.ratePerMileCents != null && (
                       <Chip
-                        label={`$${s.ratePerMile}/mi`}
+                        label={`${usd(s.ratePerMileCents)}/mi${s.milesBasis ? ` (${s.milesBasis === 'road' ? 'road' : 'straight-line'} miles)` : ''}`}
                         size="small"
                         variant="outlined"
                         sx={{
@@ -268,7 +291,7 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
                       />
                     )}
                     <Chip
-                      label={`${s.distanceFromLocation} mi away`}
+                      label={`~${s.approxDeadheadMiles} mi deadhead (straight-line)`}
                       size="small"
                       variant="outlined"
                       sx={{
@@ -323,7 +346,8 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
                   <Button
                     variant="outlined"
                     size="small"
-                    onClick={() => onViewLoad && onViewLoad(s.load)}
+                    disabled={openingId === s.load._id}
+                    onClick={() => openDetails(s)}
                     sx={{
                       borderColor: 'rgba(124,140,248,0.4)',
                       color: '#7c8cf8',
@@ -336,12 +360,13 @@ export default function ReturnLoadSuggestions({ loadId, lat, lng, equipmentType,
                       },
                     }}
                   >
-                    View Details
+                    {openingId === s.load._id ? <CircularProgress size={14} sx={{ color: '#7c8cf8' }} /> : 'View Details'}
                   </Button>
                 </Paper>
               ))}
             </Stack>
           )}
+          {openError && <Alert severity="error" sx={{ mt: 1 }} onClose={() => setOpenError(null)}>{openError}</Alert>}
         </Box>
       </Collapse>
     </Paper>

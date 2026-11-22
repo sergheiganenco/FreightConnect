@@ -158,6 +158,7 @@ const UserSchema = new mongoose.Schema({
     preferredRegions: [{ type: String }], // e.g. ['Southeast', 'Midwest']
     minRate: { type: Number, default: 0 }, // minimum $ rate willing to accept
     maxMileage: Number,                   // max trip distance in miles
+    costPerMileCents: { type: Number, default: null }, // carrier's all-in operating cost per mile, integer cents
     homeBase: {
       city: String,
       state: String,

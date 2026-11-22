@@ -9,6 +9,9 @@ const SKIP_PATHS = [
   '/api/users/signup',
   '/api/health',
   '/api/tos',
+  // A temporary password must be replaceable before anything else (authMiddleware
+  // blocks every other route until it is); ToS is then required on the next request.
+  '/api/users/change-password',
   '/api/tracking-portal',
 ];
 
