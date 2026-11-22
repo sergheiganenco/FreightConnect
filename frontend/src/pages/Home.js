@@ -1,6 +1,6 @@
 // src/pages/Home.js
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Sparkles, FileText, Eye, Ban } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
@@ -21,10 +21,30 @@ import {
   buttonVariants,
 } from '../theme/tokens';
 import Testimonials from '../components/Testimonials';
+import LoadCard from '../features/carrierDashboard/sections/components/LoadCard';
 
 const accentColors = [brand.primary, brand.secondary, brand.indigo, '#34d399'];
 
+// Sample loads for the public preview. Dates are relative to today so the
+// section never looks stale.
+const inDays = (n) => new Date(Date.now() + n * 86400000).toISOString();
+const sample = (origin, destination, equipmentType, loadWeight, tripMiles, rate, status, pickupIn, deadheadMiles) => ({
+  origin, destination, equipmentType, loadWeight, tripMiles, rate, status, deadheadMiles,
+  ratePerMile: rate / tripMiles,
+  pickupTimeWindow: { start: inDays(pickupIn) },
+  deliveryTimeWindow: { start: inDays(pickupIn + Math.ceil(tripMiles / 550)) },
+});
+const sampleLoads = [
+  sample('Chicago, IL', 'Dallas, TX', 'Dry Van', 42000, 967, 2650, 'open', 1, 18),
+  sample('Atlanta, GA', 'Miami, FL', 'Reefer', 38500, 662, 1950, 'open', 1, 42),
+  sample('Los Angeles, CA', 'Phoenix, AZ', 'Flatbed', 45000, 373, 1250, 'accepted', 2),
+  sample('Houston, TX', 'Kansas City, MO', 'Reefer', 40000, 742, 2150, 'open', 2, 27),
+  sample('Columbus, OH', 'Charlotte, NC', 'Dry Van', 36000, 428, 1300, 'in-transit', 0),
+  sample('Memphis, TN', 'Nashville, TN', 'Dry Van', 28000, 212, 850, 'open', 3, 9),
+];
+
 export default function Home() {
+  const navigate = useNavigate();
   const benefits = [
     {
       icon: <Sparkles size={24} />,
@@ -165,6 +185,27 @@ export default function Home() {
                     </Typography>
                   </Paper>
                 </motion.div>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+
+        {/* Load board preview — the real carrier LoadCard fed with sample data */}
+        <Box component="section" sx={{ mb: 8 }}>
+          <Typography
+            variant="h4"
+            component="h2"
+            sx={{ fontWeight: 800, textAlign: 'center', mb: 1, fontSize: { xs: '1.5rem', md: '2rem' } }}
+          >
+            See the load board
+          </Typography>
+          <Typography sx={{ color: text.secondary, textAlign: 'center', mb: 4 }}>
+            Rate, rate per mile, deadhead and pickup dates on every card. Sample loads shown.
+          </Typography>
+          <Grid container spacing={2}>
+            {sampleLoads.map((load) => (
+              <Grid item xs={12} sm={6} md={4} key={load.origin + load.destination}>
+                <LoadCard load={load} onClick={() => navigate('/signup')} />
               </Grid>
             ))}
           </Grid>
