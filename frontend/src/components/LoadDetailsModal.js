@@ -648,7 +648,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
   useEffect(() => {
     if (!notice) return undefined;
-    const t = setTimeout(() => noticeTargetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+    const t = setTimeout(() => noticeTargetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 500);
     return () => clearTimeout(t);
   }, [notice]);
 
