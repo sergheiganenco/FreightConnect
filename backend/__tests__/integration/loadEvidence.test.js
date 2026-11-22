@@ -334,4 +334,182 @@ describe('load photo evidence', () => {
       expect((await put(bearer(admin), { delivery: 'no' })).status).toBe(400);
     });
   });
+
+  describe('booking-bound evidence', () => {
+    const req = { evidenceRequired: { pickup: true, delivery: false } };
+    const status = (load, who, st) => request(app).put(`/api/loads/${load._id}/status`).set(who).send({ status: st });
+    const list = (load, who) => request(app).get(`/api/loads/${load._id}/evidence`).set(who);
+    const fileOf = (load, who, id) => request(app).get(`/api/loads/${load._id}/evidence/${id}/file`).set(who);
+    const del = (load, who, id) => request(app).delete(`/api/loads/${load._id}/evidence/${id}`).set(who);
+    const rebook = (load, carrier) => Load.updateOne({ _id: load._id }, { $set: { status: 'accepted', acceptedBy: carrier._id } });
+    const unbook = {
+      'carrier cancel (relist)': (load, carrier) => request(app).put(`/api/loads/${load._id}/cancel`).set(bearer(carrier)).send({ reason: 'x' }),
+      'shipper cancel': (load, carrier, shipper) => request(app).put(`/api/loads/${load._id}/cancel`).set(bearer(shipper)).send({ reason: 'x' }),
+      'fleet unassign': (load, carrier) => request(app).put('/api/users/fleet/T1/unassign-load').set(bearer(carrier)),
+      'direct unassign (updateOne)': (load) => Load.updateOne({ _id: load._id }, { $set: { status: 'open', acceptedBy: null } }),
+    };
+
+    for (const [name, run] of Object.entries(unbook)) {
+      test(`${name}: photos are archived, not deleted`, async () => {
+        const { shipper, carrier, load } = await setup(req);
+        await up(load, bearer(carrier)).expect(201);
+        await up(load, bearer(carrier), { fields: { kind: 'seal' } }).expect(201);
+        const r = await run(load, carrier, shipper);
+        if (r && r.status) expect(r.status).toBe(200);
+        const evs = await evidenceOf(load._id);
+        expect(evs).toHaveLength(2);
+        for (const e of evs) {
+          expect(e.archived).toBe(true);
+          expect(e.archivedAt).toBeInstanceOf(Date);
+          expect(fs.existsSync(path.join(PRIVATE_DIR, e.file))).toBe(true);
+        }
+        expect(['open', 'cancelled']).toContain((await Load.findById(load._id)).status);
+      });
+    }
+
+    test('un-booking a load with no evidence array does not fail', async () => {
+      const { load } = await setup();
+      await Load.collection.updateOne({ _id: load._id }, { $unset: { evidence: 1 } });
+      await Load.updateOne({ _id: load._id }, { $set: { status: 'open', acceptedBy: null } });
+      expect((await Load.findById(load._id)).status).toBe('open');
+    });
+
+    test('carrier B cannot use or see carrier A photos; A re-booking also needs new ones', async () => {
+      const { carrier: A, load } = await setup(req);
+      const B = await createTestUser({ role: 'carrier', companyName: 'Beta', fleet: [{ truckId: 'T9', status: 'Available', available: true }] });
+      const a = await up(load, bearer(A)).expect(201);
+      const aId = a.body.data._id;
+      await unbook['direct unassign (updateOne)'](load);
+      await rebook(load, B);
+
+      const l = await list(load, bearer(B)).expect(200);
+      expect(l.body.data.items).toEqual([]);
+      const foreign = await fileOf(load, bearer(B), aId);
+      const random = await fileOf(load, bearer(B), 'a'.repeat(24));
+      expect(foreign.status).toBe(404);
+      expect(foreign.body).toEqual(random.body);
+      expect((await del(load, bearer(B), aId)).status).toBe(404);
+
+      const blocked = await status(load, bearer(B), 'in-transit');
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.reason).toBe('pickup_photos_required');
+      await up(load, bearer(B), { fields: { kind: 'cargo' } }).expect(201);
+      expect((await status(load, bearer(B), 'in-transit')).status).toBe(200);
+
+      // A books again: old photos still do not count
+      await Load.updateOne({ _id: load._id }, { $set: { status: 'open', acceptedBy: null } });
+      await rebook(load, A);
+      expect((await status(load, bearer(A), 'in-transit')).body.reason).toBe('pickup_photos_required');
+      expect((await list(load, bearer(A))).body.data.items.map((i) => i.archived)).toEqual([true]);
+      await up(load, bearer(A), { fields: { kind: 'seal' } }).expect(201);
+      expect((await status(load, bearer(A), 'in-transit')).status).toBe(200);
+      // archived items are never deletable, even by their uploader while booked
+      expect((await del(load, bearer(A), aId)).status).toBe(403);
+    });
+
+    test('former carrier reads only its own items; shipper and admin see everything with flags and company names', async () => {
+      const { shipper, carrier: A, load } = await setup(req);
+      const admin = await createTestUser({ role: 'admin' });
+      const B = await createTestUser({ role: 'carrier', companyName: 'Beta' });
+      const a = await up(load, bearer(A), { fields: { note: 'secret-A' } }).expect(201);
+      await Load.updateOne({ _id: load._id }, { $set: { status: 'open', acceptedBy: null } });
+      await rebook(load, B);
+      const b = await up(load, bearer(B)).expect(201);
+
+      // B is booked: sees only its own live item, no company names
+      const lb = await list(load, bearer(B)).expect(200);
+      expect(lb.body.data.items.map((i) => i._id)).toEqual([b.body.data._id]);
+      expect(lb.body.data.items[0].uploadedByCompany).toBeUndefined();
+
+      // A is a former carrier with an item of its own
+      const la = await list(load, bearer(A)).expect(200);
+      expect(la.body.data.items.map((i) => i._id)).toEqual([a.body.data._id]);
+      expect(la.body.data.items[0].archived).toBe(true);
+      expect(la.body.data.canAdd).toEqual({ pickup: false, delivery: false });
+      expect(la.body.data.required).toEqual({ pickup: false, delivery: false });
+      expect(la.body.data.items[0].deletable).toBe(false);
+      expect((await fileOf(load, bearer(A), a.body.data._id)).status).toBe(200);
+      expect((await fileOf(load, bearer(A), b.body.data._id)).status).toBe(404);
+      expect((await del(load, bearer(A), a.body.data._id)).status).toBe(403);
+      expect((await up(load, bearer(A))).status).toBe(403);
+      const stranger = await createTestUser({ role: 'carrier' });
+      expect((await list(load, bearer(stranger))).status).toBe(403);
+
+      for (const who of [shipper, admin]) {
+        const l = await list(load, bearer(who)).expect(200);
+        expect(l.body.data.items).toHaveLength(2);
+        const byId = Object.fromEntries(l.body.data.items.map((i) => [i._id, i]));
+        expect(byId[a.body.data._id].archived).toBe(true);
+        expect(byId[a.body.data._id].uploadedByCompany).toBe('Acme');
+        expect(byId[b.body.data._id].archived).toBe(false);
+        expect(byId[b.body.data._id].uploadedByCompany).toBe('Beta');
+        expect((await fileOf(load, bearer(who), a.body.data._id)).status).toBe(200);
+      }
+    });
+
+    test('active cap ignores archived photos; hard ceiling of 90 stored items', async () => {
+      const { carrier, load } = await setup();
+      const old = (i) => ({ stage: 'pickup', kind: 'cargo', file: `old${i}.png`, companyId: carrier._id, archived: true });
+      await Load.updateOne({ _id: load._id }, { $set: { evidence: Array.from({ length: 30 }, (_, i) => old(i)) } });
+      await up(load, bearer(carrier)).expect(201);
+      await Load.updateOne({ _id: load._id }, { $set: { evidence: Array.from({ length: 90 }, (_, i) => old(i)) } });
+      const r = await up(load, bearer(carrier));
+      expect(r.status).toBe(409);
+      expect([...filesNow()].filter((f) => !before.has(f))).toHaveLength(1); // only the first, successful upload
+    });
+
+    test('cannot delete the only satisfying photo (409, file stays); can with a second; paperwork always', async () => {
+      const { carrier, load } = await setup(req);
+      const paper = (await up(load, bearer(carrier), { fields: { kind: 'paperwork' } }).expect(201)).body.data._id;
+      const c1 = (await up(load, bearer(carrier), { fields: { kind: 'cargo' } }).expect(201)).body.data._id;
+      const only = await del(load, bearer(carrier), c1);
+      expect(only.status).toBe(409);
+      expect(only.body.error).toMatch(/only photo that satisfies the shipper's pickup-photo requirement/);
+      let evs = await evidenceOf(load._id);
+      expect(evs).toHaveLength(2);
+      expect(fs.existsSync(path.join(PRIVATE_DIR, evs.find((e) => String(e._id) === c1).file))).toBe(true);
+      await del(load, bearer(carrier), paper).expect(200); // paperwork never satisfied the gate
+      const s1 = (await up(load, bearer(carrier), { fields: { kind: 'seal' } }).expect(201)).body.data._id;
+      await del(load, bearer(carrier), c1).expect(200);
+      evs = await evidenceOf(load._id);
+      expect(evs.map((e) => String(e._id))).toEqual([s1]);
+      expect((await del(load, bearer(carrier), s1)).status).toBe(409);
+    });
+
+    test('photos not required: the last photo can be deleted', async () => {
+      const { carrier, load } = await setup();
+      const c = (await up(load, bearer(carrier)).expect(201)).body.data._id;
+      await del(load, bearer(carrier), c).expect(200);
+    });
+
+    test('pickup photo cannot be deleted once the pickup signature exists; delivery likewise', async () => {
+      const { carrier, load } = await setup();
+      const p = (await up(load, bearer(carrier)).expect(201)).body.data._id;
+      await Load.updateOne({ _id: load._id }, { $set: { 'pickupSignature.signedAt': new Date() } });
+      expect((await del(load, bearer(carrier), p)).status).toBe(403);
+      await Load.updateOne({ _id: load._id }, { $set: { status: 'in-transit' } });
+      const d = (await up(load, bearer(carrier), { stage: 'delivery' }).expect(201)).body.data._id;
+      await Load.updateOne({ _id: load._id }, { $set: { 'deliverySignature.signedAt': new Date() } });
+      expect((await del(load, bearer(carrier), d)).status).toBe(403);
+      expect(await evidenceOf(load._id)).toHaveLength(2);
+    });
+
+    test('real pickup signature endpoint, then delete is refused', async () => {
+      const { carrier, load } = await setup(req);
+      const p = (await up(load, bearer(carrier), { fields: { kind: 'seal' } }).expect(201)).body.data._id;
+      await up(load, bearer(carrier), { fields: { kind: 'cargo' } }).expect(201);
+      await request(app).post(`/api/documents/${load._id}/pickup-signature`).set(bearer(carrier)).send({ dataUrl: SIG }).expect(200);
+      expect((await del(load, bearer(carrier), p)).status).toBe(403);
+    });
+
+    test('two concurrent deletes of the last two satisfying photos leave exactly one', async () => {
+      const { carrier, load } = await setup(req);
+      const a = (await up(load, bearer(carrier), { fields: { kind: 'cargo' } }).expect(201)).body.data._id;
+      const b = (await up(load, bearer(carrier), { fields: { kind: 'seal' } }).expect(201)).body.data._id;
+      const rs = await Promise.all([del(load, bearer(carrier), a), del(load, bearer(carrier), b)]);
+      expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect(await evidenceOf(load._id)).toHaveLength(1);
+      expect([...filesNow()].filter((f) => !before.has(f))).toHaveLength(1);
+    });
+  });
 });

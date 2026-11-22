@@ -9,8 +9,12 @@
  */
 const Load = require('../models/Load');
 
-const hasPhoto = (loadId, stage, kinds) =>
-  Load.exists({ _id: loadId, evidence: { $elemMatch: { stage, ...(kinds ? { kind: { $in: kinds } } : {}) } } });
+// Only a live photo (not archived by an un-booking) from the CURRENT carrier company counts.
+const hasPhoto = (load, stage, kinds) =>
+  load.acceptedBy ? Load.exists({
+    _id: load._id,
+    evidence: { $elemMatch: { stage, companyId: load.acceptedBy, archived: { $ne: true }, ...(kinds ? { kind: { $in: kinds } } : {}) } },
+  }) : null;
 
 async function pickupBlockers(load) {
   // The pickup-code handshake is part of the same gate, so no path out of
@@ -22,7 +26,7 @@ async function pickupBlockers(load) {
     };
   }
   if (!load.evidenceRequired?.pickup) return null;
-  if (await hasPhoto(load._id, 'pickup', ['cargo', 'seal'])) return null;
+  if (await hasPhoto(load, 'pickup', ['cargo', 'seal'])) return null;
   return {
     error: 'Pickup photos required: add at least one photo of the freight or the seal (Photos section of the load) before pickup can be completed.',
     reason: 'pickup_photos_required',
@@ -31,7 +35,7 @@ async function pickupBlockers(load) {
 
 async function deliveryBlockers(load) {
   if (!load.evidenceRequired?.delivery) return null;
-  if (await hasPhoto(load._id, 'delivery')) return null;
+  if (await hasPhoto(load, 'delivery')) return null;
   return {
     error: 'Delivery photos required: add at least one delivery photo (Photos section of the load) before this load can be marked delivered.',
     reason: 'delivery_photos_required',

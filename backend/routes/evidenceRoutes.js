@@ -31,7 +31,8 @@ const PRIVATE_DIR = path.join(__dirname, '..', 'public', 'documents', 'load-evid
 try { fs.mkdirSync(PRIVATE_DIR, { recursive: true }); } catch (_) {}
 
 const MAX_BYTES = 10 * 1024 * 1024;
-const MAX_PER_LOAD = 30;
+const MAX_PER_LOAD = 30;       // live (non-archived) photos per load
+const MAX_STORED = 90;         // hard ceiling incl. archived, keeps the document bounded
 const DELETE_WINDOW_MS = 10 * 60 * 1000;
 const POST_DELIVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
@@ -73,8 +74,17 @@ function sniff(buf) {
 
 const companyOf = (req) => String(req.user.companyOwnerId || req.user.userId);
 const isCarrierOf = (load, req) => req.user.role === 'carrier' && String(load.acceptedBy) === companyOf(req);
-const isParty = (load, req) =>
-  req.user.role === 'admin' || String(load.postedBy) === companyOf(req) || String(load.acceptedBy) === companyOf(req);
+// 'all' = shipper company / admin (every item); 'own' = carrier company (booked now, or
+// a former carrier that still has its own items on the load - sees only those); null = no access.
+// Needs load.evidence loaded.
+function accessOf(load, req) {
+  const co = companyOf(req);
+  if (req.user.role === 'admin' || String(load.postedBy) === co) return 'all';
+  if (req.user.role !== 'carrier') return null;
+  if (String(load.acceptedBy) === co || load.evidence.some((e) => String(e.companyId) === co)) return 'own';
+  return null;
+}
+const visibleTo = (access, item, req) => access === 'all' || String(item.companyId) === companyOf(req);
 // eslint-disable-next-line no-control-regex
 const clean = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
 const num = (v) => (v === undefined || v === '' || v === null ? null : Number(v));
@@ -93,12 +103,14 @@ function deletable(load, item, req) {
   return isCarrierOf(load, req)
     && String(item.companyId) === companyOf(req)
     && Date.now() - new Date(item.uploadedAt).getTime() <= DELETE_WINDOW_MS
-    && load.status === (item.stage === 'pickup' ? 'accepted' : 'in-transit');
+    && !item.archived
+    && load.status === (item.stage === 'pickup' ? 'accepted' : 'in-transit')
+    && !(item.stage === 'pickup' ? load.pickupSignature?.signedAt : load.deliverySignature?.signedAt);
 }
 function view(load, item, req) {
   const o = item.toObject ? item.toObject() : item;
-    delete o.file; delete o.companyId;
-  return { ...o, uploadedBy: String(o.uploadedBy), deletable: deletable(load, item, req) };
+  delete o.file; delete o.companyId;
+  return { ...o, archived: !!o.archived, uploadedBy: String(o.uploadedBy), deletable: deletable(load, item, req) };
 }
 const audit = (load, to, userId, reason, meta) =>
   StatusHistory.record('load', load._id, load.status, to, userId, reason, meta).catch(() => {});
@@ -126,7 +138,7 @@ router.post('/loads/:id/evidence', auth,
       if (!stageOpen(load, stage)) {
         return res.status(409).json({ error: `Cannot add ${stage} photos while the load is ${load.status}` });
       }
-      if (load.evidence.length >= MAX_PER_LOAD) {
+      if (load.evidence.filter((e) => !e.archived).length >= MAX_PER_LOAD || load.evidence.length >= MAX_STORED) {
         return res.status(409).json({ error: `Photo limit reached (${MAX_PER_LOAD} per load)` });
       }
       const type = sniff(req.file.buffer);
@@ -157,9 +169,14 @@ router.post('/loads/:id/evidence', auth,
         facilityDistanceMiles: dist,
         sealNumber: clean(req.body.sealNumber) || undefined, note: clean(req.body.note) || undefined,
       };
-      // Atomic cap + status guard so parallel uploads cannot exceed the limit.
+      // Atomic cap + status + booking guard so parallel uploads cannot exceed the limits
+      // and a photo cannot land on a load that was just un-booked/re-booked.
       const updated = await Load.findOneAndUpdate(
-        { _id: load._id, status: load.status, [`evidence.${MAX_PER_LOAD - 1}`]: { $exists: false } },
+        {
+          _id: load._id, status: load.status, acceptedBy: load.acceptedBy,
+          [`evidence.${MAX_STORED - 1}`]: { $exists: false },
+          $expr: { $lt: [{ $size: { $filter: { input: { $ifNull: ['$evidence', []] }, cond: { $ne: ['$$this.archived', true] } } } }, MAX_PER_LOAD] },
+        },
         { $push: { evidence: item } }, { new: true }
       ).select('+evidence');
       if (!updated) {
@@ -167,7 +184,7 @@ router.post('/loads/:id/evidence', auth,
         return res.status(409).json({ error: 'The load changed or the photo limit was reached; try again' });
       }
       await audit(load, 'evidence_added', req.user.userId, `${stage} photo added (${item.kind})`, { evidenceId: item._id, sha256: item.sha256 });
-      if (updated.evidence.filter((e) => e.stage === stage).length === 1) {
+      if (updated.evidence.filter((e) => e.stage === stage && !e.archived).length === 1) {
         notifyUserSafe(load.postedBy, {
           type: 'load:evidence_added',
           title: `${stage === 'pickup' ? 'Pickup' : 'Delivery'} photos added`,
@@ -186,17 +203,29 @@ router.post('/loads/:id/evidence', auth,
 // -- GET /loads/:id/evidence - parties only ----------------------------------
 router.get('/loads/:id/evidence', auth, idParam, validate, async (req, res) => {
   try {
-    const load = await Load.findById(req.params.id).select('+evidence status deliveredAt postedBy acceptedBy evidenceRequired');
+    const load = await Load.findById(req.params.id).select('+evidence status deliveredAt postedBy acceptedBy evidenceRequired pickupSignature.signedAt deliverySignature.signedAt');
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (!isParty(load, req)) return res.status(403).json({ error: 'Forbidden' });
-    const users = await User.find({ _id: { $in: load.evidence.map((e) => e.uploadedBy) } }).select('name').lean();
+    const access = accessOf(load, req);
+    if (!access) return res.status(403).json({ error: 'Forbidden' });
+    const booked = isCarrierOf(load, req);
+    const items = load.evidence.filter((e) => visibleTo(access, e, req));
+    const users = await User.find({ _id: { $in: items.map((e) => e.uploadedBy) } }).select('name').lean();
     const names = new Map(users.map((u) => [String(u._id), u.name]));
+    // Shipper/admin tell bookings apart by the uploading company; carriers only see their own.
+    const cos = access === 'all'
+      ? await User.find({ _id: { $in: items.map((e) => e.companyId) } }).select('companyName name').lean() : [];
+    const coNames = new Map(cos.map((u) => [String(u._id), u.companyName || u.name]));
     res.json({
       success: true,
       data: {
-        required: { pickup: !!load.evidenceRequired?.pickup, delivery: !!load.evidenceRequired?.delivery },
-        canAdd: isCarrierOf(load, req) ? { pickup: stageOpen(load, 'pickup'), delivery: stageOpen(load, 'delivery') } : { pickup: false, delivery: false },
-        items: load.evidence.map((e) => ({ ...view(load, e, req), uploadedByName: names.get(String(e.uploadedBy)) || null })),
+        // A former carrier is told nothing about the shipper's requirements or the load's state.
+        required: access === 'own' && !booked ? { pickup: false, delivery: false }
+          : { pickup: !!load.evidenceRequired?.pickup, delivery: !!load.evidenceRequired?.delivery },
+        canAdd: booked ? { pickup: stageOpen(load, 'pickup'), delivery: stageOpen(load, 'delivery') } : { pickup: false, delivery: false },
+        items: items.map((e) => ({
+          ...view(load, e, req), uploadedByName: names.get(String(e.uploadedBy)) || null,
+          ...(access === 'all' ? { uploadedByCompany: coNames.get(String(e.companyId)) || null } : {}),
+        })),
       },
     });
   } catch (err) {
@@ -210,9 +239,11 @@ router.get('/loads/:id/evidence/:evidenceId/file', auth, idParam, evParam, valid
   try {
     const load = await Load.findById(req.params.id).select('+evidence postedBy acceptedBy');
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (!isParty(load, req)) return res.status(403).json({ error: 'Forbidden' });
+    const access = accessOf(load, req);
+    if (!access) return res.status(403).json({ error: 'Forbidden' });
     const item = load.evidence.id(req.params.evidenceId);
-    if (!item) return res.status(404).json({ error: 'Photo not found' });
+    // Someone else's item answers exactly like a nonexistent one.
+    if (!item || !visibleTo(access, item, req)) return res.status(404).json({ error: 'Photo not found' });
     const full = path.resolve(PRIVATE_DIR, path.basename(item.file));
     if (path.dirname(full) !== path.resolve(PRIVATE_DIR) || !fs.existsSync(full)) return res.status(404).json({ error: 'Photo not found' });
     res.set({
@@ -232,16 +263,38 @@ router.get('/loads/:id/evidence/:evidenceId/file', auth, idParam, evParam, valid
 // -- DELETE /loads/:id/evidence/:evidenceId - uploader's company, 10 min -----
 router.delete('/loads/:id/evidence/:evidenceId', auth, idParam, evParam, validate, async (req, res) => {
   try {
-    const load = await Load.findById(req.params.id).select('+evidence status acceptedBy postedBy title');
+    const load = await Load.findById(req.params.id).select('+evidence status acceptedBy postedBy title evidenceRequired pickupSignature.signedAt deliverySignature.signedAt');
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (!isParty(load, req)) return res.status(403).json({ error: 'Forbidden' });
+    const access = accessOf(load, req);
+    if (!access) return res.status(403).json({ error: 'Forbidden' });
     const item = load.evidence.id(req.params.evidenceId);
-    if (!item) return res.status(404).json({ error: 'Photo not found' });
+    if (!item || !visibleTo(access, item, req)) return res.status(404).json({ error: 'Photo not found' });
     if (!deletable(load, item, req)) {
       return res.status(403).json({ error: 'Photos can only be removed by the uploading carrier within 10 minutes, before the load leaves that stage' });
     }
-    const done = await Load.updateOne({ _id: load._id, status: load.status }, { $pull: { evidence: { _id: item._id } } });
-    if (!done.modifiedCount) return res.status(409).json({ error: 'The load changed; try again' });
+    // One atomic operation: the status/booking/signature guards AND "a required stage keeps
+    // a satisfying live photo" are all in the filter, so nothing can slip in between.
+    const live = { $filter: { input: { $ifNull: ['$evidence', []] }, cond: { $and: [
+      { $ne: ['$$this._id', item._id] }, { $ne: ['$$this.archived', true] }, { $eq: ['$$this.companyId', load.acceptedBy] },
+    ] } } };
+    const keeps = (stage, kinds) => ({ $gt: [{ $size: { $filter: { input: live, cond: { $and: [
+      { $eq: ['$$this.stage', stage] }, ...(kinds ? [{ $in: ['$$this.kind', kinds] }] : []),
+    ] } } } }, 0] });
+    const needs = item.stage === 'pickup' && load.evidenceRequired?.pickup && ['cargo', 'seal'].includes(item.kind) ? keeps('pickup', ['cargo', 'seal'])
+      : item.stage === 'delivery' && load.evidenceRequired?.delivery ? keeps('delivery') : null;
+    const sigField = item.stage === 'pickup' ? 'pickupSignature.signedAt' : 'deliverySignature.signedAt';
+    const done = await Load.updateOne({
+      _id: load._id, status: load.status, acceptedBy: load.acceptedBy,
+      [sigField]: null, evidence: { $elemMatch: { _id: item._id, archived: { $ne: true } } },
+      ...(needs ? { $expr: needs } : {}),
+    }, { $pull: { evidence: { _id: item._id } } });
+    if (!done.modifiedCount) {
+      // Re-read to say why: still present and only the requirement blocked it?
+      const now = await Load.findOne({ _id: load._id, status: load.status, acceptedBy: load.acceptedBy, [sigField]: null, 'evidence._id': item._id }).select('_id').lean();
+      return res.status(409).json({ error: now && needs
+        ? `This is the only photo that satisfies the shipper's ${item.stage}-photo requirement — add another before removing it.`
+        : 'The load changed; try again' });
+    }
     await rm(item.file);
     await audit(load, 'evidence_removed', req.user.userId, `${item.stage} photo removed (${item.kind})`, { evidenceId: item._id, sha256: item.sha256 });
     res.json({ success: true });

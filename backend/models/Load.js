@@ -320,6 +320,10 @@ const LoadSchema = new mongoose.Schema({
       facilityDistanceMiles: { type: Number, default: null },
       sealNumber: String,
       note: String,
+      // Set when the load is un-booked: the item belongs to the earlier booking. Kept
+      // (dispute record), never counted by the gate, never deletable.
+      archived:   { type: Boolean, default: false },
+      archivedAt: Date,
     }],
     select: false,
   },
@@ -354,13 +358,36 @@ function pickupLifecycle(update) {
   else u.$unset[`${PV}.code`] = 1;
   return u;
 }
+
+// Un-booking also archives the photos taken under that booking, so a later booking
+// (another carrier, or the same one again) must add its own. Done as a follow-up update
+// (post hook) because `evidence.$[e]` errors on legacy loads with no evidence array;
+// the guard below skips those. Never throws: a failure is logged, not raised.
+async function archiveEvidence(loadId) {
+  try {
+    await mongoose.model('Load').updateOne(
+      { _id: loadId, 'evidence.0': { $exists: true } },
+      { $set: { 'evidence.$[e].archived': true, 'evidence.$[e].archivedAt': new Date() } },
+      { arrayFilters: [{ 'e.archived': { $ne: true } }] }
+    );
+  } catch (err) { console.error('[load] evidence archive failed:', err.message); }
+}
 for (const op of ['findOneAndUpdate', 'updateOne']) {
-  LoadSchema.pre(op, function (next) {
-    this.setUpdate(pickupLifecycle(this.getUpdate() || {}));
-    next();
+  LoadSchema.pre(op, async function () {
+    const upd = this.getUpdate() || {};
+    const set = (Object.keys(upd).some(k => k.startsWith('$')) ? upd.$set : upd) || {};
+    if (set.status === 'open' || set.status === 'cancelled' || set.acceptedBy === null) {
+      try { this._archiveId = (await this.model.findOne(this.getFilter()).select('_id').lean())?._id; } catch (_) {}
+    }
+    this.setUpdate(pickupLifecycle(upd));
+  });
+  LoadSchema.post(op, async function (res) {
+    if (this._archiveId && res && res.matchedCount !== 0) await archiveEvidence(this._archiveId);
   });
 }
 LoadSchema.pre('save', function (next) {
+  if (!this.isNew && ((this.isModified('acceptedBy') && !this.acceptedBy)
+    || (this.isModified('status') && ['open', 'cancelled'].includes(this.status)))) this.$locals.archiveEvidence = true;
   if (!this.isNew && this.isModified('acceptedBy') && !this.acceptedBy && this.pickupVerification) {
     this.pickupVerification.code = undefined;
     this.pickupVerification.verifiedAt = undefined;
@@ -369,6 +396,9 @@ LoadSchema.pre('save', function (next) {
     this.pickupVerification.failedAttempts = 0;
   }
   next();
+});
+LoadSchema.post('save', async function () {
+  if (this.$locals.archiveEvidence) { this.$locals.archiveEvidence = false; await archiveEvidence(this._id); }
 });
 
 // Indexes for common query patterns
