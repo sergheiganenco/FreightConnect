@@ -15,17 +15,23 @@ async function carrierOpenVisibleConditions(companyId) {
   const entries = await PreferredCarrier.find({ carrier: companyId, isActive: true }).select('shipper').lean();
   const preferredShipperIds = entries.map((e) => e.shipper);
   return [
-    { status: 'open', loadVisibility: { $ne: 'preferred' } },
-    { status: 'open', loadVisibility: 'preferred', postedBy: { $in: preferredShipperIds } },
+    // Public is matched explicitly (null = loads from before the field existed),
+    // so any other value fails closed.
+    { status: 'open', loadVisibility: { $in: ['public', null] } },
+    // preferred + private: the shipper's preferred carriers always see them
+    { status: 'open', loadVisibility: { $in: ['preferred', 'private'] }, postedBy: { $in: preferredShipperIds } },
     { status: 'open', loadVisibility: 'preferred', postedBy: { $nin: preferredShipperIds },
       createdAt: { $lte: new Date(Date.now() - FIRST_LOOK_MS) } },
   ];
 }
 
-/** Can this carrier company see/book this load? Only OPEN preferred loads inside the window are restricted. */
+/** Can this carrier company see/book this OPEN load? Anything not explicitly public is restricted (fails closed). */
 async function carrierCanSeeLoad(load, companyId) {
-  if (load.status !== 'open' || load.loadVisibility !== 'preferred') return true;
-  if (new Date(load.createdAt).getTime() <= Date.now() - FIRST_LOOK_MS) return true;
+  if (load.status !== 'open') return true;
+  const visibility = load.loadVisibility || 'public';
+  if (visibility === 'public') return true;
+  // 'preferred' opens to everyone after the first-look window; 'private' never does.
+  if (visibility === 'preferred' && new Date(load.createdAt).getTime() <= Date.now() - FIRST_LOOK_MS) return true;
   return !!(await PreferredCarrier.exists({ shipper: load.postedBy, carrier: companyId, isActive: true }));
 }
 

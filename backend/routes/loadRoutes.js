@@ -322,11 +322,12 @@ module.exports = (io) => {
 router.get("/open", auth, async (req, res) => {
   try {
     // Only show open, unassigned loads
-    const openLoads = await Load.find(
-      req.user.role === "carrier"
-        ? { $or: await carrierOpenVisibleConditions(req.user.companyOwnerId || req.user.userId), }
-        : { status: "open" }
-    ).where({ assignedTruckId: null });
+    const companyId = req.user.companyOwnerId || req.user.userId;
+    let openFilter;
+    if (req.user.role === "carrier") openFilter = { $or: await carrierOpenVisibleConditions(companyId) };
+    else if (req.user.role === "admin") openFilter = { status: "open" };
+    else openFilter = { status: "open", postedBy: companyId }; // shippers: only their own postings
+    const openLoads = await Load.find(openFilter).where({ assignedTruckId: null });
     res.json(openLoads);
   } catch (err) {
     console.error("Error fetching open loads:", err);
@@ -1238,7 +1239,7 @@ router.get('/recommended/:loadId', auth, async (req, res) => {
       _id: { $ne: currentLoad._id },
       ...(req.user.role === "carrier"
         ? { $and: [{ $or: await carrierOpenVisibleConditions(req.user.companyOwnerId || req.user.userId) }] }
-        : {}),
+        : req.user.role === "admin" ? {} : { postedBy: req.user.companyOwnerId || req.user.userId }),
     }).limit(5);
 
     res.json(recommendedLoads);

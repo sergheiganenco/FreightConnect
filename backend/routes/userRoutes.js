@@ -1038,6 +1038,17 @@ router.put('/fleet/:truckId/unassign-load', auth, async (req, res) => {
 
     if (!load) return res.status(404).json({ error: "Assigned load not found." });
 
+    // Stale pointer (load cancelled / re-booked elsewhere): free the truck but
+    // never reopen a load this company no longer holds.
+    if (String(load.acceptedBy) !== String(user._id) || load.status !== 'accepted') {
+      truck.assignedLoadId = null;
+      truck.status = "Available";
+      truck.available = true;
+      truck.lastStatusUpdate = new Date();
+      await user.save();
+      return res.status(409).json({ error: "This load is not currently assigned to your company (or is already in transit). The truck has been freed." });
+    }
+
     // Defensive: If equipmentType is missing, patch for validation (if needed)
     if (!load.equipmentType) {
       console.warn("Load missing equipmentType. Setting default for recovery.", load);
@@ -1127,6 +1138,24 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
     const Load = require("../models/Load");
     const load = await Load.findById(truck.assignedLoadId);
     if (!load) return res.status(404).json({ error: "Assigned load not found." });
+
+    // The truck's pointer can be stale (load cancelled, then re-booked elsewhere):
+    // never act on a load this company no longer holds.
+    if (String(load.acceptedBy) !== String(user._id) || !['accepted', 'in-transit'].includes(load.status)) {
+      truck.assignedLoadId = null;
+      truck.status = "Available";
+      truck.available = true;
+      truck.lastStatusUpdate = new Date();
+      await user.save();
+      return res.status(409).json({ error: "This load is no longer assigned to your company. The truck has been freed." });
+    }
+    // Same pickup-verification gate as the normal status route.
+    if (load.pickupVerification?.required && !load.pickupVerification?.verifiedAt) {
+      return res.status(409).json({
+        error: 'Pickup verification required: the dock or shipper must verify your pickup code before this load can be completed.',
+        reason: 'pickup_verification_required',
+      });
+    }
 
     // 4. Mark as delivered and free up truck
     truck.status = "Available";           // Truck is free again

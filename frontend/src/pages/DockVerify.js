@@ -60,6 +60,9 @@ export default function DockVerify() {
               <Typography variant="caption">Booked carrier — must match the truck and driver in front of you</Typography>
               <Typography variant="h6">{carrier?.companyName}</Typography>
               <Typography variant="body2">MC {carrier?.mcNumber || 'n/a'} · DOT {carrier?.dotNumber || 'n/a'}</Typography>
+              {carrier && carrier.identityVerified === false && (
+                <Alert severity="warning" sx={{ mt: 1 }}>This carrier's name and numbers are self-reported and not yet confirmed with FMCSA. Check the truck's door markings and the driver's ID carefully.</Alert>
+              )}
               {(info.driverName || info.truckId) && (
                 <Typography variant="body2">{[info.driverName && `Driver: ${info.driverName}`, info.truckId && `Truck: ${info.truckId}`].filter(Boolean).join(' · ')}</Typography>
               )}

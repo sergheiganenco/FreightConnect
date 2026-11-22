@@ -44,8 +44,24 @@ function parseDockToken(token) {
 }
 
 async function carrierIdentity(carrierId) {
-  const c = await User.findById(carrierId).select('companyName name mcNumber dotNumber').lean();
-  return c ? { companyName: c.companyName || c.name, mcNumber: c.mcNumber || null, dotNumber: c.dotNumber || null } : null;
+  // Prefer the identity confirmed with FMCSA at verification: companyName/mcNumber/
+  // dotNumber on the profile are user-editable, and the dock relies on this to spot
+  // an impersonator. `identityVerified` tells the dock page which one it is showing.
+  const c = await User.findById(carrierId)
+    .select('companyName name mcNumber dotNumber verification.status verification.mcNumber verification.dotNumber verification.fmcsaData.legalName verification.fmcsaData.dbaName')
+    .lean();
+  if (!c) return null;
+  const v = c.verification || {};
+  if (v.status === 'verified' && v.fmcsaData && v.fmcsaData.legalName) {
+    return {
+      companyName: v.fmcsaData.legalName,
+      dbaName: v.fmcsaData.dbaName || null,
+      mcNumber: v.mcNumber || null,
+      dotNumber: v.dotNumber || null,
+      identityVerified: true,
+    };
+  }
+  return { companyName: c.companyName || c.name, mcNumber: c.mcNumber || null, dotNumber: c.dotNumber || null, identityVerified: false };
 }
 
 function audit(loadId, from, to, userId, reason) {
