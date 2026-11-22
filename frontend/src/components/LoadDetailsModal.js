@@ -90,6 +90,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [errorMessage, setError] = useState('');
   const [successMessage, setOk] = useState('');
   const [ratingOpen, setRatingOpen] = useState(false);
+  const [releaseNote, setReleaseNote] = useState(''); // result of 'Release to standby carriers' (its panel unmounts)
 
   // ── Payment state ───────────────────────────────────────────────
   const [payment, setPayment] = useState(null);     // existing payment record
@@ -677,6 +678,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
       }}>
 
         {notice && <Alert severity="warning" sx={{ mb: 2 }}>{notice}</Alert>}
+        {releaseNote && <Alert severity="success" onClose={() => setReleaseNote('')} sx={{ mb: 2 }}>{releaseNote}</Alert>}
 
         {/* Header */}
         <Box display="flex" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1} mb={2}>
@@ -731,7 +733,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         </Box>
 
         {/* Counterparty Reputation — carriers see shipper, shippers see carrier */}
-        {(loadState.postedBy || loadState.acceptedBy) && (
+        {(userRole === 'carrier' ? loadState.postedBy : loadState.acceptedBy) && (
           <ReputationBadges
             userId={userRole === 'carrier' ? (loadState.postedBy?._id || loadState.postedBy) : (loadState.acceptedBy?._id || loadState.acceptedBy)}
             userRole={userRole}
@@ -1506,12 +1508,13 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
         {/* ── Pickup no-show prediction ── */}
         {['carrier', 'shipper', 'admin'].includes(userRole) && (
-          <PickupRiskPanel load={loadState} userRole={userRole} onChanged={(l) => { setLoadState((prev) => ({ ...prev, ...l })); if (l.status && l.status !== loadState.status) onLoadAccepted?.(loadState._id); }} />
+          <PickupRiskPanel load={loadState} userRole={userRole} onChanged={(l, note) => { setLoadState((prev) => ({ ...prev, ...l, ...(l.status === 'open' ? { acceptedBy: null } : {}) })); if (note) setReleaseNote(note); if (l.status && l.status !== loadState.status) onLoadAccepted?.(loadState._id); }} />
         )}
 
+        {/* The server omits a cleared proposal, so it is reset explicitly on refresh. */}
         {/* ── Change pickup / delivery time (shipper) and respond to a proposed pickup time (carrier) ── */}
         {['carrier', 'shipper', 'admin'].includes(userRole) && (
-          <PickupWindowPanel load={loadState} userRole={userRole} onChanged={(l) => setLoadState((prev) => ({ ...prev, ...l }))} />
+          <PickupWindowPanel load={loadState} userRole={userRole} onChanged={(l) => setLoadState((prev) => ({ ...prev, ...l, pickupWindowChange: l.pickupWindowChange }))} />
         )}
 
         {/* ── Pickup handshake (anti-impersonation) ── */}

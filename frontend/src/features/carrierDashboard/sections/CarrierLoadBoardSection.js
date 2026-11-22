@@ -59,7 +59,7 @@ export default function CarrierLoadBoardSection() {
     setLinkNotice('');
     api.get(`/loads/${encodeURIComponent(linkedId)}`)
       .then(({ data }) => setSelected(data))
-      .catch((e) => setLinkNotice(e?.response?.status === 404
+      .catch((e) => setLinkNotice([403, 404].includes(e?.response?.status)
         ? 'That load is no longer available. It may have been booked by another carrier or withdrawn.'
         : 'Could not open that load. Please try again from the load board.'));
   }, [linkedId, setSearchParams]);

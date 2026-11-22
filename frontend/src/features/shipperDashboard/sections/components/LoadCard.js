@@ -71,7 +71,7 @@ export default function LoadCard({ load, onClick }) {
         {/* Route */}
         {load.title && (
           <Typography variant="body2" color="text.secondary" mb={0.5}>
-            {origin} \u2192 {destination}
+            {origin} {'\u2192'} {destination}
           </Typography>
         )}
 

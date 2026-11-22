@@ -223,4 +223,4 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
   }
 }
 
-module.exports = { createPostedLoad, shipperPostingGate, makeGeocodeBudget, POSTABLE_FIELDS };
+module.exports = { createPostedLoad, shipperPostingGate, makeGeocodeBudget, geocode, POSTABLE_FIELDS };

@@ -85,10 +85,10 @@ export default function AdminReviewQueue() {
   const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState("");
 
-  const fetchStats = useCallback(async () => {
+  const fetchStats = useCallback(async (ty) => {
     try {
-      const res = await api.get("/review-queue/stats");
-      setStats(res.data || {});
+      const res = await api.get(`/review-queue/stats${ty && ty !== "all" ? `?type=${ty}` : ""}`);
+      setStats(res.data?.data || {});
     } catch { setStats({}); }
   }, []);
 
@@ -98,14 +98,14 @@ export default function AdminReviewQueue() {
       const res = await api.get(`/review-queue?status=${st}${ty === "all" ? "" : `&type=${ty}`}&page=${pg + 1}&limit=${rowsPerPage}`);
       const data = res.data || {};
       setItems(data.items || data.data || data.rows || []);
-      setTotal(data.total ?? data.count ?? 0);
+      setTotal(data.pagination?.total ?? data.total ?? data.count ?? 0);
     } catch {
       setItems([]); setTotal(0);
     }
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { fetchStats(type); }, [type, fetchStats]);
   useEffect(() => { fetchItems(status, type, page); }, [status, type, page, fetchItems]);
 
   const openAction = (mode, item) => { setDialog({ open: true, mode, item }); setNote(""); setActionErr(""); };
@@ -120,7 +120,7 @@ export default function AdminReviewQueue() {
       setDialog({ open: false, mode: "", item: null });
       setNote("");
       fetchItems(status, type, page);
-      fetchStats();
+      fetchStats(type);
     } catch (err) {
       setActionErr(err?.response?.data?.error || "Action failed. Please try again.");
     }

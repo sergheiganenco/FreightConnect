@@ -16,14 +16,21 @@ import {
   Stack, TextField, Typography, useMediaQuery,
 } from '@mui/material';
 import api from '../../services/api';
+import { semantic, text as T, tint } from '../../theme/tokens';
 
 const PROPOSAL_TTL_MS = 24 * 60 * 60 * 1000; // same as the backend: a proposal lapses 24h after it was proposed
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const BTN = { minHeight: 44 };
 
+/** Dark-glass alert styling (readable on the dark theme): tinted background, coloured border, light text. */
+export const darkAlert = (color) => ({
+  bgcolor: tint(color, 0.14), color: T.primary, border: `1px solid ${color}`,
+  '& .MuiAlert-icon': { color }, '& .MuiAlert-message': { color: T.primary },
+});
+
 // dateStyle/timeStyle cannot be combined with timeZoneName (toLocaleString throws), so spell the parts out.
-const fmt = (d) => new Date(d).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-const fmtWin = (w) => (w?.end ? `${fmt(w.start)} to ${fmt(w.end)}` : fmt(w.start));
+export const fmt = (d) => new Date(d).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+export const fmtWin = (w) => (w?.end ? `${fmt(w.start)} to ${fmt(w.end)}` : fmt(w.start));
 const pad = (n) => String(n).padStart(2, '0');
 const toLocalInput = (d) => {
   const x = d ? new Date(d) : null;
@@ -91,7 +98,7 @@ export default function PickupWindowPanel({ load, userRole, onChanged }) {
   };
   const submit = async () => {
     if (!Number.isFinite(ns) || !Number.isFinite(ne)) { setDlgErr('Enter both a start and an end time.'); return; }
-    setBusy(true); setDlgErr('');
+    setBusy(true); setDlgErr(''); setMsg(null);
     try {
       const data = await put(dlg, ns, ne);
       setMsg({ severity: 'success', text: data?.message || (dlg === 'pickup' ? 'Pickup time updated.' : 'Delivery time updated.') });
@@ -120,7 +127,7 @@ export default function PickupWindowPanel({ load, userRole, onChanged }) {
   return (
     <Box sx={{ mb: 2 }} onClick={(e) => e.stopPropagation()}>
       {isCarrier && ch && (
-        <Alert severity="warning" icon={false} sx={{ border: 1, borderColor: 'warning.main' }}>
+        <Alert severity="warning" icon={false} sx={darkAlert(semantic.warning)}>
           <Typography fontWeight={700}>
             The shipper asks to change pickup to {fmtWin(proposedWin)} (currently {fmtWin(agreed)}).
           </Typography>
@@ -130,19 +137,19 @@ export default function PickupWindowPanel({ load, userRole, onChanged }) {
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
             {!expired && <Button variant="contained" sx={BTN} disabled={busy} onClick={() => respond(true)}>Accept new time</Button>}
-            <Button variant="outlined" sx={BTN} disabled={busy} onClick={() => respond(false)}>Keep agreed time</Button>
+            <Button variant="outlined" sx={{ ...BTN, color: T.primary, borderColor: T.secondary }} disabled={busy} onClick={() => respond(false)}>Keep agreed time</Button>
           </Stack>
         </Alert>
       )}
 
       {canEdit && ch && (
-        <Alert severity="info" sx={{ mb: 1 }}>
+        <Alert severity="info" sx={{ mb: 1, ...darkAlert(semantic.info) }}>
           <Typography fontWeight={700}>Proposed: {fmtWin(proposedWin)}. Waiting for the carrier.</Typography>
           <Typography variant="body2">
             Proposed {fmt(ch.proposedAt)}. {expired ? 'It has expired.' : `It expires ${fmt(expiresAt)}, 24 hours after it was proposed.`}{' '}
             Until the carrier accepts, the agreed time ({fmtWin(agreed)}) stays in force.
           </Typography>
-          {agreed.end && <Button size="small" sx={{ ...BTN, mt: 0.5 }} disabled={busy} onClick={withdraw}>Withdraw proposal</Button>}
+          {agreed.end && <Button size="small" sx={{ ...BTN, mt: 0.5, color: semantic.info }} disabled={busy} onClick={withdraw}>Withdraw proposal</Button>}
         </Alert>
       )}
 

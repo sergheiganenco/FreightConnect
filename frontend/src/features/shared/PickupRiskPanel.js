@@ -12,7 +12,8 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack, Tooltip, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import api from '../../services/api';
-import { semantic } from '../../theme/tokens';
+import { semantic, text as T, tint } from '../../theme/tokens';
+import { darkAlert } from './PickupWindowPanel';
 
 const errMsg = (e, fallback) => e?.response?.data?.error || fallback;
 const when = (d) => (d ? new Date(d).toLocaleString() : null);
@@ -44,7 +45,7 @@ export function PickupRiskChip({ load }) {
   if (!v) return null;
   return (
     <Tooltip title={<Box>{v.lines.map((l) => <Typography key={l} variant="caption" display="block" sx={{ mb: 0.5 }}>{l}</Typography>)}</Box>}>
-      <Chip label={v.label} size="small" sx={{ mb: 0.5, mr: 0.5, bgcolor: 'rgba(239,68,68,0.15)', color: v.color, fontWeight: 700, fontSize: '0.75rem', border: `1px solid ${v.color}` }} />
+      <Chip label={v.label} size="small" sx={{ mb: 0.5, mr: 0.5, bgcolor: tint(v.color, 0.3), color: T.primary, fontWeight: 700, fontSize: '0.75rem', border: `1px solid ${v.color}` }} />
     </Tooltip>
   );
 }
@@ -67,10 +68,10 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
   const declined = risk?.carrierConfirmation?.status === 'cannot_make_it';
   if (!v && !(isCarrier && risk?.carrierConfirmation)) return null;
 
-  const refresh = async () => {
+  const refresh = async (note) => {
     const { data } = await api.get(`/loads/${id}`);
     setRisk(data.pickupRisk || null);
-    if (onChanged) onChanged(data);
+    if (onChanged) onChanged(data, note);
   };
   const answer = async (status) => {
     setBusy(true); setMsg(null);
@@ -94,9 +95,11 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
     try {
       const { data } = await api.post(`/loads/${id}/release-to-standby`, { reason: releaseReason });
       setReleaseOpen(false);
-      setMsg({ severity: 'success', text: `Load released and re-posted. ${data.standbyNotified} standby carrier(s) notified.` });
-      // Tell the parent the load is open again (modal state + the list behind it) with the server's copy when we can get it.
-      await refresh().catch(() => { if (onChanged) onChanged({ ...load, status: 'open', acceptedBy: null, pickupRisk: null }); });
+      const text = `Load released and re-posted. ${data.standbyNotified} standby carrier(s) notified.`;
+      setMsg({ severity: 'success', text });
+      // Tell the parent the load is open again (modal state + the list behind it) with the server's copy when we can get it;
+      // the panel unmounts once the load is open, so the parent keeps the result message.
+      await refresh(text).catch(() => { if (onChanged) onChanged({ ...load, status: 'open', acceptedBy: null, pickupRisk: null }, text); });
     } catch (e) { setMsg({ severity: 'error', text: errMsg(e, 'Release failed') }); } finally { setBusy(false); }
   };
 
@@ -104,24 +107,24 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
   return (
     <Box sx={{ mb: 2 }} onClick={(e) => e.stopPropagation()}>
       {isCarrier ? (v && v.level !== 'no_show' && !risk?.carrierConfirmation?.status && (
-        <Alert severity="warning" action={null}>
+        <Alert severity="warning" action={null} sx={darkAlert(semantic.warning)}>
           <Typography fontWeight={700}>Are you on the way to {load.pickupFacilityName || load.pickupAddress || load.origin}?</Typography>
           <Typography variant="body2" sx={{ my: 0.5 }}>
             {d.distanceMilesStraight != null
               ? `GPS shows you about ${d.distanceMilesStraight} miles away (estimate, straight-line). `
-              : <>We're not receiving your location. <RouterLink to="/dashboard/carrier/live-map">Start tracking</RouterLink>. </>}
+              : <>We're not receiving your location. <RouterLink to="/dashboard/carrier/live-map" style={{ color: semantic.warning, fontWeight: 700 }}>Start tracking</RouterLink>. </>}
             Pickup is due {when(load.pickupTimeWindow?.start)}.
           </Typography>
           <Stack direction="row" spacing={1}>
             <Button size="small" variant="contained" disabled={busy} onClick={() => answer('on_my_way')}>On my way</Button>
-            <Button size="small" variant="outlined" color="error" disabled={busy} onClick={() => setDeclineOpen(true)}>I can't make it</Button>
+            <Button size="small" variant="outlined" disabled={busy} onClick={() => setDeclineOpen(true)} sx={{ color: T.primary, borderColor: semantic.error }}>I can't make it</Button>
           </Stack>
         </Alert>
       )) : (v && (
-        <Alert severity={v.level === 'at_risk' ? 'warning' : 'error'}>
+        <Alert severity={v.level === 'at_risk' ? 'warning' : 'error'} sx={darkAlert(v.color)}>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-            <Chip label={v.label} size="small" sx={{ fontWeight: 700 }} />
-            <Button size="small" onClick={() => setOpen((o) => !o)}>{open ? 'Hide details' : 'Why?'}</Button>
+            <Chip label={v.label} size="small" sx={{ fontWeight: 700, bgcolor: tint(v.color, 0.3), color: T.primary, border: `1px solid ${v.color}` }} />
+            <Button size="small" sx={{ color: T.primary }} onClick={() => setOpen((o) => !o)}>{open ? 'Hide details' : 'Why?'}</Button>
             {releaseReason && <Button size="small" variant="contained" color="error" disabled={busy} onClick={openRelease}>Release to standby carriers</Button>}
           </Stack>
           <Collapse in={open}>{v.lines.map((l) => <Typography key={l} variant="body2" sx={{ mt: 0.5 }}>{l}</Typography>)}</Collapse>
@@ -132,7 +135,7 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
           You told the shipper: {risk.carrierConfirmation.status === 'on_my_way' ? 'on my way' : "can't make it"}.
         </Typography>
       )}
-      {msg && <Alert severity={msg.severity} sx={{ mt: 1 }}>{msg.text}</Alert>}
+      {msg && <Alert severity={msg.severity} sx={{ mt: 1, ...darkAlert(semantic[msg.severity] || semantic.info) }}>{msg.text}</Alert>}
 
       <Dialog open={declineOpen} onClose={() => setDeclineOpen(false)}>
         <DialogTitle>Tell the shipper you can't make this pickup?</DialogTitle>
@@ -151,7 +154,7 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
               {standby == null ? 'Standby carriers will be notified.' : `${standby} standby carrier(s) will be notified; they still have to book it themselves.`}</p>
             <p>The carrier is notified that the load was released and why, and how to respond. {releaseReason === 'no_show'
               ? 'A suspected no-show is sent to FreightConnect staff for review.'
-              : ''} Any escrow hold is released.</p>
+              : ''} Any escrow hold is released. No trust-score penalty is applied automatically.</p>
             <p>{v?.lines[0]}</p>
           </DialogContentText>
         </DialogContent>

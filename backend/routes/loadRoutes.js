@@ -1245,7 +1245,6 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
     // Latest agreed arrival exactly as the risk evaluator computes it: window end, else start + fallback.
     const ae = Number.isFinite(aeRaw) && aeRaw >= as ? aeRaw : as + FALLBACK_WINDOW_MS;
     const moved = ns !== as || ne !== aeRaw;
-    const fmtW = () => `${new Date(ns).toUTCString().replace(' GMT', '')} UTC - ${new Date(ne).toUTCString().replace(' GMT', '')} UTC`;
 
     if (booked) {
       const nowMs = Date.now();
@@ -1263,7 +1262,7 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
       await notifyUserSafe(load.acceptedBy, {
         type: 'pickup:window_change_proposed',
         title: 'Shipper proposed an earlier pickup time',
-        body: `The shipper proposed a new pickup time for "${load.title}": ${fmtW()}. It only applies if you accept it; until then you are held to the agreed window.`,
+        body: `The shipper proposed a new pickup time for "${load.title}". Open the load to see it. It only applies if you accept it; until then you are held to the agreed window.`,
         link: '/dashboard/carrier/my-loads',
         metadata: { loadId: String(load._id) },
       });
@@ -1289,7 +1288,7 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
       await notifyUserSafe(load.acceptedBy, {
         type: 'pickup:window_changed',
         title: 'Pickup time changed',
-        body: `The shipper changed the pickup time for "${load.title}" to ${fmtW()}. Please check you can make it.`,
+        body: `The shipper changed the pickup time for "${load.title}". Open the load to see the new time. Please check you can make it.`,
         link: '/dashboard/carrier/my-loads',
         metadata: { loadId: String(load._id) },
       });
@@ -1747,11 +1746,10 @@ router.post('/voice-command', auth, async (req, res) => {
       if (!w.matchedCount) return res.status(409).json({ error: 'The proposal changed or the load is no longer booked to you' });
       StatusHistory.record('load', load._id, 'accepted', 'accepted', req.user.userId,
         accept ? 'Carrier accepted the proposed pickup time' : 'Carrier declined the proposed pickup time', { event: 'pickup_window_response', accept }).catch(() => {});
-      const when = `${new Date(ch.proposedStart).toUTCString().replace(' GMT', '')} UTC - ${new Date(ch.proposedEnd).toUTCString().replace(' GMT', '')} UTC`;
       await notifyUserSafe(load.postedBy, {
         type: accept ? 'pickup:window_change_accepted' : 'pickup:window_change_declined',
         title: accept ? 'Carrier accepted the new pickup time' : 'Carrier declined the new pickup time',
-        body: accept ? `The carrier accepted the new pickup time for "${load.title}": ${when}.` : `The carrier declined the proposed pickup time for "${load.title}". The originally agreed window still applies.`,
+        body: accept ? `The carrier accepted the new pickup time for "${load.title}".` : `The carrier declined the proposed pickup time for "${load.title}". The originally agreed window still applies.`,
         link: '/dashboard/shipper/loads', metadata: { loadId: String(load._id) },
       });
       const fresh = await Load.findById(load._id).select('pickupTimeWindow bookedWindow pickupWindowChange').lean();

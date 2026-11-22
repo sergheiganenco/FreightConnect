@@ -28,7 +28,7 @@ const CORROBORATE_MS = 30 * 60 * 1000; // a signature/photo needs an authenticat
 const NOTIFY_LEVELS = ['at_risk', 'late_certain', 'no_show'];
 const SELECT = 'title origin pickupFacilityName pickupAddress originLat originLng pickupTimeWindow bookedWindow carrierLocation postedBy acceptedBy assignedDriverName pickupRisk.notified pickupRisk.carrierConfirmation pickupRisk.detail.latestArrivalAt bookedAt pickupVerification.verifiedAt pickupSignature.signedAt';
 
-const fmt = (d) => `${new Date(d).toUTCString().replace(' GMT', '')} UTC`;
+// Notification text is stored, and the server cannot know the reader's time zone: no clock times in it (the app shows them in local time).
 // The window the carrier agreed to at booking. pickupTimeWindow is only a fallback for loads booked before
 // bookedWindow existed; a shipper-edited pickupTimeWindow can never judge the carrier.
 const agreedWindow = (l) => (l.bookedWindow && l.bookedWindow.start ? l.bookedWindow : l.pickupTimeWindow) || {};
@@ -38,16 +38,15 @@ const place = (l) => l.pickupFacilityName || l.pickupAddress || l.origin;
 function messages(load, r) {
   const d = r.detail || {};
   const where = place(load);
-  const due = fmt(d.latestArrivalAt);
-  const basis = `${d.latestArrivalBasis ? `Latest arrival is the ${d.latestArrivalBasis}: ${due}. ` : ''}`;
+  const basis = `${d.latestArrivalBasis ? `Latest arrival is the ${d.latestArrivalBasis}. ` : ''}`;
   const est = d.distanceMilesStraight != null
     ? `Last GPS fix was about ${d.distanceMilesStraight} straight-line miles away (estimate: x1.25 road factor at ${d.assumedMph} mph, about ${d.driveMinutesEstimate} min of driving; ${d.minutesRemaining} min remaining).`
     : '';
-  const wantsConfirm = `Pickup at ${where} is due ${fmt(agreedWindow(load).start)}. Confirm you're on the way.`;
+  const wantsConfirm = `Pickup at ${where} is coming up. Confirm you're on the way.`;
   if (r.reason === 'carrier_declined') {
     return {
       carrier: { type: 'pickup:at_risk', title: 'Pickup: you told the shipper you cannot make it', body: `The shipper was told you can't make pickup at ${where}. They may release the load.` },
-      shipper: { type: 'pickup:carrier_declined', title: 'Carrier cannot make pickup', body: `The carrier says it can't make this pickup at ${where} (due ${fmt(agreedWindow(load).start)}). The booking stays in place until you act; you can release the load to standby carriers.` },
+      shipper: { type: 'pickup:carrier_declined', title: 'Carrier cannot make pickup', body: `The carrier says it can't make this pickup at ${where}. The booking stays in place until you act; you can release the load to standby carriers.` },
     };
   }
   if (r.level === 'at_risk') {
@@ -56,7 +55,7 @@ function messages(load, r) {
       shipper: {
         type: 'pickup:at_risk', title: 'Pickup may be missed',
         body: r.reason === 'no_gps'
-          ? `We are not receiving the carrier's location and pickup at ${where} is due ${fmt(agreedWindow(load).start)}. This is not a confirmed problem. ${basis}`.trim()
+          ? `We are not receiving the carrier's location and pickup at ${where} is coming up. This is not a confirmed problem. ${basis}`.trim()
           : `Pickup at ${where} may be missed. ${est} ${basis}These are estimates, not confirmed delays.`.trim(),
       },
     };

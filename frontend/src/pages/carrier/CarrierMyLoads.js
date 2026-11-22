@@ -17,7 +17,7 @@ import {
 import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
-import PickupWindowPanel from '../../features/shared/PickupWindowPanel';
+import PickupWindowPanel, { fmtWin } from '../../features/shared/PickupWindowPanel';
 import ReturnLoadSuggestions from '../../components/ReturnLoadSuggestions';
 import PickupRiskPanel from '../../features/shared/PickupRiskPanel';
 import SignaturePad from '../../components/SignaturePad';
@@ -306,6 +306,12 @@ export default function CarrierMyLoads({ embedded = false }) {
                   <Typography variant="body2" color="text.secondary" mb={1}>
                     Rate: ${l.rate.toLocaleString()}
                   </Typography>
+                  {(l.bookedWindow?.start || l.pickupTimeWindow?.start) && (
+                    <Typography variant="body2" color="text.secondary" mb={1}>
+                      Pickup: {fmtWin(l.bookedWindow?.start ? l.bookedWindow : l.pickupTimeWindow)}
+                      {l.deliveryTimeWindow?.start && <><br />Delivery: {fmtWin(l.deliveryTimeWindow)}</>}
+                    </Typography>
+                  )}
 
                   <PickupRiskPanel load={l} userRole="carrier" onChanged={fetchLoads} />
                   <PickupWindowPanel load={l} userRole="carrier" onChanged={fetchLoads} />

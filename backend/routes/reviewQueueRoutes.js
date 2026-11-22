@@ -66,12 +66,15 @@ router.get('/', auth, adminOnly, async (req, res) => {
 });
 
 /**
- * GET /stats — counts by status, for an admin badge.
+ * GET /stats — counts by status, for an admin badge. Optional ?type= limits it to one review type.
  * Defined before /:id so 'stats' isn't matched as an id.
  */
 router.get('/stats', auth, adminOnly, async (req, res) => {
   try {
+    const match = {};
+    if (['carrier_suspension', 'fraud_flag', 'pickup_no_show', 'other'].includes(req.query.type)) match.type = req.query.type;
     const rows = await ReviewQueue.aggregate([
+      { $match: match },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
 

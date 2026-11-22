@@ -956,7 +956,8 @@ export default function ShipperPostLoad() {
               freeSolo
               options={cities}
               getOptionLabel={opt => (typeof opt === "string" ? opt : opt.label)}
-              defaultValue={newLoad.origin}
+              value={newLoad.origin || ""}
+              inputValue={newLoad.origin || ""}
               onInputChange={(_, val) => handleChange("origin", val)}
               renderInput={params =>
                 <TextField {...params} label="Pickup City" required error={fieldErrors.origin} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />
@@ -1038,7 +1039,8 @@ export default function ShipperPostLoad() {
               freeSolo
               options={cities}
               getOptionLabel={opt => (typeof opt === "string" ? opt : opt.label)}
-              defaultValue={newLoad.destination}
+              value={newLoad.destination || ""}
+              inputValue={newLoad.destination || ""}
               onInputChange={(_, val) => handleChange("destination", val)}
               renderInput={params =>
                 <TextField {...params} label="Delivery City" required error={fieldErrors.destination} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />

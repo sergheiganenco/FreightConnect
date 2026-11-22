@@ -570,6 +570,7 @@ server.listen(PORT, () => {
     require('./jobs/invoiceEmailer').start();
     require('./jobs/fraudMonitor').start();
     require('./jobs/eldPoller').start();
+    require('./jobs/loadLocator').start();
     // AI Agents
     require('./agents').initializeAgents();
   }

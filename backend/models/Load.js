@@ -367,6 +367,12 @@ const LoadSchema = new mongoose.Schema({
   },
   // Per-booking random nonce bound into the tracker-link token, so a link dies when the load is re-booked.
   trackingNonce: { type: String, select: false },
+  // Set by jobs/loadLocator when the geocoder answered 'not found' for a place: the load stays hidden and is not retried.
+  locationProblem: {
+    field: { type: String, enum: ['origin', 'destination'] },
+    place: String,
+    at:    Date,
+  },
   pickupRisk: {
     level:      { type: String, enum: ['not_evaluated', 'on_track', 'at_risk', 'late_certain', 'no_show'] },
     reason:      String,
