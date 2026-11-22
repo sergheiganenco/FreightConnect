@@ -607,7 +607,7 @@ router.patch('/team/:id', auth, async (req, res) => {
 
     // Make an active-status change take effect immediately (bypass the TTL cache),
     // so a deactivated member's existing token stops working right away.
-    auth.invalidateActive(member._id);
+    await auth.revokeSessions(member._id, { disconnect: member.active === false });
 
     res.json({
       member: {

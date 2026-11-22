@@ -21,7 +21,7 @@ jest.mock('../../services/fmcsaService', () => ({
 
 const fmcsaService = require('../../services/fmcsaService');
 const User = require('../../models/User');
-const { createTestUser } = require('../helpers');
+const { createTestUser, createTestLoad } = require('../helpers');
 const { runFmcsaCheck } = require('../../jobs/fmcsaMonitor');
 const { runInsuranceCheck } = require('../../jobs/insuranceMonitor');
 
@@ -136,6 +136,114 @@ describe('fmcsaMonitor — confirmed-DOT identity', () => {
       expect(fresh.verification.status).toBe('verified');
       expect(fresh.verification.fmcsaData.legalName).toBe('Test Trucking LLC');
     }
+  });
+});
+
+describe('fmcsaMonitor — unconfirmed identity fails closed', () => {
+  const Notification = require('../../models/Notification');
+  const { evaluateBookingGate } = require('../../services/bookingGuard');
+  const OK = { legalName: 'Test Trucking LLC', dotNumber: '1234567', mcNumber: '765432', operatingStatus: 'AUTHORIZED FOR Property', safetyRating: 'Satisfactory' };
+  const unmatched = () => fmcsaService.lookupByDOT.mockResolvedValue({ legalName: 'Other Co', dotNumber: '9999999', operatingStatus: 'AUTHORIZED FOR Property' });
+  const outage = () => fmcsaService.lookupByDOT.mockRejectedValue(new Error('FMCSA API timeout'));
+
+  async function canBook(carrier) {
+    const shipper = await createTestUser({ role: 'shipper' });
+    const load = await createTestLoad(shipper._id);
+    return evaluateBookingGate({ load, carrierId: carrier._id });
+  }
+
+  test('no confirmed DOT: confirms with the previously verified number when FMCSA matches', async () => {
+    const carrier = await createVerifiedCarrier({ dotNumber: '5555555' }); // typed profile DOT must be ignored
+    fmcsaService.lookupByDOT.mockResolvedValue(OK);
+    await runFmcsaCheck();
+    expect(fmcsaService.lookupByDOT).toHaveBeenCalledWith('1234567');
+    expect(fmcsaService.lookupByDOT).not.toHaveBeenCalledWith('5555555');
+    const fresh = await User.findById(carrier._id);
+    expect(fresh.verification.status).toBe('verified');
+    expect(fresh.verification.fmcsaData.dotNumber).toBe('1234567');
+    expect(fresh.verification.fmcsaData.mcNumber).toBe('765432');
+    expect(fresh.verification.fmcsaFailures).toBe(0);
+  });
+
+  test('profile dotNumber is never used: no confirmed or verified DOT => counted failure, no lookup', async () => {
+    const carrier = await createVerifiedCarrier({
+      dotNumber: '5555555',
+      verification: { status: 'verified', insurance: { status: 'valid' }, fmcsaData: { legalName: 'T' } },
+    });
+    await runFmcsaCheck();
+    expect(fmcsaService.lookupByDOT).not.toHaveBeenCalled();
+    expect((await User.findById(carrier._id)).verification.fmcsaFailures).toBe(1);
+  });
+
+  test('an invalid stored DOT counts as a failure (not an outage)', async () => {
+    const carrier = await createVerifiedCarrier({
+      verification: { status: 'verified', fmcsaData: { legalName: 'T', dotNumber: 'abc' } },
+    });
+    fmcsaService.lookupByDOT.mockRejectedValue(Object.assign(new Error('Invalid DOT number'), { code: 'INVALID_INPUT' }));
+    await runFmcsaCheck();
+    expect((await User.findById(carrier._id)).verification.fmcsaFailures).toBe(1);
+  });
+
+  test('3 consecutive unmatched results: suspended (fmcsa_unconfirmed), not bookable, notified once', async () => {
+    const carrier = await createVerifiedCarrier();
+    expect((await canBook(carrier)).allowed).toBe(true);
+    unmatched();
+    await runFmcsaCheck();
+    await runFmcsaCheck();
+    expect((await User.findById(carrier._id)).verification.status).toBe('verified');
+    await runFmcsaCheck();
+
+    const fresh = await User.findById(carrier._id);
+    expect(fresh.verification.status).toBe('suspended');
+    expect(fresh.verification.suspensionReason).toBe('fmcsa_unconfirmed');
+    expect(fresh.verification.fmcsaFailures).toBe(3);
+    expect(fresh.verification.fmcsaLastFailure.reason).toMatch(/did not match/);
+    const gate = await canBook(carrier);
+    expect(gate.allowed).toBe(false);
+    expect(gate.reasons.join(' ')).toMatch(/suspended/);
+
+    await runFmcsaCheck(); // still suspended carriers are re-checked, but not re-notified
+    expect((await User.findById(carrier._id)).verification.fmcsaFailures).toBe(4);
+    expect(await Notification.countDocuments({ userId: carrier._id, type: 'verification:suspended' })).toBe(1);
+  });
+
+  test('outages never count and never change status', async () => {
+    const carrier = await createVerifiedCarrier();
+    outage();
+    for (let i = 0; i < 4; i += 1) await runFmcsaCheck();
+    const fresh = await User.findById(carrier._id);
+    expect(fresh.verification.status).toBe('verified');
+    expect(fresh.verification.fmcsaFailures || 0).toBe(0);
+  });
+
+  test('a matched check resets the counter and lifts ONLY the fmcsa_unconfirmed suspension', async () => {
+    const parked = await createVerifiedCarrier({
+      verification: { status: 'suspended', suspensionReason: 'fmcsa_unconfirmed', fmcsaFailures: 3, dotNumber: '1234567', fmcsaData: { legalName: 'T', dotNumber: '1234567' } },
+    });
+    const insurance = await createVerifiedCarrier({
+      verification: { status: 'suspended', suspensionReason: 'insurance', dotNumber: '1234567', fmcsaData: { legalName: 'T', dotNumber: '1234567' } },
+    });
+    fmcsaService.lookupByDOT.mockResolvedValue(OK);
+    await runFmcsaCheck();
+
+    const a = await User.findById(parked._id);
+    expect(a.verification.status).toBe('verified');
+    expect(a.verification.suspensionReason).toBeFalsy();
+    expect(a.verification.fmcsaFailures).toBe(0);
+    const b = await User.findById(insurance._id);
+    expect(b.verification.status).toBe('suspended');
+    expect(b.verification.suspensionReason).toBe('insurance');
+  });
+
+  test('a matched check with revoked authority re-suspends for authority, not unconfirmed', async () => {
+    const parked = await createVerifiedCarrier({
+      verification: { status: 'suspended', suspensionReason: 'fmcsa_unconfirmed', fmcsaFailures: 3, fmcsaData: { legalName: 'T', dotNumber: '1234567' } },
+    });
+    fmcsaService.lookupByDOT.mockResolvedValue({ ...OK, operatingStatus: 'OUT-OF-SERVICE' });
+    await runFmcsaCheck();
+    const fresh = await User.findById(parked._id);
+    expect(fresh.verification.status).toBe('suspended');
+    expect(fresh.verification.suspensionReason).toBe('fmcsa_authority');
   });
 });
 

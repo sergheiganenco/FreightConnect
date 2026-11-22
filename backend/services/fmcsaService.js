@@ -129,12 +129,28 @@ function normalizeMc(v) {
   return m ? m[1] : null;
 }
 
+// Lookup failures are tagged so callers can tell "your input is bad" (err.code ===
+// 'INVALID_INPUT') from an outage (no API key, network, 5xx — any other error).
+// A 404 from FMCSA is "no such carrier": it resolves to an empty record (no legalName,
+// no DOT), never an outage.
+function invalidInput(msg) {
+  return Object.assign(new Error(msg), { code: 'INVALID_INPUT' });
+}
+async function fetchRecord(url) {
+  try {
+    return await fetchWithRetry(url);
+  } catch (err) {
+    if (err.response && err.response.status === 404) return {};
+    throw err;
+  }
+}
+
 /**
  * Lookup carrier by MC number
  */
 async function lookupByMC(mcInput) {
   const mcNumber = normalizeMc(mcInput);
-  if (!mcNumber) throw new Error('Invalid MC number');
+  if (!mcNumber) throw invalidInput('Invalid MC number');
   const key = `mc_${mcNumber}`;
   const cached = fromCache(key);
   if (cached) return cached;
@@ -143,7 +159,7 @@ async function lookupByMC(mcInput) {
   if (!apiKey) throw new Error('FMCSA_API_KEY not configured');
 
   const url = `${FMCSA_BASE}/docket-number/${encodeURIComponent(mcNumber)}?webKey=${encodeURIComponent(apiKey)}`;
-  const raw = await fetchWithRetry(url);
+  const raw = await fetchRecord(url);
   const data = normalizeCarrierData(raw);
   toCache(key, data);
   return data;
@@ -154,7 +170,7 @@ async function lookupByMC(mcInput) {
  */
 async function lookupByDOT(dotInput) {
   const dotNumber = normalizeDot(dotInput);
-  if (!dotNumber) throw new Error('Invalid DOT number');
+  if (!dotNumber) throw invalidInput('Invalid DOT number');
   const key = `dot_${dotNumber}`;
   const cached = fromCache(key);
   if (cached) return cached;
@@ -163,7 +179,7 @@ async function lookupByDOT(dotInput) {
   if (!apiKey) throw new Error('FMCSA_API_KEY not configured');
 
   const url = `${FMCSA_BASE}/${encodeURIComponent(dotNumber)}?webKey=${encodeURIComponent(apiKey)}`;
-  const raw = await fetchWithRetry(url);
+  const raw = await fetchRecord(url);
   const data = normalizeCarrierData(raw);
   toCache(key, data);
   return data;
@@ -231,6 +247,9 @@ async function runFullVerification(user, mcInput, dotInput) {
     if (!digits(fmcsaData.dotNumber) || mismatch(dotNumber, fmcsaData.dotNumber) || mismatch(mcNumber, fmcsaData.mcNumber)) {
       user.verification.status = 'rejected';
       user.verification.fmcsaData = { lastChecked: new Date() }; // nothing confirmed
+      // A stale confirmed-looking number must not survive a failed re-verification.
+      user.verification.dotNumber = undefined;
+      user.verification.mcNumber = undefined;
       await user.save();
       return { success: false, error: 'Submitted MC/DOT number does not match the FMCSA record' };
     }

@@ -182,7 +182,11 @@ const UserSchema = new mongoose.Schema({
     // Why the account is suspended (set by whichever monitor/actor suspends).
     // Auto-restore paths only reverse their OWN suspensions — e.g. an insurance
     // renewal must never lift a fraud/FMCSA/admin suspension.
-    suspensionReason: { type: String, default: null }, // 'insurance' | 'fmcsa_authority' | others
+    suspensionReason: { type: String, default: null }, // 'insurance' | 'fmcsa_authority' | 'fmcsa_unconfirmed' | others
+    // fmcsaMonitor: consecutive re-checks FMCSA could not confirm (bad/unmatched DOT,
+    // no such carrier). Outages never count. At 3 the carrier is suspended.
+    fmcsaFailures: { type: Number, default: 0 },
+    fmcsaLastFailure: { at: Date, reason: String },
     mcNumber: String,
     dotNumber: String,
     fmcsaData: {

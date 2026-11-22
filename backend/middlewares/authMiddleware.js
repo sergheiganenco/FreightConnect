@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { getIO } = require('../utils/socket');
 
 /**
  * A short TTL cache of userId -> active, so we don't hit the DB on every authed
@@ -39,6 +40,34 @@ async function resolveAccount(userId) {
   return entry;
 }
 
+/**
+ * The ONE account-status decision, shared by JWT auth, API-key auth and the
+ * socket handshake. Returns null (ok) | 'deactivated' | 'not_found' |
+ * 'password_change_required'. Throws on DB error — each caller picks its own
+ * failure mode (JWT/socket-event: fail open; API key/handshake: fail closed).
+ */
+async function accountBlockReason(userId) {
+  const { active, mustChangePassword } = await resolveAccount(userId);
+  if (active === false) return 'deactivated';
+  if (active === null) return 'not_found';
+  if (mustChangePassword) return 'password_change_required';
+  return null;
+}
+
+/**
+ * Call after any `active` change. Busts the cache for the user and (if they own a
+ * company) every sub-account — a sub-account's status depends on its owner — and,
+ * when `disconnect` is true, drops their live sockets (they join `user_<id>`).
+ * `io` is injectable for tests; defaults to the app singleton.
+ */
+async function revokeSessions(userId, { disconnect = false, io = getIO() } = {}) {
+  const subs = await User.find({ parentAccountId: userId }).select('_id').lean();
+  const ids = [String(userId), ...subs.map((s) => String(s._id))];
+  ids.forEach(invalidateActive);
+  if (disconnect && io) ids.forEach((id) => io.in(`user_${id}`).disconnectSockets(true));
+  return ids;
+}
+
 // While a temporary password is in force the account may only read its own
 // identity and change the password — enforced here, not just by the UI redirect.
 const PASSWORD_CHANGE_ALLOWED = [
@@ -69,14 +98,14 @@ const auth = async (req, res, next) => {
   // Account-status revocation: a deactivated (or deleted) account's still-valid
   // token must stop working immediately, not linger until the 1-day expiry.
   try {
-    const { active, mustChangePassword } = await resolveAccount(decoded.userId);
-    if (active === false) {
+    const blocked = await accountBlockReason(decoded.userId);
+    if (blocked === 'deactivated') {
       return res.status(401).json({ error: 'This account has been deactivated', code: 'account_deactivated' });
     }
-    if (active === null) {
+    if (blocked === 'not_found') {
       return res.status(401).json({ error: 'Account not found' });
     }
-    if (mustChangePassword) {
+    if (blocked === 'password_change_required') {
       const path = req.originalUrl.split('?')[0].replace(/\/$/, '');
       const allowed = PASSWORD_CHANGE_ALLOWED.some(([m, p]) => req.method === m && path.endsWith(p));
       if (!allowed) {
@@ -101,4 +130,6 @@ const auth = async (req, res, next) => {
 
 auth.invalidateActive = invalidateActive;
 auth.resolveAccount = resolveAccount;
+auth.accountBlockReason = accountBlockReason;
+auth.revokeSessions = revokeSessions;
 module.exports = auth;

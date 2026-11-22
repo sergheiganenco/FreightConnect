@@ -23,6 +23,22 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// Carrier identity for documents — same rule as pickupVerificationService.carrierIdentity:
+// a verified carrier's FMCSA-record values are printed; anything else is the typed
+// profile value, labelled. A missing confirmed number never silently falls back to a typed one.
+function carrierDocIdentity(c) {
+  const v = (c && c.verification) || {};
+  const f = (v.status === 'verified' && v.fmcsaData) || {};
+  const pick = (confirmed, typed) =>
+    confirmed ? String(confirmed) : (typed ? `${typed} (self-reported)` : 'N/A');
+  return {
+    name: pick(f.legalName, c && (c.companyName || c.name)),
+    mcNumber: pick(f.mcNumber, c && c.mcNumber),
+    dotNumber: pick(f.dotNumber, c && c.dotNumber),
+  };
+}
+exports.carrierDocIdentity = carrierDocIdentity;
+
 function fmtMoney(n) {
   return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -115,10 +131,10 @@ exports.generateBOL = (load, carrier, shipper) => {
     y = sectionTitle(doc, 'PARTIES', y);
     y = infoRow(doc, 'Shipper (Company)', (shipper && (shipper.companyName || shipper.name)) || 'N/A', y);
     y = infoRow(doc, 'Shipper Email', (shipper && shipper.email) || 'N/A', y);
-    y = infoRow(doc, 'Carrier (Company)', (carrier && (carrier.companyName || carrier.name)) || 'N/A', y);
+    y = infoRow(doc, 'Carrier (Company)', carrierDocIdentity(carrier).name, y);
     y = infoRow(doc, 'Carrier Email', (carrier && carrier.email) || 'N/A', y);
-    y = infoRow(doc, 'MC Number', (carrier && ((carrier.verification && carrier.verification.mcNumber) || carrier.mcNumber)) || 'N/A', y);
-    y = infoRow(doc, 'DOT Number', (carrier && ((carrier.verification && carrier.verification.dotNumber) || carrier.dotNumber)) || 'N/A', y);
+    y = infoRow(doc, 'MC Number', carrierDocIdentity(carrier).mcNumber, y);
+    y = infoRow(doc, 'DOT Number', carrierDocIdentity(carrier).dotNumber, y);
     y += 8; drawHRule(doc, y); y += 12;
 
     // Shipment Details
@@ -190,8 +206,8 @@ exports.generateSettlementStatement = (settlement, driver, company) => {
 
     // Parties
     y = sectionTitle(doc, 'PARTIES', y);
-    y = infoRow(doc, 'Carrier (Company)', (company && (company.companyName || company.name)) || 'N/A', y);
-    y = infoRow(doc, 'MC Number', (company && ((company.verification && company.verification.mcNumber) || company.mcNumber)) || 'N/A', y);
+    y = infoRow(doc, 'Carrier (Company)', carrierDocIdentity(company).name, y);
+    y = infoRow(doc, 'MC Number', carrierDocIdentity(company).mcNumber, y);
     y = infoRow(doc, 'Driver', (driver && driver.name) || settlement.driverName || 'N/A', y);
     y = infoRow(doc, 'Statement #', settlement.settlementNumber || String(settlement._id), y);
     y += 8; drawHRule(doc, y); y += 12;
@@ -261,10 +277,10 @@ exports.generateRateConfirmation = (load, carrier, shipper) => {
     y = sectionTitle(doc, 'PARTIES', y);
     y = infoRow(doc, 'Broker / Shipper', (shipper && (shipper.companyName || shipper.name)) || 'N/A', y);
     y = infoRow(doc, 'Shipper Contact', (shipper && shipper.email) || 'N/A', y);
-    y = infoRow(doc, 'Carrier', (carrier && (carrier.companyName || carrier.name)) || 'N/A', y);
+    y = infoRow(doc, 'Carrier', carrierDocIdentity(carrier).name, y);
     y = infoRow(doc, 'Carrier Contact', (carrier && carrier.email) || 'N/A', y);
-    y = infoRow(doc, 'MC Number', (carrier && ((carrier.verification && carrier.verification.mcNumber) || carrier.mcNumber)) || 'N/A', y);
-    y = infoRow(doc, 'DOT Number', (carrier && ((carrier.verification && carrier.verification.dotNumber) || carrier.dotNumber)) || 'N/A', y);
+    y = infoRow(doc, 'MC Number', carrierDocIdentity(carrier).mcNumber, y);
+    y = infoRow(doc, 'DOT Number', carrierDocIdentity(carrier).dotNumber, y);
     y += 8; drawHRule(doc, y); y += 12;
 
     // Load Details

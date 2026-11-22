@@ -560,7 +560,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         clearTimeout(t);
         if (!resp.ok) return null;
         const data = await resp.json();
-        if (!Array.isArray(data) || !data.length) return null;
+        // The geocoder answered and found nothing: the place name is wrong. That is
+        // different from an outage — a load with no coordinates can never be accepted.
+        if (Array.isArray(data) && !data.length) return { notFound: true };
+        if (!Array.isArray(data)) return null;
         return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
       } catch (geoErr) {
         console.warn(`[loads] geocode failed for "${location}" (non-fatal):`, geoErr.message);
@@ -575,6 +578,12 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     const destinationC = (req.body.destinationLat && req.body.destinationLng)
       ? { lat: Number(req.body.destinationLat), lng: Number(req.body.destinationLng) }
       : (await fetchCoords(destination)) || {};
+
+    for (const [label, place, c] of [['pickup', origin, originC], ['delivery', destination, destinationC]]) {
+      if (c.notFound) {
+        return res.status(400).json({ error: `We couldn't find the ${label} location "${place}". Enter it as City, ST (for example "Austin, TX").` });
+      }
+    }
 
     // Road miles (bounded by the ORS timeout, never throws; null on any failure or multi-stop).
     const distFields = await loadDistanceFields({

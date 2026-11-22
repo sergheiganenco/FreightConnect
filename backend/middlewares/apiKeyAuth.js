@@ -1,5 +1,6 @@
 const ApiKey = require('../models/ApiKey');
 const User = require('../models/User');
+const { accountBlockReason } = require('./authMiddleware');
 
 // In-memory rate limit tracking (per API key hash)
 const rateLimitStore = new Map();
@@ -47,6 +48,20 @@ const apiKeyAuth = async (req, res, next) => {
         limit: apiKey.rateLimit,
         windowMs,
       });
+    }
+
+    // Same account-status rule as JWT auth (deactivated, sub-account of a deactivated
+    // owner, temporary password). A DB error throws into the catch below → 500, i.e.
+    // fail CLOSED (unlike the JWT path, which fails open).
+    const blocked = await accountBlockReason(apiKey.userId);
+    if (blocked === 'deactivated') {
+      return res.status(401).json({ error: 'This account has been deactivated', code: 'account_deactivated' });
+    }
+    if (blocked === 'not_found') {
+      return res.status(401).json({ error: 'API key owner not found' });
+    }
+    if (blocked === 'password_change_required') {
+      return res.status(403).json({ error: 'You must change your temporary password before continuing', code: 'password_change_required' });
     }
 
     // Look up user

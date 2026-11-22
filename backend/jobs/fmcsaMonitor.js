@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const User = require('../models/User');
-const verificationService = require('../services/verificationService');
+const fmcsaService = require('../services/fmcsaService');
 const emailService = require('../services/emailService');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
@@ -15,49 +15,135 @@ const { notifyUserSafe } = require('../utils/notifyUser');
  * blocks new bookings immediately).
  *
  * Failure semantics:
- *  - API unavailable / lookup error → SKIP (fail-open on availability; never
+ *  - API unavailable / network error / no key → SKIP (fail-open on availability; never
  *    mass-suspend because the FMCSA API is down or no key is configured).
+ *  - Invalid DOT / no such carrier / record for a different DOT → counted per carrier;
+ *    3 in a row suspend with reason 'fmcsa_unconfirmed' (a matched check resets the
+ *    count and lifts only that suspension). Only the FMCSA-confirmed DOT is used.
  *  - Affirmative negative (record found, not authorized, or unsatisfactory
  *    safety rating) → suspend + email + in-app notification.
  * Restoration is deliberately NOT automatic: the carrier re-runs verification
  * (POST /api/verification/carrier/start) or an admin overrides.
  */
 
+const UNCONFIRMED = 'fmcsa_unconfirmed';
+const FAILURE_LIMIT = 3; // consecutive unconfirmed results before we stop treating the carrier as bookable
+const digits = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+/, '');
+
+// → { outcome: 'outage' } (never counts) | { outcome: 'failure', reason } | { outcome: 'ok', data }
+async function lookupConfirmed(dot) {
+  let data;
+  try {
+    data = await fmcsaService.lookupByDOT(dot);
+  } catch (err) {
+    // Only an input we can prove is bad counts; everything else is an outage.
+    return err.code === 'INVALID_INPUT' ? { outcome: 'failure', reason: 'invalid DOT number' } : { outcome: 'outage' };
+  }
+  if (!data || !data.legalName) return { outcome: 'failure', reason: 'no FMCSA record for this DOT' };
+  // The record must be for the DOT we asked about — never take another company's data.
+  if (!digits(data.dotNumber) || digits(data.dotNumber) !== digits(dot)) {
+    return { outcome: 'failure', reason: 'FMCSA record did not match the DOT' };
+  }
+  return { outcome: 'ok', data };
+}
+
+function authorityVerdict(data) {
+  const issues = [];
+  const authorized = fmcsaService.verifyAuthority(data);
+  if (!authorized) issues.push(`Operating status is "${data.operatingStatus || 'unknown'}" — not authorized`);
+  const rating = (data.safetyRating || '').toString().trim().toLowerCase();
+  const unsat = rating === 'u' || rating === 'unsatisfactory';
+  if (unsat) issues.push('Unsatisfactory safety rating');
+  if (data.outOfService) issues.push('Carrier is under an out-of-service order');
+  return { verified: authorized && !unsat, issues };
+}
+
+// Count an unconfirmed result; at FAILURE_LIMIT move a verified carrier to the
+// non-bookable 'suspended' state (reason-scoped) and notify once. Returns true if suspended now.
+async function recordFailure(carrier, reason) {
+  const v = carrier.verification;
+  v.fmcsaFailures = (v.fmcsaFailures || 0) + 1;
+  v.fmcsaLastFailure = { at: new Date(), reason };
+  const suspendNow = v.status === 'verified' && v.fmcsaFailures >= FAILURE_LIMIT;
+  if (suspendNow) {
+    v.status = 'suspended';
+    v.suspensionReason = UNCONFIRMED;
+  }
+  await carrier.save();
+  if (suspendNow) {
+    const body = `We could not confirm your FMCSA record (${reason}) in ${FAILURE_LIMIT} consecutive checks. Re-run verification from your profile to restore your account.`;
+    try {
+      await emailService.sendEmail({
+        to: carrier.email,
+        subject: 'FreightConnect — Account Suspended (FMCSA record not confirmed)',
+        html: `<p>Hi ${carrier.name},</p><p>${body}</p>`,
+      });
+    } catch (emailErr) {
+      console.error('[FmcsaMonitor] Email error (non-fatal):', emailErr.message);
+    }
+    await notifyUserSafe(carrier._id.toString(), {
+      type: 'verification:suspended',
+      title: 'Account suspended — FMCSA record not confirmed',
+      body,
+      link: '/dashboard/carrier/verification',
+      metadata: { reason: UNCONFIRMED, failure: reason },
+    });
+  }
+  return suspendNow;
+}
+
 async function runFmcsaCheck() {
   console.log('[FmcsaMonitor] Running FMCSA authority re-check...');
   let checked = 0;
   let suspended = 0;
   try {
+    // Also re-check carriers WE parked as 'fmcsa_unconfirmed' so a later match lifts it.
     const carriers = await User.find({
       role: 'carrier',
-      'verification.status': 'verified',
-    }).select('name email dotNumber verification');
+      $or: [
+        { 'verification.status': 'verified' },
+        { 'verification.status': 'suspended', 'verification.suspensionReason': UNCONFIRMED },
+      ],
+    }).select('name email verification');
 
     for (const carrier of carriers) {
       try {
-        // Prefer the FMCSA-confirmed DOT; typed numbers are only a legacy fallback.
-        const dot = carrier.verification?.fmcsaData?.dotNumber || carrier.verification?.dotNumber || carrier.dotNumber;
-        if (!dot) continue; // nothing to re-check against
+        const v = carrier.verification;
+        // Only the FMCSA-confirmed DOT is trusted. Carriers verified before it was stored
+        // get ONE confirmation attempt with the number used at verification time; the
+        // editable profile dotNumber is never consulted.
+        const confirmedDot = v.fmcsaData?.dotNumber;
+        const dot = confirmedDot || v.dotNumber;
 
-        const result = await verificationService.verifyCarrierFMCSA(dot);
+        const found = dot ? await lookupConfirmed(dot) : { outcome: 'failure', reason: 'no DOT number to confirm' };
+        if (found.outcome === 'outage') continue; // API down / no key: never changes anything
         checked += 1;
-
-        // Availability failure or no data → skip, never suspend on a flaky API
-        if (!result.data) continue;
-
-        // The record must be for the DOT we asked about — never overwrite this
-        // account with another company's data (or a record carrying no DOT).
-        const digits = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+/, '');
-        if (!digits(result.data.dotNumber) || digits(result.data.dotNumber) !== digits(dot)) {
-          console.warn(`[FmcsaMonitor] Ignoring FMCSA result for carrier ${carrier._id}: returned DOT does not match ${dot}`);
+        if (found.outcome === 'failure') {
+          console.warn(`[FmcsaMonitor] Carrier ${carrier._id} unconfirmed: ${found.reason}`);
+          if (await recordFailure(carrier, found.reason)) suspended += 1;
           continue;
         }
+        const data = found.data;
+        const result = authorityVerdict(data);
 
-        // Record what FMCSA said (audit trail either way)
+        // Matched: reset the counter, lift ONLY our own suspension (authority is
+        // re-evaluated just below, so a revoked carrier is re-suspended for that).
+        v.fmcsaFailures = 0;
+        v.fmcsaLastFailure = undefined;
+        if (v.status === 'suspended' && v.suspensionReason === UNCONFIRMED) {
+          v.status = 'verified';
+          v.suspensionReason = null;
+        }
+
+        // Record what FMCSA said (audit trail either way); this also stores the
+        // confirmed numbers for carriers that had none.
         carrier.verification.fmcsaData = {
           ...(carrier.verification.fmcsaData?.toObject?.() || carrier.verification.fmcsaData || {}),
-          operatingStatus: result.data.operatingStatus,
-          safetyRating: result.data.safetyRating,
+          dotNumber: String(data.dotNumber),
+          mcNumber: data.mcNumber ? String(data.mcNumber) : v.fmcsaData?.mcNumber,
+          legalName: v.fmcsaData?.legalName || data.legalName,
+          operatingStatus: data.operatingStatus,
+          safetyRating: data.safetyRating,
           lastChecked: new Date(),
         };
 

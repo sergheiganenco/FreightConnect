@@ -236,8 +236,7 @@ io.use(async (socket, next) => {
     // Same account checks as HTTP auth: deactivated, deleted or temporary-password
     // accounts get no realtime connection. (A DB error here rejects the socket;
     // the client reconnects.)
-    const account = await require('./middlewares/authMiddleware').resolveAccount(decoded.userId);
-    if (account.active !== true || account.mustChangePassword) {
+    if (await require('./middlewares/authMiddleware').accountBlockReason(decoded.userId)) {
       return next(new Error('Authentication error'));
     }
     socket.userId = decoded.userId;
@@ -254,6 +253,18 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   // Auto-join personal room for targeted notifications (load match alerts, etc.)
   socket.join(`user_${socket.userId}`);
+
+  // Re-check account status on every incoming event (60s-cached), so a deactivated
+  // account's already-open socket stops working. DB error → let the event through (as HTTP).
+  socket.use(async (packet, next) => {
+    try {
+      if (await require('./middlewares/authMiddleware').accountBlockReason(socket.userId)) {
+        socket.disconnect(true);
+        return;
+      }
+    } catch (_) { /* fail open */ }
+    next();
+  });
 
   // ── Carrier location tracking ──────────────────────────────────
   socket.on('updateCarrierLocation', async ({ loadId, latitude, longitude, speed, heading, accuracy, source }) => {

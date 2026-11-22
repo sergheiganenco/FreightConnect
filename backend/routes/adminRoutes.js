@@ -229,8 +229,8 @@ router.patch('/users/:id/toggle-status', auth, ADMIN_ONLY, async (req, res) => {
     // and keep using a live token.
     user.active = !suspending;
     await user.save();
-    // Bust the 60s active-cache so revocation takes effect immediately.
-    auth.invalidateActive(user._id.toString());
+    // Bust the 60s active-cache (user + sub-accounts) and drop live sockets on deactivation.
+    await auth.revokeSessions(user._id, { disconnect: suspending });
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: 'Failed to toggle user status' });
