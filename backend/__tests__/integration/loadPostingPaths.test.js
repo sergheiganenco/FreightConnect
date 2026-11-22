@@ -204,3 +204,50 @@ describe('load creation paths share the posting bar', () => {
     });
   });
 });
+
+describe('createPostedLoad accepts only postable fields', () => {
+  test('lifecycle fields supplied by a caller are ignored; the load is always created open and unbooked', async () => {
+    const shipper = await createTestUser({ role: 'shipper', shipperVerification: VERIFIED });
+    const carrier = await createTestUser({ role: 'carrier' });
+    const r = await createPostedLoad({
+      shipperCompanyId: shipper._id,
+      io: mockIo,
+      options: { notify: false },
+      fields: {
+        title: 'Injected', origin: 'Chicago, IL', destination: 'Dallas, TX', rate: 1000, equipmentType: 'Dry Van',
+        originLat: 41.8781, originLng: -87.6298, destinationLat: 32.7767, destinationLng: -96.797,
+        // none of these may be set by a caller
+        status: 'delivered', acceptedBy: carrier._id, postedBy: carrier._id, deliveredAt: new Date(),
+        bookedAt: new Date(), bookedWindow: { start: new Date(), end: new Date() },
+        pickupRisk: { level: 'no_show' }, carrierLocation: { latitude: 1, longitude: 1, authenticated: true },
+        pickupSignature: { signedAt: new Date(), signerName: 'x' },
+        pickupVerification: { required: true, code: '123456', verifiedAt: new Date(), verifiedBy: 'admin' },
+        evidenceRequired: { pickup: true, delivery: 'yes' },
+        evidence: [{ stage: 'pickup', kind: 'cargo', file: 'x.jpg' }],
+        accessorialCharges: [{ type: 'detention', amountCents: 99999, status: 'approved' }],
+        distanceMiles: 1, trackingNonce: 'abc',
+        stops: [{ type: 'delivery', address: '1 Main St', status: 'departed' }],
+      },
+    });
+    expect(r.load).toBeTruthy();
+    const load = await Load.findById(r.load._id).select('+evidence +trackingNonce +pickupVerification.code').lean();
+    expect(load.status).toBe('open');
+    expect(load.acceptedBy == null).toBe(true);
+    expect(String(load.postedBy)).toBe(String(shipper._id));
+    expect(load.deliveredAt == null).toBe(true);
+    expect(load.bookedAt == null).toBe(true);
+    expect(load.bookedWindow?.start == null).toBe(true);
+    expect(load.pickupRisk?.level == null).toBe(true);
+    expect(load.carrierLocation?.latitude == null).toBe(true);
+    expect(load.pickupSignature?.signedAt == null).toBe(true);
+    expect(load.pickupVerification.required).toBe(true);
+    expect(load.pickupVerification.code == null).toBe(true);
+    expect(load.pickupVerification.verifiedAt == null).toBe(true);
+    expect(load.evidenceRequired).toMatchObject({ pickup: true, delivery: false });
+    expect(load.evidence || []).toHaveLength(0);
+    expect(load.accessorialCharges || []).toHaveLength(0);
+    expect(load.trackingNonce == null).toBe(true);
+    expect(load.distanceMiles).not.toBe(1);
+    expect(load.stops[0].status).toBe('pending');
+  });
+});

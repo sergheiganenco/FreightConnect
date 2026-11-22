@@ -106,6 +106,48 @@ async function runSideEffects(load, shipperCompanyId, io) {
  * @param {object} [p.io]              Socket.IO server for match notifications
  * @param {object} [p.options]         gate (default true), notify (default true), windowOpts ({requireZone}), geocodeBudget
  */
+// The ONLY fields a caller may set on a new load. Everything about the load's
+// lifecycle (status, carrier, booking, risk, location, evidence, signatures,
+// charges, documents, payment state) is decided by the server, never accepted
+// from input - whatever route or job calls this.
+const POSTABLE_FIELDS = [
+  'title', 'origin', 'destination', 'rate', 'equipmentType', 'loadWeight', 'loadDimensions',
+  'commodityType', 'commodityCategory', 'specialInstructions', 'specialHandling', 'accessorials',
+  'hazardousMaterial', 'hazmatClass', 'hazmatPackingGroup', 'dangerousGoodsUN',
+  'insuranceRequired', 'cargoValue', 'paymentTerms', 'currency', 'loadVisibility', 'allowCarrierBidding',
+  'expirationDateTime', 'notes', 'carrierInstructions', 'documentsRequired',
+  'poNumber', 'shipperReferenceNumber', 'consigneeReference', 'externalRef', 'source',
+  'pickupFacilityName', 'pickupAddress', 'pickupContactName', 'pickupContactPhone',
+  'deliveryFacilityName', 'deliveryAddress', 'deliveryContactName', 'deliveryContactPhone',
+  'overweightAcknowledged', 'overweightPermitNumber', 'reefer', 'contractId', 'isContractLoad',
+];
+
+function postableFields(fields = {}) {
+  const safe = {};
+  for (const k of POSTABLE_FIELDS) if (fields[k] !== undefined) safe[k] = fields[k];
+  // Requirement flags only - never a code, a verification time or stored evidence.
+  safe.pickupVerification = { required: fields.pickupVerification?.required === true };
+  safe.evidenceRequired = {
+    pickup: fields.evidenceRequired?.pickup === true,
+    delivery: fields.evidenceRequired?.delivery === true,
+  };
+  if (Array.isArray(fields.stops)) {
+    safe.stops = fields.stops.map((st, i) => ({
+      sequence: st.sequence ?? i + 1,
+      type: st.type || 'delivery',
+      address: st.address,
+      lat: Number.isFinite(Number(st.lat)) && st.lat != null ? Number(st.lat) : undefined,
+      lng: Number.isFinite(Number(st.lng)) && st.lng != null ? Number(st.lng) : undefined,
+      timeWindow: st.timeWindow || {},
+      contactName: st.contactName || undefined,
+      contactPhone: st.contactPhone || undefined,
+      notes: st.notes || undefined,
+      status: 'pending',
+    }));
+  }
+  return safe;
+}
+
 async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) {
   const { gate = true, notify = true, windowOpts = {}, geocodeBudget = null } = options;
   try {
@@ -148,7 +190,8 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
     });
 
     const load = new Load({
-      ...fields,
+      ...postableFields(fields),
+      status: 'open',
       originLat: originC.lat, originLng: originC.lng,
       destinationLat: destinationC.lat, destinationLng: destinationC.lng,
       ...distFields,
@@ -169,4 +212,4 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
   }
 }
 
-module.exports = { createPostedLoad, shipperPostingGate, makeGeocodeBudget };
+module.exports = { createPostedLoad, shipperPostingGate, makeGeocodeBudget, POSTABLE_FIELDS };
