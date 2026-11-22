@@ -78,7 +78,9 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
       await api.post(`/loads/${id}/pickup-confirm`, { status });
       setDeclineOpen(false);
       setMsg({ severity: 'success', text: status === 'on_my_way' ? 'Thanks. The shipper can see you are on the way.' : 'The shipper was told. The booking stays in place until they act, or you cancel it.' });
-      await refresh();
+      // Show the acknowledged state now; the refresh below replaces it with the server's copy and tells the parent.
+      setRisk((r) => ({ ...(r || {}), carrierConfirmation: { status, at: new Date().toISOString() } }));
+      await refresh().catch(() => {});
     } catch (e) { setMsg({ severity: 'error', text: errMsg(e, 'Request failed') }); } finally { setBusy(false); }
   };
 
@@ -93,7 +95,8 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
       const { data } = await api.post(`/loads/${id}/release-to-standby`, { reason: releaseReason });
       setReleaseOpen(false);
       setMsg({ severity: 'success', text: `Load released and re-posted. ${data.standbyNotified} standby carrier(s) notified.` });
-      if (onChanged) onChanged({ ...load, status: 'open' });
+      // Tell the parent the load is open again (modal state + the list behind it) with the server's copy when we can get it.
+      await refresh().catch(() => { if (onChanged) onChanged({ ...load, status: 'open', acceptedBy: null, pickupRisk: null }); });
     } catch (e) { setMsg({ severity: 'error', text: errMsg(e, 'Release failed') }); } finally { setBusy(false); }
   };
 
@@ -146,9 +149,9 @@ export default function PickupRiskPanel({ load, userRole, onChanged }) {
           <DialogContentText component="div">
             <p>This cancels the current carrier's booking and re-posts the load.{' '}
               {standby == null ? 'Standby carriers will be notified.' : `${standby} standby carrier(s) will be notified; they still have to book it themselves.`}</p>
-            <p>The current carrier is told why. {releaseReason === 'no_show'
-              ? 'A trust score reduction of 5 points applies only if GPS showed the truck away from pickup; otherwise no score change.'
-              : 'No trust score change is made automatically.'} Any escrow hold is released.</p>
+            <p>The current carrier is told why, including the last location we received, and how to contest it. {releaseReason === 'no_show'
+              ? 'A 5-point trust score penalty WILL be applied to the carrier because the last GPS location of the truck was at least 5 miles from the pickup. If the last location was closer than that, or none was received, NO penalty will be applied.'
+              : 'No trust score penalty will be applied to the carrier for this release.'} Any escrow hold is released.</p>
             <p>{v?.lines[0]}</p>
           </DialogContentText>
         </DialogContent>

@@ -28,6 +28,7 @@ function buildApp() {
   app.use(express.json());
   app.use('/api/loads', require('../../routes/loadRoutes')(io));
   app.use('/api/bids', require('../../routes/bidRoutes'));
+  app.use('/api/appointments', require('../../routes/appointmentRoutes'));
   return app;
 }
 const bearer = (u) => ({ Authorization: `Bearer ${generateToken(u)}` });
@@ -99,7 +100,7 @@ describe('pickup risk monitor', () => {
   });
 
   test('a pickup DwellEvent (arrival) suppresses alerts', async () => {
-    await DwellEvent.create({ load: load._id, carrier: carrier._id, shipper: shipper._id, stopType: 'pickup', arrivedAt: at(-5) });
+    await DwellEvent.create({ load: load._id, carrier: carrier._id, shipper: shipper._id, stopType: 'pickup', arrivedAt: new Date() }); // after booking: counts
     await runPickupRiskCheck(at(180 + 60));
     const fresh = await Load.findById(load._id);
     expect(fresh.pickupRisk.level).toBe('on_track');
@@ -280,7 +281,6 @@ describe('POST /api/loads/:id/release-to-standby', () => {
       carrierLocation: { latitude: load.originLat - 0.58, longitude: load.originLng, updatedAt: at(-300), source: 'mobile_app' },
       'evidence': [{ stage: 'pickup', file: 'x.jpg', kind: 'cargo' }],
     } });
-    // NOTE: cancelLoadCascade filters Appointment on a top-level status the schema does not have (pre-existing no-op); not asserted.
     await Appointment.create({ load: load._id, shipper: shipper._id, carrier: winner._id, pickup: { status: 'pending' } });
     await Payment.create({ loadId: load._id, shipperId: shipper._id, carrierId: winner._id, amount: 2500, status: 'in_escrow' });
     await runPickupRiskCheck(NOW);
@@ -294,7 +294,7 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     await release(load._id, bearer(shipper), 'late_certain').expect(409); // level is no_show, not late_certain
     await release(load._id, bearer(shipper), 'carrier_declined').expect(409); // carrier never declined
     // truck arrives: the release re-evaluates and refuses on fresh evidence, not on the stale stored level
-    await DwellEvent.create({ load: load._id, carrier: winner._id, shipper: shipper._id, stopType: 'pickup', arrivedAt: at(-1) });
+    await DwellEvent.create({ load: load._id, carrier: winner._id, shipper: shipper._id, stopType: 'pickup', arrivedAt: new Date() });
     await release(load._id, bearer(shipper), 'no_show').expect(409);
     expect((await Load.findById(load._id)).status).toBe('accepted');
   });
@@ -321,6 +321,13 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     const told = await notes(winner._id, 'pickup:released');
     expect(told).toHaveLength(1);
     expect(told[0].body).toMatch(/predicted no-show.*reduced by 5 points/);
+    expect(told[0].body).toMatch(/about 40 miles from the pickup/);
+    expect(told[0].body).toMatch(/support@freightconnect\.com.*quote load/);
+    expect(told[0].body).not.toMatch(/-?\d+\.\d{3,}/); // distances only, no coordinates
+    const h = (await User.findById(winner._id)).trustScore.history.at(-1);
+    expect(h.reason).toBe('carrier_pickup_no_show');
+    expect(String(h.loadId)).toBe(String(load._id));
+    expect((await Appointment.findOne({ load: load._id })).pickup.status).toBe('cancelled'); // cascade
     // audit trail names the reason
     const StatusHistory = require('../../models/StatusHistory');
     const hist = await StatusHistory.find({ entityType: 'load', entityId: load._id }).lean();
@@ -370,5 +377,101 @@ describe('POST /api/loads/:id/release-to-standby', () => {
     const res = await release(load._id, bearer(admin), 'carrier_declined').expect(200);
     expect(res.body.trustScorePenalty).toBe(0);
     expect((await Load.findById(load._id)).status).toBe('open');
+  });
+
+  test('an arrival from an EARLIER booking by the same carrier does not block a release', async () => {
+    const booked = await Load.findById(load._id);
+    await DwellEvent.create({ load: load._id, carrier: winner._id, shipper: shipper._id, stopType: 'pickup', arrivedAt: new Date(booked.bookedAt.getTime() - 3600000) });
+    await release(load._id, bearer(shipper), 'no_show').expect(200);
+  });
+});
+
+describe('appointment cascade, carrier cancel and standby', () => {
+  let app, shipper, carrier, s1, load, appt;
+  const cancel = (headers) => request(app).put(`/api/loads/${load._id}/cancel`).set(headers).send({ reason: 'test' });
+  beforeEach(async () => {
+    app = buildApp();
+    shipper = await createTestUser({ role: 'shipper' });
+    carrier = await verifiedCarrier(); s1 = await verifiedCarrier();
+    load = await bookedLoad(shipper, carrier);
+    // pickup leg live, delivery leg already terminal ('missed'): the schema has no 'completed' leg state
+    appt = await Appointment.create({ load: load._id, shipper: shipper._id, carrier: carrier._id, pickup: { status: 'confirmed' }, delivery: { status: 'missed' } });
+    await Bid.create({ loadId: load._id, carrierId: s1._id, amount: 2000, status: 'pending', standby: { rank: 1 }, history: [{ actor: 'carrier', action: 'placed', amount: 2000 }] });
+  });
+
+  test('shipper cancel cancels live legs and leaves a terminal leg untouched', async () => {
+    await cancel(bearer(shipper)).expect(200);
+    const a = await Appointment.findById(appt._id);
+    expect(a.pickup.status).toBe('cancelled');
+    expect(a.delivery.status).toBe('missed');
+    expect(a.history.filter((x) => x.action === 'cancelled').map((x) => x.type)).toEqual(['pickup']);
+  });
+
+  test('carrier cancel cancels legs, notifies standby once, clears markers, and the next carrier can book + schedule', async () => {
+    const res = await cancel(bearer(carrier)).expect(200);
+    expect(res.body).toMatchObject({ loadStatus: 'open', standbyNotified: 1 });
+    const a = await Appointment.findById(appt._id);
+    expect([a.pickup.status, a.delivery.status]).toEqual(['cancelled', 'missed']);
+    expect(await notes(s1._id, 'load:standby_available')).toHaveLength(1);
+    expect(await Bid.countDocuments({ loadId: load._id, 'standby.rank': { $ne: null } })).toBe(0);
+    // standby carrier books; the stale cancelled record must not block a new appointment
+    await request(app).put(`/api/loads/${load._id}/accept`).set(bearer(s1)).send({}).expect(200);
+    await request(app).post('/api/appointments').set(bearer(s1)).send({ loadId: String(load._id), pickup: { scheduledAt: at(90) } }).expect(201);
+  });
+
+  test('carrier cancel skips standby carriers that are no longer eligible', async () => {
+    await User.updateOne({ _id: s1._id }, { $set: { active: false } });
+    const res = await cancel(bearer(carrier)).expect(200);
+    expect(res.body.standbyNotified).toBe(0);
+    expect(await notes(s1._id, 'load:standby_available')).toHaveLength(0);
+  });
+});
+
+describe('pickup window changed after an alert; arrival bound to the booking', () => {
+  let app, shipper, carrier, load;
+  const move = (start, end) => request(app).put(`/api/loads/${load._id}/pickup-window`).set(bearer(shipper)).send({ start, end });
+  beforeEach(async () => {
+    app = buildApp();
+    shipper = await createTestUser({ role: 'shipper' });
+    carrier = await verifiedCarrier();
+    load = await bookedLoad(shipper, carrier);
+    await runPickupRiskCheck(NOW); // at_risk (no GPS) announced
+    await Load.updateOne({ _id: load._id }, { $set: { 'pickupRisk.carrierConfirmation': { status: 'on_my_way', at: NOW } } });
+  });
+
+  test('moving the window resets risk state, tells the carrier; moving it earlier while late alerts again', async () => {
+    await move(at(300), at(400)).expect(200);
+    let fresh = await Load.findById(load._id);
+    expect(fresh.pickupRisk && fresh.pickupRisk.level).toBeFalsy();
+    expect(fresh.pickupRisk && fresh.pickupRisk.notified).toBeUndefined();
+    expect(fresh.pickupRisk && fresh.pickupRisk.carrierConfirmation && fresh.pickupRisk.carrierConfirmation.status).toBeFalsy();
+    expect(await notes(carrier._id, 'pickup:window_changed')).toHaveLength(1);
+
+    // new, earlier window with a fresh GPS fix ~58 miles away: cannot make it -> a NEW alert
+    await Load.updateOne({ _id: load._id }, { $set: { carrierLocation: { latitude: load.originLat - 0.9, longitude: load.originLng, updatedAt: NOW, source: 'mobile_app' } } });
+    await move(at(10), at(30)).expect(200);
+    await runPickupRiskCheck(NOW);
+    fresh = await Load.findById(load._id);
+    expect(fresh.pickupRisk.level).toBe('late_certain');
+    expect(await notes(carrier._id, 'pickup:late')).toHaveLength(1);
+    expect(await notes(shipper._id, 'pickup:late')).toHaveLength(1);
+  });
+
+  test('re-saving the same window changes nothing and sends nothing', async () => {
+    const w = (await Load.findById(load._id)).pickupTimeWindow;
+    await move(w.start, w.end).expect(200);
+    expect((await Load.findById(load._id)).pickupRisk.notified).toEqual(['at_risk']);
+    expect(await notes(carrier._id, 'pickup:window_changed')).toHaveLength(0);
+  });
+
+  test('an arrival that predates the current booking does not suppress alerts; one after it does', async () => {
+    const booked = await Load.findById(load._id);
+    const ev = await DwellEvent.create({ load: load._id, carrier: carrier._id, shipper: shipper._id, stopType: 'pickup', arrivedAt: new Date(booked.bookedAt.getTime() - 3600000) });
+    await Load.updateOne({ _id: load._id }, { $unset: { 'pickupRisk.carrierConfirmation': 1 } });
+    await runPickupRiskCheck(at(180 + 60));
+    expect((await Load.findById(load._id)).pickupRisk.level).toBe('no_show');
+    await DwellEvent.updateOne({ _id: ev._id }, { $set: { arrivedAt: new Date(booked.bookedAt.getTime() + 1000) } });
+    await runPickupRiskCheck(at(180 + 61));
+    expect((await Load.findById(load._id)).pickupRisk.reason).toBe('arrived');
   });
 });

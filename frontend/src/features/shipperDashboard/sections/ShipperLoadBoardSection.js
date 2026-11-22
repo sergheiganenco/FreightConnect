@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Box, Typography, Select, MenuItem, FormControl, InputLabel, Pagination, Stack, Chip } from "@mui/material";
 import LoadGrid from "./components/LoadGrid";
 import { useShipperLoads } from "../hooks/useShipperLoads";
@@ -25,6 +26,7 @@ const LOADS_PER_PAGE = 6;
 export default function ShipperLoadBoardSection() {
   const { loads = [], isLoading, error } = useShipperLoads();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [page, setPage] = useState(1);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -145,6 +147,7 @@ export default function ShipperLoadBoardSection() {
           load={selectedLoad}
           userRole="shipper"
           onClose={() => setSelectedLoad(null)}
+          onLoadAccepted={() => queryClient.invalidateQueries({ queryKey: ['loads'] })} // bid accepted / released to standby: refresh the list
         />
       )}
     </Box>

@@ -57,7 +57,7 @@ async function calculateTrustScore(userId) {
  * reason: string describing why (e.g. 'on_time_delivery', 'claim_filed')
  * points: positive or negative number
  */
-async function adjustScore(userId, reason, points) {
+async function adjustScore(userId, reason, points, loadId = null) {
   const user = await User.findById(userId);
   if (!user) throw new Error('User not found');
 
@@ -73,6 +73,7 @@ async function adjustScore(userId, reason, points) {
     reason,
     change: points,
     date: new Date(),
+    ...(loadId ? { loadId } : {}),
   });
 
   // Keep history to last 50 entries

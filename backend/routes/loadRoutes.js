@@ -121,10 +121,14 @@ module.exports = (io) => {
     } catch (e) { console.error('[cancel cascade] bids failed (non-fatal):', e.message); }
     try {
       const Appointment = require('../models/Appointment');
-      await Appointment.updateMany(
-        { load: loadId, status: { $in: ['pending', 'confirmed', 'rescheduled'] } },
-        { $set: { status: 'cancelled' } }
-      );
+      // Appointment has no top-level status: each leg (pickup/delivery) carries its own. Cancel only
+      // legs that are still live; 'missed' and already 'cancelled' legs are history and stay as they are.
+      for (const leg of ['pickup', 'delivery']) {
+        await Appointment.updateMany(
+          { load: loadId, [`${leg}.status`]: { $in: ['pending', 'confirmed', 'rescheduled'] } },
+          { $set: { [`${leg}.status`]: 'cancelled' }, $push: { history: { action: 'cancelled', type: leg, notes: 'Load cancelled or released', timestamp: new Date() } } }
+        );
+      }
     } catch (e) { console.error('[cancel cascade] appointments failed (non-fatal):', e.message); }
     try {
       const Trip = require('../models/Trip');
@@ -1324,8 +1328,25 @@ router.put('/:id/pickup-window', auth, async (req, res) => {
     if (!load) return res.status(404).json({ error: 'Load not found' });
     if (!assertWindowEditor(load, req)) return res.status(403).json({ error: 'Forbidden' });
 
-    load.pickupTimeWindow = { ...(load.pickupTimeWindow || {}), start, end };
+    const oldW = load.pickupTimeWindow || {};
+    const moved = new Date(start).getTime() !== new Date(oldW.start).getTime() || new Date(end).getTime() !== new Date(oldW.end).getTime();
+    load.pickupTimeWindow = { ...oldW, start, end };
+    // New pickup time on a booked load = a new risk question. Alerts already sent and an "on my way"
+    // given for the OLD time must not suppress the new time, so the whole risk state is cleared (the
+    // monitor re-evaluates on its next run and announces afresh).
+    const rebook = moved && load.status === 'accepted' && load.acceptedBy;
+    if (rebook) load.pickupRisk = undefined;
     await load.save();
+
+    if (rebook) {
+      await notifyUserSafe(load.acceptedBy, {
+        type: 'pickup:window_changed',
+        title: 'Pickup time changed',
+        body: `The shipper changed the pickup time for "${load.title}" to ${new Date(start).toUTCString().replace(' GMT', '')} UTC - ${new Date(end).toUTCString().replace(' GMT', '')} UTC. Please check you can make it.`,
+        link: '/dashboard/carrier/my-loads',
+        metadata: { loadId: String(load._id) },
+      });
+    }
 
     res.json(load);
   } catch (err) {
@@ -1617,7 +1638,7 @@ router.post('/voice-command', auth, async (req, res) => {
       // ── Carrier cancels accepted load → trust penalty ──────────────
       if (isCarrier && previousStatus === 'accepted') {
         const { adjustScore } = require('../services/trustScoreService');
-        adjustScore(userId, 'carrier_cancelled_load', -5).catch(() => {});
+        adjustScore(userId, 'carrier_cancelled_load', -5, load._id).catch(() => {});
 
         escrowRefunded = await reopenAfterCarrierDrop(load, userId, 'Reopened after carrier cancellation', reason);
 
@@ -1630,11 +1651,15 @@ router.post('/voice-command', auth, async (req, res) => {
           metadata: { loadId: load._id },
         });
 
+        // Same standby re-check + notify + marker clearing as a shipper release.
+        const standbyNotified = await require('../services/standbyService').notifyStandby(load);
+
         return res.json({
           message: 'Load cancelled. Your trust score has been adjusted (-5 points). Load re-posted for shipper.',
           loadStatus: 'open', // re-opened for shipper
           trustScorePenalty: -5,
           escrowRefunded,
+          standbyNotified,
         });
       }
 
@@ -1765,8 +1790,12 @@ router.post('/voice-command', auth, async (req, res) => {
 
       const carrierId = load.acceptedBy;
       const loc = load.carrierLocation;
-      const gpsAway = loc?.updatedAt && Number.isFinite(load.originLat) && loc.latitude != null
-        && haversineMiles(loc.latitude, loc.longitude, load.originLat, load.originLng) >= GPS_EVIDENCE_MILES;
+      const gpsMiles = loc?.updatedAt && Number.isFinite(load.originLat) && loc.latitude != null
+        ? haversineMiles(loc.latitude, loc.longitude, load.originLat, load.originLng) : null; // distance only; coordinates never leave the server
+      const gpsAway = gpsMiles != null && gpsMiles >= GPS_EVIDENCE_MILES;
+      const gpsEvidence = gpsMiles != null
+        ? `The last location we received (${new Date(loc.updatedAt).toUTCString().replace(' GMT', '')} UTC) was about ${Math.round(gpsMiles)} miles from the pickup.`
+        : 'No location was received from the truck.';
       const lateMin = load.pickupRisk?.detail?.minutesLateEstimate;
       const label = reason === 'late_certain' && lateMin ? `${RELEASE_LABEL[reason]}, est. ${lateMin} min late` : RELEASE_LABEL[reason];
       const userId = req.user.userId;
@@ -1783,14 +1812,15 @@ router.post('/voice-command', auth, async (req, res) => {
       let trustScorePenalty = 0;
       if (reason === 'no_show' && gpsAway) {
         trustScorePenalty = -5;
-        require('../services/trustScoreService').adjustScore(carrierId, 'carrier_pickup_no_show', -5).catch(() => {});
+        require('../services/trustScoreService').adjustScore(carrierId, 'carrier_pickup_no_show', -5, load._id).catch(() => {});
       }
+      const CONTEST = `To contest this, email support@freightconnect.com (or use the Contact page) and quote load ${load._id}. Disputes cannot be filed on a load that is open again.`;
       await notifyUserSafe(carrierId, {
         type: 'pickup:released',
         title: 'Load released by the shipper',
         body: `The shipper released "${load.title}" after ${label}. ` + (trustScorePenalty
-          ? 'Your trust score was reduced by 5 points because GPS showed the truck away from pickup. If this is wrong, contact support.'
-          : reason === 'no_show' ? 'No trust score change was made (no GPS evidence). If this is wrong, contact support.' : 'No trust score change was made.'),
+          ? `Your trust score was reduced by 5 points because GPS showed the truck away from the pickup. ${gpsEvidence} ${CONTEST}`
+          : reason === 'no_show' ? `No trust score change was made: there was not enough location evidence that the truck was away from pickup. ${gpsEvidence} ${CONTEST}` : `No trust score change was made. ${CONTEST}`),
         link: '/dashboard/carrier/my-loads',
         metadata: { loadId: String(load._id), reason, trustScorePenalty },
       });

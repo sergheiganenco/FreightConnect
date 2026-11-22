@@ -36,7 +36,9 @@ router.post('/', auth, async (req, res) => {
     }
 
     // Prevent duplicate
-    const existing = await Appointment.findOne({ load: loadId });
+    // A record with no live leg left (load cancelled / re-listed) must not block the next carrier's booking.
+    const live = { $in: ['pending', 'confirmed', 'rescheduled'] };
+    const existing = await Appointment.findOne({ load: loadId, $or: [{ 'pickup.status': live }, { 'delivery.status': live }] });
     if (existing) return res.status(409).json({ error: 'Appointment already exists for this load', appointmentId: existing._id });
 
     const now = new Date();

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, IconButton, Tabs, Tab, Chip, CircularProgress,
-  Stack, Tooltip, Button,
+  Stack, Tooltip, Button, Alert,
 } from '@mui/material';
+import { useSearchParams } from 'react-router-dom';
 import FilterAltIcon from '@mui/icons-material/FilterAlt';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
@@ -46,6 +47,22 @@ export default function CarrierLoadBoardSection() {
   } = useCarrierLoads();
 
   const [selected, setSelected] = useState(null);
+  const [linkNotice, setLinkNotice] = useState('');
+
+  // Deep link from a notification / push: /dashboard/carrier/loads?loadId=<id> opens that load's details.
+  // The param is removed straight away so closing the modal (or a refresh) does not reopen it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedId = searchParams.get('loadId');
+  useEffect(() => {
+    if (!linkedId) return;
+    setSearchParams((p) => { p.delete('loadId'); return p; }, { replace: true });
+    setLinkNotice('');
+    api.get(`/loads/${encodeURIComponent(linkedId)}`)
+      .then(({ data }) => setSelected(data))
+      .catch((e) => setLinkNotice(e?.response?.status === 404
+        ? 'That load is no longer available. It may have been booked by another carrier or withdrawn.'
+        : 'Could not open that load. Please try again from the load board.'));
+  }, [linkedId, setSearchParams]);
   const [drawer, setDrawer] = useState(false);
   const [tab, setTab] = useState(0); // 0 = All Loads, 1 = Recommended
 
@@ -87,6 +104,8 @@ export default function CarrierLoadBoardSection() {
           </IconButton>
         )}
       </Box>
+
+      {linkNotice && <Alert severity="info" onClose={() => setLinkNotice('')} sx={{ mb: 2 }}>{linkNotice}</Alert>}
 
       {/* tabs */}
       <Tabs

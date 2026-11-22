@@ -1496,7 +1496,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
         {/* ── Pickup no-show prediction ── */}
         {['carrier', 'shipper', 'admin'].includes(userRole) && (
-          <PickupRiskPanel load={loadState} userRole={userRole} onChanged={(l) => setLoadState((prev) => ({ ...prev, ...l }))} />
+          <PickupRiskPanel load={loadState} userRole={userRole} onChanged={(l) => { setLoadState((prev) => ({ ...prev, ...l })); if (l.status && l.status !== loadState.status) onLoadAccepted?.(loadState._id); }} />
         )}
 
         {/* ── Pickup handshake (anti-impersonation) ── */}

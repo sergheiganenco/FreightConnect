@@ -20,7 +20,7 @@ const { notifyUserSafe } = require('../utils/notifyUser');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LOOKAHEAD_MS = 12 * 60 * 60 * 1000;
 const NOTIFY_LEVELS = ['at_risk', 'late_certain', 'no_show'];
-const SELECT = 'title origin pickupFacilityName pickupAddress originLat originLng pickupTimeWindow carrierLocation postedBy acceptedBy assignedDriverName pickupRisk.notified pickupRisk.carrierConfirmation';
+const SELECT = 'title origin pickupFacilityName pickupAddress originLat originLng pickupTimeWindow carrierLocation postedBy acceptedBy assignedDriverName pickupRisk.notified pickupRisk.carrierConfirmation bookedAt';
 
 const fmt = (d) => `${new Date(d).toUTCString().replace(' GMT', '')} UTC`;
 const place = (l) => l.pickupFacilityName || l.pickupAddress || l.origin;
@@ -112,8 +112,12 @@ async function applyEvaluation(load, arrived, now, skip = {}) {
 
 async function pickupArrivals(loads) {
   const events = await DwellEvent.find({ load: { $in: loads.map((l) => l._id) }, stopType: 'pickup', arrivedAt: { $ne: null } })
-    .select('load carrier').lean();
-  return new Set(events.map((e) => `${e.load}:${e.carrier}`));
+    .select('load carrier arrivedAt').lean();
+  // Bind to the CURRENT booking: an arrival from an earlier booking by the same carrier does not count.
+  // (Loads booked before bookedAt existed have none: every arrival counts, as before.)
+  const booked = new Map(loads.map((l) => [String(l._id), l.bookedAt]));
+  return new Set(events.filter((e) => { const b = booked.get(String(e.load)); return !b || new Date(e.arrivedAt) >= new Date(b); })
+    .map((e) => `${e.load}:${e.carrier}`));
 }
 
 /** Re-evaluate a single load now (used by the carrier-response route). */

@@ -301,6 +301,7 @@ const UserSchema = new mongoose.Schema({
       reason: String,
       change: Number,
       date: { type: Date, default: Date.now },
+      loadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Load' },
     }],
   },
 

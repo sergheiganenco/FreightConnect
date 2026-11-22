@@ -331,8 +331,11 @@ const LoadSchema = new mongoose.Schema({
   // ── Pickup no-show prediction (written ONLY by jobs/pickupRiskMonitor + pickup-confirm) ──
   // Belongs to the CURRENT booking: wiped whenever the load is booked or un-booked.
   // `notified` = levels already announced for this booking (idempotency for the monitor).
+  // When the CURRENT booking began (set by the pickupLifecycle hook on every booking path). Binds pickup
+  // arrivals to this booking: a DwellEvent from an earlier booking by the same carrier does not count.
+  bookedAt: Date,
   pickupRisk: {
-    level:       { type: String, enum: ['not_evaluated', 'on_track', 'at_risk', 'late_certain', 'no_show'] },
+    level:      { type: String, enum: ['not_evaluated', 'on_track', 'at_risk', 'late_certain', 'no_show'] },
     reason:      String,
     detail:      { type: mongoose.Schema.Types.Mixed },   // small: the numbers behind the estimate, no coordinates
     evaluatedAt: Date,
@@ -373,7 +376,7 @@ function pickupLifecycle(update) {
   u.$unset.pickupRisk = 1;
   u.$unset.carrierLocation = 1;
   for (const f of ['verifiedAt', 'verifiedBy', 'lockedAt']) u.$unset[`${PV}.${f}`] = 1;
-  if (booked) set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  if (booked) { set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0'); set.bookedAt = new Date(); }
   else u.$unset[`${PV}.code`] = 1;
   return u;
 }
