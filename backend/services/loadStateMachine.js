@@ -1,4 +1,5 @@
 const Load = require('../models/Load');
+const { PUBLIC_PARTY_SELECT } = require('./trustScoreService');
 const StatusHistory = require('../models/StatusHistory');
 
 /**
@@ -68,7 +69,7 @@ async function transitionLoadStatus(
         $inc: { __v: 1 },
       },
       { new: true }
-    ).populate({ path: 'postedBy acceptedBy', select: '-trustScore.history' }); // responses echo this load: never ship per-event trust history
+    ).populate({ path: 'postedBy acceptedBy', select: PUBLIC_PARTY_SELECT }); // responses echo this load to BOTH parties: allowlist only
 
     if (!load) {
       // Distinguish "not found" from "wrong status"

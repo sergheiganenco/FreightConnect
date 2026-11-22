@@ -267,6 +267,9 @@ const LoadSchema = new mongoose.Schema({
     // false = the dwell's arrival or departure position was not authenticated (link-token fix or manual check-in).
     // Such a charge still goes to the shipper for approval but is NEVER auto-collected off-session.
     locationVerified: { type: Boolean, default: null },
+    // Set by an admin to release an unverified (locationVerified !== true) detention charge for collection/payout.
+    adminConfirmedAt: { type: Date, default: null },
+    adminConfirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     proposedAt:   { type: Date, default: null },
     // Frozen evidence snapshot shown to the shipper at proposal time.
     evidence: {
@@ -393,11 +396,18 @@ LoadSchema.pre('save', function(next) {
 // (status open/cancelled, or acceptedBy:null) clears the code. save() covers the
 // doc-based unassign. `required` is never touched here.
 const PV = 'pickupVerification';
+// An update un-books the load when it sets status open/cancelled, nulls acceptedBy, or $unsets acceptedBy.
+function isUnbooking(upd) {
+  const u = Object.keys(upd).some(k => k.startsWith('$')) ? upd : { $set: upd };
+  const set = u.$set || {};
+  return set.status === 'open' || set.status === 'cancelled' || set.acceptedBy === null
+    || (!!u.$unset && Object.prototype.hasOwnProperty.call(u.$unset, 'acceptedBy'));
+}
 function pickupLifecycle(update, win) {
   const u = Object.keys(update).some(k => k.startsWith('$')) ? update : { $set: update };
   const set = u.$set || {};
   const booked = set.status === 'accepted' && set.acceptedBy;
-  const unbooked = set.status === 'open' || set.status === 'cancelled' || set.acceptedBy === null;
+  const unbooked = isUnbooking(u);
   if (!booked && !unbooked) return update;
   u.$set = set;
   u.$unset = u.$unset || {};
@@ -414,6 +424,18 @@ function pickupLifecycle(update, win) {
   } else { u.$unset[`${PV}.code`] = 1; u.$unset.trackingNonce = 1; u.$unset.bookedWindow = 1; }
   return u;
 }
+
+// The booking is over: close this load's still-open dwell events WITHOUT recalculating (no dwell, no detention
+// fee, no billing); the closedReason marker keeps them out of stats and billing. Never throws.
+async function closeOpenDwellEvents(loadId) {
+  try {
+    await require('./DwellEvent').updateMany(
+      { load: loadId, departedAt: null, closedReason: null },
+      { $set: { departedAt: new Date(), closedReason: 'cancelled' } }
+    );
+  } catch (err) { console.error('[load] closing dwell events failed:', err.message); }
+}
+async function onUnbooked(loadId) { await archiveEvidence(loadId); await closeOpenDwellEvents(loadId); }
 
 // Un-booking also archives the photos taken under that booking, so a later booking
 // (another carrier, or the same one again) must add its own. Done as a follow-up update
@@ -432,7 +454,7 @@ for (const op of ['findOneAndUpdate', 'updateOne']) {
   LoadSchema.pre(op, async function () {
     const upd = this.getUpdate() || {};
     const set = (Object.keys(upd).some(k => k.startsWith('$')) ? upd.$set : upd) || {};
-    if (set.status === 'open' || set.status === 'cancelled' || set.acceptedBy === null) {
+    if (isUnbooking(upd)) {
       try { this._archiveId = (await this.model.findOne(this.getFilter()).select('_id').lean())?._id; } catch (_) {}
     }
     let win = null;
@@ -442,7 +464,7 @@ for (const op of ['findOneAndUpdate', 'updateOne']) {
     this.setUpdate(pickupLifecycle(upd, win));
   });
   LoadSchema.post(op, async function (res) {
-    if (this._archiveId && res && res.matchedCount !== 0) await archiveEvidence(this._archiveId);
+    if (this._archiveId && res && res.matchedCount !== 0) await onUnbooked(this._archiveId);
   });
 }
 LoadSchema.pre('save', function (next) {
@@ -465,7 +487,7 @@ LoadSchema.pre('save', function (next) {
   next();
 });
 LoadSchema.post('save', async function () {
-  if (this.$locals.archiveEvidence) { this.$locals.archiveEvidence = false; await archiveEvidence(this._id); }
+  if (this.$locals.archiveEvidence) { this.$locals.archiveEvidence = false; await onUnbooked(this._id); }
 });
 
 // Indexes for common query patterns

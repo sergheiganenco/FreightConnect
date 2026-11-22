@@ -1,4 +1,5 @@
 const Load = require('../models/Load');
+const { PUBLIC_PARTY_SELECT } = require('./trustScoreService');
 const Bid = require('../models/Bid');
 const Payment = require('../models/Payment');
 const StatusHistory = require('../models/StatusHistory');
@@ -26,7 +27,7 @@ async function atomicAcceptLoad(loadId, carrierId) {
         $inc: { __v: 1 },
       },
       { new: true }
-    ).populate({ path: 'postedBy acceptedBy', select: '-trustScore.history' }); // responses echo this load: never ship per-event trust history
+    ).populate({ path: 'postedBy acceptedBy', select: PUBLIC_PARTY_SELECT }); // responses echo this load to BOTH parties: allowlist only
 
     if (!load) {
       const existing = await Load.findById(loadId).select('status acceptedBy').lean();

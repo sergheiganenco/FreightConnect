@@ -453,7 +453,9 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
       // Path B: the off-session charge may need bank authentication (SCA).
       setOk(data && data.requiresAction
         ? 'Approved — your bank needs to verify this payment. Complete authentication to finish collecting it.'
-        : 'Charge approved.');
+        : data && data.awaitingReview
+          ? data.message
+          : 'Charge approved.');
     } catch (err) {
       setOpError(err.response?.data?.error || 'Failed to approve charge.');
     }
@@ -1322,6 +1324,13 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
                             </Typography>
                             {c.description && (
                               <Typography variant="caption" sx={{ color: T.secondary }}>{c.description}</Typography>
+                            )}
+                            {c.source === 'system_detention' && c.locationVerified !== true && !c.adminConfirmedAt && c.status !== 'rejected' && (
+                              <Typography variant="caption" sx={{ color: T.muted, display: 'block', fontWeight: 700 }}>
+                                {c.status === 'pending'
+                                  ? 'Location not verified: even once approved, this charge waits for manual review before it is collected or paid.'
+                                  : 'Awaiting manual review: the location was not verified.'}
+                              </Typography>
                             )}
                             {c.source === 'system_detention' && c.evidence && (
                               <Box sx={{ mt: 0.75, p: 1, borderRadius: 1, bgcolor: surface.glassSubtle, border: `1px dashed ${surface.glassBorder}` }}>

@@ -327,6 +327,10 @@ class EscrowService {
     if (!load) return { ok: false, code: 'not_found', error: 'Load not found' };
     const charge = load.accessorialCharges.id(chargeId);
     if (!charge) return { ok: false, code: 'not_found', error: 'Charge not found' };
+    // Unverified / legacy (null) detention is never auto-collected; it waits for admin confirmation.
+    if (!require('./detentionBillingService').isAutoPayable(charge)) {
+      return { ok: false, code: 'held_for_review', error: 'Charge is awaiting manual review: location not verified' };
+    }
 
     const shipper = await User.findById(load.postedBy).select('stripe');
     const customerId = shipper && shipper.stripe && shipper.stripe.customerId;

@@ -127,4 +127,13 @@ async function getScoreBreakdown(userId, { includeHistory = false } = {}) {
 // Use as the select/populate field list instead of the whole `trustScore` object.
 const PUBLIC_TRUST_SELECT = 'trustScore.score trustScore.onTimeRate trustScore.cancellationRate trustScore.totalLoadsCompleted trustScore.lastCalculated';
 
-module.exports = { calculateTrustScore, adjustScore, getScoreBreakdown, PUBLIC_TRUST_SELECT };
+// A counterparty as seen on a load/capacity/preferred-carrier record: identity + public trust only. No contact
+// details (parties talk through in-app chat; no UI reads them off a load), no fleet/drivers/stripe/tokens/documents.
+// MC/DOT only from the FMCSA-confirmed record, never the user-typed verification.mcNumber/dotNumber.
+const PUBLIC_PARTY_SELECT = 'name companyName role ' + PUBLIC_TRUST_SELECT
+  + ' verification.status verification.fmcsaData.legalName verification.fmcsaData.dotNumber verification.fmcsaData.mcNumber';
+
+// Staff emails are for admins only; everyone else gets the same fields without it.
+const adminEmailSelect = (req, fields) => (req.user && req.user.role === 'admin' ? 'email ' + fields : fields);
+
+module.exports = { calculateTrustScore, adjustScore, getScoreBreakdown, PUBLIC_TRUST_SELECT, PUBLIC_PARTY_SELECT, adminEmailSelect };

@@ -10,6 +10,7 @@
  */
 
 const express = require('express');
+const { adminEmailSelect } = require('../services/trustScoreService');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
@@ -153,8 +154,8 @@ router.get('/', auth, async (req, res) => {
     const [exceptions, total] = await Promise.all([
       Exception.find(filter)
         .populate('loadId', 'title origin destination status')
-        .populate('filedBy', 'name email companyName')
-        .populate('assignedTo', 'name email')
+        .populate('filedBy', adminEmailSelect(req, 'name companyName'))
+        .populate('assignedTo', adminEmailSelect(req, 'name'))
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(Number(limit)),
@@ -185,7 +186,7 @@ router.get('/load/:loadId', auth, async (req, res) => {
     }
 
     const exceptions = await Exception.find({ loadId: req.params.loadId })
-      .populate('filedBy', 'name email role')
+      .populate('filedBy', adminEmailSelect(req, 'name role'))
       .sort({ createdAt: -1 });
 
     res.json(exceptions);
@@ -201,10 +202,10 @@ router.get('/:id', auth, async (req, res) => {
   try {
     const exception = await Exception.findById(req.params.id)
       .populate('loadId', 'title origin destination status rate postedBy acceptedBy')
-      .populate('filedBy', 'name email companyName')
-      .populate('assignedTo', 'name email')
-      .populate('resolvedBy', 'name email')
-      .populate('notes.author', 'name email role');
+      .populate('filedBy', adminEmailSelect(req, 'name companyName'))
+      .populate('assignedTo', adminEmailSelect(req, 'name'))
+      .populate('resolvedBy', adminEmailSelect(req, 'name'))
+      .populate('notes.author', adminEmailSelect(req, 'name role'));
 
     if (!exception) return res.status(404).json({ error: 'Exception not found' });
 

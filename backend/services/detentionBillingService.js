@@ -49,7 +49,7 @@ async function flagDiscrepancy(load, charge, reason) {
 }
 
 /** Deterministic hash of the amount + evidence the shipper is shown. */
-function computeEvidenceHash(dwellEventId, amountCents, evidence) {
+function computeEvidenceHash(dwellEventId, amountCents, evidence, locationVerified) {
   const iso = (d) => (d ? new Date(d).toISOString() : null);
   const canonical = JSON.stringify({
     dwellEventId:       String(dwellEventId),
@@ -62,6 +62,8 @@ function computeEvidenceHash(dwellEventId, amountCents, evidence) {
     freeMinutes:        evidence.freeMinutes,
     detentionMinutes:   evidence.detentionMinutes,
     detentionRateCents: evidence.detentionRateCents,
+    // provenance is part of what the shipper approves: a flip must change the hash (re-propose / flag), never go stale
+    locationVerified:   locationVerified === true,
   });
   return crypto.createHash('sha256').update(canonical).digest('hex');
 }
@@ -72,7 +74,7 @@ async function notifyProposal(load, charge, { reproposed }) {
     type: 'detention_proposed',
     title: reproposed ? 'Detention Charge Updated' : 'Detention Charge Proposed',
     body: `Detention charge of $${dollars} ${reproposed ? 're-proposed' : 'proposed'} on "${load.title}" — review the dwell evidence and approve or reject.`
-      + (charge.locationVerified ? '' : ' The arrival or departure position was not verified (link-token fix or manual check-in): check it carefully; it will not be collected automatically.'),
+      + (charge.locationVerified === true ? '' : ' The arrival or departure position was not verified (link-token fix or manual check-in): check it carefully. Even if you approve it, it is held for manual review by our team and is not collected or paid out automatically.'),
     link: '/dashboard/shipper/loads',
     metadata: { loadId: String(load._id), chargeId: String(charge._id), amountCents: charge.amountCents, evidenceHash: charge.evidenceHash },
   });
@@ -80,7 +82,8 @@ async function notifyProposal(load, charge, { reproposed }) {
     await notifyUserSafe(load.acceptedBy, {
       type: 'detention_auto_billed',
       title: 'Detention Auto-Billed',
-      body: `Detention of $${dollars} on "${load.title}" was documented from your dwell time and sent to the shipper for approval.`,
+      body: `Detention of $${dollars} on "${load.title}" was documented from your dwell time and sent to the shipper for approval.`
+        + (charge.locationVerified === true ? '' : ' Your arrival or departure location was not verified, so this charge is awaiting manual review before it can be collected or paid.'),
       link: '/dashboard/carrier/my-loads',
       metadata: { loadId: String(load._id), chargeId: String(charge._id), amountCents: charge.amountCents },
     });
@@ -90,6 +93,34 @@ async function notifyProposal(load, charge, { reproposed }) {
 function buildDescription(evidence, stopType, detentionMinutes, locationVerified) {
   return `Detention at ${evidence.facilityName || stopType} — ${detentionMinutes} min over free time`
     + (locationVerified ? '' : ' [needs review: location not verified]');
+}
+
+const sameInstant = (a, b) => (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
+
+/** A dwell event bills only under the load's CURRENT booking (same carrier, same bookedAt; both null = legacy). */
+function eventBelongsToCurrentBooking(event, load) {
+  return !!event && !!load.acceptedBy && String(event.carrier) === String(load.acceptedBy)
+    && sameInstant(event.bookedAt, load.bookedAt);
+}
+
+/** False for a cancelled event or one from an earlier booking. */
+function eventBillable(event, load) {
+  return !!event && event.closedReason !== 'cancelled' && eventBelongsToCurrentBooking(event, load);
+}
+
+/**
+ * Money may move automatically for a charge only if it is not a system detention charge, or its dwell position
+ * was authenticated (=== true; false/null/undefined all fail closed), or an admin confirmed it by hand.
+ */
+function isAutoPayable(charge) {
+  return !charge || charge.source !== 'system_detention' || charge.locationVerified === true || !!charge.adminConfirmedAt;
+}
+
+/** For approve/settle: is this system charge's dwell event still billable under the load's current booking? */
+async function chargeEventBillable(load, charge) {
+  if (!charge || charge.source !== 'system_detention') return true;
+  const event = charge.dwellEventId ? await require('../models/DwellEvent').findById(charge.dwellEventId) : null;
+  return eventBillable(event, load);
 }
 
 /**
@@ -103,6 +134,8 @@ async function syncDetentionCharge(dwellEvent) {
 
   const load = await Load.findById(dwellEvent.load);
   if (!load) return { action: 'none', charge: null };
+  // Never bill a cancelled event, or one that is not the load's current booking (re-booked / other carrier).
+  if (!eventBillable(dwellEvent, load)) return { action: 'none', charge: null };
 
   // Rate provenance lock (#3): recompute the amount from AUTHORITATIVE rates,
   // never from a (potentially mutated) stored value. Lazy-require breaks the
@@ -131,10 +164,10 @@ async function syncDetentionCharge(dwellEvent) {
     facilityName:       dwellEvent.facilityName || '',
     source:             'auto',
   };
-  const newHash = computeEvidenceHash(dwellEvent._id, feeCents, evidence);
   // Only an authenticated geofence arrival AND departure counts as verified; link-token fixes, manual check-ins
   // and pre-existing (null) events do not.
   const locationVerified = dwellEvent.arrivalAuthenticated === true && dwellEvent.departureAuthenticated === true;
+  const newHash = computeEvidenceHash(dwellEvent._id, feeCents, evidence, locationVerified);
 
   const existing = load.accessorialCharges.find(
     (c) => c.source === 'system_detention' && String(c.dwellEventId) === String(dwellEvent._id)
@@ -213,6 +246,8 @@ async function syncDetentionCharge(dwellEvent) {
   // Invalidate any prior approval/rejection — the shown number changed.
   existing.approvedBy = null;
   existing.approvedAt = null;
+  existing.adminConfirmedAt = null;
+  existing.adminConfirmedBy = null;
   existing.approvalAudit = { approverUserId: null, approvedAt: null, amountCentsApproved: null, evidenceHashShown: null };
   existing.rejectedBy = null;
   existing.rejectedAt = null;
@@ -222,4 +257,4 @@ async function syncDetentionCharge(dwellEvent) {
   return { action: 'reproposed', charge: existing };
 }
 
-module.exports = { syncDetentionCharge, computeEvidenceHash };
+module.exports = { syncDetentionCharge, computeEvidenceHash, isAutoPayable, chargeEventBillable, eventBillable };

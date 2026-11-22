@@ -109,6 +109,7 @@ describe('E2E happy path — post → accept → in-transit → detention → ap
     const arrivedAt = new Date(Date.now() - 4 * 3600 * 1000);
     const dwell = await DwellEvent.create({
       load: loadId, carrier: carrier._id, shipper: shipper._id,
+      bookedAt: load.bookedAt, arrivalAuthenticated: true, departureAuthenticated: true, // a real geofence visit of THIS booking
       stopType: 'delivery', facilityName: 'Nashville DC',
       arrivedAt,
       dockInAt: new Date(arrivedAt.getTime() + 30 * 60000),

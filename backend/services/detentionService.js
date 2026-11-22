@@ -127,6 +127,8 @@ async function assessCascadeImpact(carrierId, departureTime, hoursAlreadyDrivenT
 async function recalculateDwellEvent(eventId) {
   const event = await DwellEvent.findById(eventId);
   if (!event) return null;
+  // Force-closed because the booking ended: no dwell, no fee, no billing.
+  if (event.closedReason === 'cancelled') return event;
 
   // Calculate dwell time
   const end   = event.departedAt || new Date();

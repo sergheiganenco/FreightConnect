@@ -15,6 +15,7 @@
  */
 
 const express = require('express');
+const { adminEmailSelect } = require('../services/trustScoreService');
 const router = express.Router();
 const { body } = require('express-validator');
 const auth = require('../middlewares/authMiddleware');
@@ -149,8 +150,8 @@ router.get('/', auth, async (req, res) => {
     const [claims, total] = await Promise.all([
       Claim.find(filter)
         .populate('loadId', 'title origin destination status')
-        .populate('claimant', 'name email companyName')
-        .populate('respondent', 'name email companyName')
+        .populate('claimant', adminEmailSelect(req, 'name companyName'))
+        .populate('respondent', adminEmailSelect(req, 'name companyName'))
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(Number(limit)),
@@ -180,8 +181,8 @@ router.get('/load/:loadId', auth, async (req, res) => {
     }
 
     const claims = await Claim.find({ loadId: req.params.loadId })
-      .populate('claimant', 'name email companyName')
-      .populate('respondent', 'name email companyName')
+      .populate('claimant', adminEmailSelect(req, 'name companyName'))
+      .populate('respondent', adminEmailSelect(req, 'name companyName'))
       .sort({ createdAt: -1 });
 
     res.json(claims);
@@ -535,10 +536,10 @@ router.get('/:id', auth, async (req, res) => {
   try {
     const claim = await Claim.findById(req.params.id)
       .populate('loadId', 'title origin destination status rate postedBy acceptedBy')
-      .populate('claimant', 'name email companyName')
-      .populate('respondent', 'name email companyName')
-      .populate('resolvedBy', 'name email')
-      .populate('notes.author', 'name email role');
+      .populate('claimant', adminEmailSelect(req, 'name companyName'))
+      .populate('respondent', adminEmailSelect(req, 'name companyName'))
+      .populate('resolvedBy', adminEmailSelect(req, 'name'))
+      .populate('notes.author', adminEmailSelect(req, 'name role'));
     if (!claim) return res.status(404).json({ error: 'Claim not found' });
 
     const companyId = companyOf(req);

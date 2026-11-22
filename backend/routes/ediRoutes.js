@@ -10,6 +10,7 @@
  */
 
 const express  = require('express');
+const { parseWindow } = require('../utils/windowValidation');
 const router   = express.Router();
 const auth     = require('../middlewares/authMiddleware');
 const EDIDocument = require('../models/EDIDocument');
@@ -134,7 +135,15 @@ router.post('/:id/create-load', auth, SHIPPER_OR_ADMIN, async (req, res) => {
 
     // Get base fields from parsed data; allow overrides from req.body
     const baseFields = edi204ToLoadFields(doc.parsedData);
-    const loadFields = { ...baseFields, ...req.body }; // caller can override any field
+    // The caller may override only these descriptive fields: never status, acceptedBy, postedBy, booking or money state.
+    const OVERRIDABLE = ['title', 'origin', 'destination', 'originLat', 'originLng', 'destinationLat', 'destinationLng',
+      'rate', 'equipmentType', 'loadWeight', 'commodityType', 'specialInstructions', 'pickupTimeWindow', 'deliveryTimeWindow'];
+    const loadFields = { ...baseFields };
+    for (const k of OVERRIDABLE) if (req.body[k] !== undefined) loadFields[k] = req.body[k];
+    try {
+      loadFields.pickupTimeWindow = parseWindow(loadFields.pickupTimeWindow, 'pickupTimeWindow');
+      loadFields.deliveryTimeWindow = parseWindow(loadFields.deliveryTimeWindow, 'deliveryTimeWindow');
+    } catch (e) { return res.status(400).json({ error: e.message }); }
 
     // Require minimum fields
     if (!loadFields.origin || !loadFields.destination) {

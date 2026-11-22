@@ -62,7 +62,7 @@ router.get('/', auth, async (req, res) => {
 
     // ── Carrier usage stats ───────────────────────────────────────────────────
     const carriersUsed = await User.find({ _id: { $in: carrierIds } })
-      .select('_id name companyName email')
+      .select('_id name companyName')
       .lean();
 
     const carrierStats = carriersUsed.map(carrier => {
@@ -172,7 +172,7 @@ router.get('/carriers', auth, async (req, res) => {
       ...new Set(loads.map(l => l.acceptedBy?.toString()).filter(Boolean)),
     ];
     const carriers = await User.find({ _id: { $in: carrierIds } })
-      .select('_id name companyName email')
+      .select('_id name companyName')
       .lean();
     res.json(carriers);
   } catch (err) {

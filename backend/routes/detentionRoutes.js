@@ -95,6 +95,7 @@ router.patch('/dock-in/:eventId', auth, async (req, res) => {
     const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: req.user.userId });
     if (!event) return res.status(404).json({ error: 'Dwell event not found' });
     if (event.dockInAt) return res.status(409).json({ error: 'Already docked in' });
+    if (event.closedReason === 'cancelled' || event.departedAt) return res.status(409).json({ error: 'This dwell record is closed' });
 
     event.dockInAt = new Date();
     await event.save();
@@ -112,6 +113,7 @@ router.patch('/dock-out/:eventId', auth, async (req, res) => {
   try {
     const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: req.user.userId });
     if (!event) return res.status(404).json({ error: 'Dwell event not found' });
+    if (event.closedReason === 'cancelled' || event.departedAt) return res.status(409).json({ error: 'This dwell record is closed' });
 
     event.dockOutAt = new Date();
     await event.save();
@@ -128,6 +130,7 @@ router.patch('/depart/:eventId', auth, async (req, res) => {
   try {
     const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: req.user.userId });
     if (!event) return res.status(404).json({ error: 'Dwell event not found' });
+    if (event.closedReason === 'cancelled') return res.status(409).json({ error: 'This dwell record was closed when the booking ended' });
     if (event.departedAt) return res.status(409).json({ error: 'Already departed' });
 
     event.departedAt = new Date();

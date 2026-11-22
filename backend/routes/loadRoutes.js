@@ -15,7 +15,9 @@ module.exports = (io) => {
   const StatusHistory = require('../models/StatusHistory');
   const { checkScheduleConflicts } = require('../services/scheduleConflictService');
   const PreferredCarrier = require('../models/PreferredCarrier');
-  const { notifyUserSafe } = require('../utils/notifyUser');
+  const { parseWindow } = require('../utils/windowValidation');
+  const { notifyUserSafe, notifyAdmins } = require('../utils/notifyUser');
+  const { isAutoPayable, chargeEventBillable } = require('../services/detentionBillingService');
   const { pickupBlockers, deliveryBlockers } = require('../services/evidenceService');
   const antiFraudGuard = require('../services/antiFraudGuard');
   const { checkLoadEligibility } = require('../services/loadEligibility');
@@ -119,11 +121,6 @@ module.exports = (io) => {
         { $set: { status: 'rejected' } }
       );
     } catch (e) { console.error('[cancel cascade] bids failed (non-fatal):', e.message); }
-    try {
-      // The booking is over: close any still-open dwell event WITHOUT recalculating (no dwell/detention
-      // fee, no billing sync); the closedReason marker also keeps it out of facility stats.
-      await require('../models/DwellEvent').updateMany({ load: loadId, departedAt: null }, { $set: { departedAt: new Date(), closedReason: 'cancelled' } });
-    } catch (e) { console.error('[cancel cascade] dwell events failed (non-fatal):', e.message); }
     try {
       const Appointment = require('../models/Appointment');
       // Appointment has no top-level status: each leg (pickup/delivery) carries its own. Cancel only
@@ -645,6 +642,13 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       return undefined;
     };
 
+    // Same strict ISO + end>=start rule as the dedicated window endpoints (the form sends datetime-local, so no zone is required here).
+    let pickupTimeWindow, deliveryTimeWindow;
+    try {
+      pickupTimeWindow = parseWindow(pickupWindowStart ? { start: pickupWindowStart, end: pickupWindowEnd } : undefined, 'pickupTimeWindow');
+      deliveryTimeWindow = parseWindow(deliveryWindowStart ? { start: deliveryWindowStart, end: deliveryWindowEnd } : undefined, 'deliveryTimeWindow');
+    } catch (e) { return res.status(400).json({ error: e.message }); }
+
     const newLoad = new Load({
       title,
       origin,
@@ -664,8 +668,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       specialInstructions: specialInstructions || undefined,
 
       // Time windows
-      pickupTimeWindow: pickupWindowStart ? { start: new Date(pickupWindowStart), end: pickupWindowEnd ? new Date(pickupWindowEnd) : undefined } : undefined,
-      deliveryTimeWindow: deliveryWindowStart ? { start: new Date(deliveryWindowStart), end: deliveryWindowEnd ? new Date(deliveryWindowEnd) : undefined } : undefined,
+      pickupTimeWindow,
+      deliveryTimeWindow,
 
       // Dimensions
       loadDimensions: (loadLength || loadWidth || loadHeight) ? {
@@ -1273,16 +1277,10 @@ router.put("/:id/status", auth, async (req, res) => {
     }
 
     // Emit only to the shipper and carrier involved — not all connected users
-    io.to(`user_${load.postedBy}`).emit("loadStatusUpdated", {
-      loadId: load._id,
-      status: load.status,
-      acceptedBy: load.acceptedBy,
-    });
-    io.to(`user_${load.acceptedBy}`).emit("loadStatusUpdated", {
-      loadId: load._id,
-      status: load.status,
-      acceptedBy: load.acceptedBy,
-    });
+    // (the load's parties are populated: use their ids for the room names and payload)
+    const statusPayload = { loadId: load._id, status: load.status, acceptedBy: load.acceptedBy?._id || load.acceptedBy };
+    io.to(`user_${load.postedBy?._id || load.postedBy}`).emit("loadStatusUpdated", statusPayload);
+    io.to(`user_${load.acceptedBy?._id || load.acceptedBy}`).emit("loadStatusUpdated", statusPayload);
 
     res.json({ message: `Load status updated to ${status}.`, load });
   } catch (err) {
@@ -1323,6 +1321,14 @@ const { MIN_EDIT_LEAD_MS, PROPOSAL_TTL_MS, FALLBACK_WINDOW_MS } = require('../se
 const isoWindowDate = (f) => body(f).isISO8601({ strict: true, strictSeparator: true }).matches(/T.*(Z|[+-]\d{2}(:?\d{2})?)$/i)
   .withMessage(`${f} must be an ISO-8601 date-time with a timezone, e.g. 2026-06-01T14:00:00Z`);
 
+// Null-safe epoch ms for a window bound: null/undefined/''/invalid -> NaN. `new Date(null).getTime()` is 0, which
+// would pass Number.isFinite and make "not earlier than the existing bound" trivially true against a missing bound.
+const boundMs = (d) => { const t = d == null || d === '' ? NaN : new Date(d).getTime(); return Number.isFinite(t) ? t : NaN; };
+// The state a window edit was validated against: the write only lands if the load is still exactly that
+// (a pickup, cancel or re-booking in between must not let an edit through).
+const loadStateGuard = (load) => ({ _id: load._id, status: load.status, acceptedBy: load.acceptedBy || null, bookedAt: load.bookedAt || null });
+const WINDOW_CHANGED = { error: 'The load changed — reload and try again' };
+
 // Only the load's shipper company or an admin may change its time windows —
 // windows feed detention billing and on-time scorecards, so this must be locked down.
 function assertWindowEditor(load, req) {
@@ -1338,7 +1344,7 @@ function assertWindowEditor(load, req) {
 // pending proposal. Loads that are not booked-and-awaiting-pickup keep the old direct-edit behaviour.
 router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('end'), validate, async (req, res) => {
   try {
-    const ns = new Date(req.body.start).getTime(), ne = new Date(req.body.end).getTime();
+    const ns = boundMs(req.body.start), ne = boundMs(req.body.end);
     if (ne < ns) return res.status(400).json({ error: 'end must not be before start' });
 
     const load = await Load.findById(req.params.id);
@@ -1352,7 +1358,7 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
     const oldW = load.pickupTimeWindow || {};
     const booked = load.status === 'accepted' && load.acceptedBy;
     const agreed = booked && load.bookedWindow && load.bookedWindow.start ? load.bookedWindow : oldW; // legacy bookings: current window
-    const as = new Date(agreed.start).getTime(), aeRaw = new Date(agreed.end).getTime();
+    const as = boundMs(agreed.start), aeRaw = boundMs(agreed.end);
     // Latest agreed arrival exactly as the risk evaluator computes it: window end, else start + fallback.
     const ae = Number.isFinite(aeRaw) && aeRaw >= as ? aeRaw : as + FALLBACK_WINDOW_MS;
     const moved = ns !== as || ne !== aeRaw;
@@ -1361,8 +1367,6 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
     if (booked) {
       const nowMs = Date.now();
       // A pending proposal that nobody answered within the TTL lapses.
-      const pc = load.pickupWindowChange;
-      if (pc?.status === 'pending' && nowMs - new Date(pc.proposedAt).getTime() > PROPOSAL_TTL_MS) load.pickupWindowChange.status = 'expired';
       // Past the agreed latest arrival a verdict (no-show / release) may already exist: no edit may rewrite it.
       if (nowMs > ae) return res.status(409).json({ error: 'The pickup deadline has already passed — release or cancel instead' });
       if (moved && ns < nowMs + MIN_EDIT_LEAD_MS) return res.status(400).json({ error: 'The new pickup window must start at least 2 hours from now' });
@@ -1371,8 +1375,8 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
     // Fail closed: lenient (no consent needed) only when every agreed bound is known and the new window is not earlier.
     const lenient = Number.isFinite(as) && Number.isFinite(ae) && ns >= as && ne >= ae;
     if (booked && moved && !lenient) {
-      load.pickupWindowChange = { proposedStart: new Date(ns), proposedEnd: new Date(ne), proposedAt: new Date(), proposedBy: req.user.userId, status: 'pending' };
-      await load.save();
+      const w = await Load.updateOne(loadStateGuard(load), { $set: { pickupWindowChange: { proposedStart: new Date(ns), proposedEnd: new Date(ne), proposedAt: new Date(), proposedBy: req.user.userId, status: 'pending' } } });
+      if (!w.matchedCount) return res.status(409).json(WINDOW_CHANGED);
       await notifyUserSafe(load.acceptedBy, {
         type: 'pickup:window_change_proposed',
         title: 'Shipper proposed an earlier pickup time',
@@ -1380,20 +1384,23 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
         link: '/dashboard/carrier/my-loads',
         metadata: { loadId: String(load._id) },
       });
-      return res.json({ ...load.toObject(), windowChangeProposed: true, message: 'Proposed. The agreed pickup window stays in force until the carrier accepts.' });
+      const proposed = await Load.findById(load._id);
+      return res.json({ ...proposed.toObject(), windowChangeProposed: true, message: 'Proposed. The agreed pickup window stays in force until the carrier accepts.' });
     }
 
-    load.pickupTimeWindow = { ...oldW, start: new Date(ns), end: new Date(ne) };
+    const set = { 'pickupTimeWindow.start': new Date(ns), 'pickupTimeWindow.end': new Date(ne) };
+    const upd = { $set: set };
     if (booked) {
-      load.bookedWindow = { start: new Date(ns), end: new Date(ne) };
-      load.pickupWindowChange = undefined; // a lenient change (or re-sending the agreed window) supersedes/withdraws a pending proposal
+      set.bookedWindow = { start: new Date(ns), end: new Date(ne) };
+      upd.$unset = { pickupWindowChange: 1 }; // a lenient change (or re-sending the agreed window) supersedes/withdraws a pending proposal
     }
     // New pickup time on a booked load = a new risk question. Alerts already sent and an "on my way"
     // given for the OLD time must not suppress the new time, so the whole risk state is cleared (the
     // monitor re-evaluates on its next run and announces afresh).
     const rebook = moved && booked;
-    if (rebook) load.pickupRisk = undefined;
-    await load.save();
+    if (rebook) upd.$unset.pickupRisk = 1;
+    const w = await Load.updateOne(loadStateGuard(load), upd);
+    if (!w.matchedCount) return res.status(409).json(WINDOW_CHANGED);
 
     if (rebook) {
       await notifyUserSafe(load.acceptedBy, {
@@ -1405,7 +1412,7 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
       });
     }
 
-    res.json(load);
+    res.json(await Load.findById(load._id));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error updating window' });
@@ -1415,7 +1422,7 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
 // PUT /api/loads/:id/delivery-window   { start, end }
 router.put('/:id/delivery-window', auth, isoWindowDate('start'), isoWindowDate('end'), validate, async (req, res) => {
   try {
-    const ns = new Date(req.body.start).getTime(), ne = new Date(req.body.end).getTime();
+    const ns = boundMs(req.body.start), ne = boundMs(req.body.end);
     if (ne < ns) return res.status(400).json({ error: 'end must not be before start' });
 
     const load = await Load.findById(req.params.id);
@@ -1426,7 +1433,7 @@ router.put('/:id/delivery-window', auth, isoWindowDate('start'), isoWindowDate('
     // trust score are judged on: it cannot be tightened (earlier start or end) or edited after delivery.
     if (load.acceptedBy) {
       const o = load.deliveryTimeWindow || {};
-      const os = new Date(o.start).getTime(), oe = new Date(o.end).getTime();
+      const os = boundMs(o.start), oe = boundMs(o.end);
       const closed = ['delivered', 'disputed', 'resolved', 'cancelled'].includes(load.status);
       // Fail closed: a comparison against a missing bound is false, so "not earlier" cannot be shown without both.
       if (!Number.isFinite(os) || !Number.isFinite(oe)) {
@@ -1437,10 +1444,10 @@ router.put('/:id/delivery-window', auth, isoWindowDate('start'), isoWindowDate('
       }
     }
 
-    load.deliveryTimeWindow = { ...(load.deliveryTimeWindow || {}), start: new Date(ns), end: new Date(ne) };
-    await load.save();
+    const w = await Load.updateOne(loadStateGuard(load), { $set: { 'deliveryTimeWindow.start': new Date(ns), 'deliveryTimeWindow.end': new Date(ne) } });
+    if (!w.matchedCount) return res.status(409).json(WINDOW_CHANGED);
 
-    res.json(load);
+    res.json(await Load.findById(load._id));
   } catch (err) {
     console.error('Error updating delivery window:', err);
     res.status(500).json({ error: 'Server error updating window' });
@@ -2485,6 +2492,14 @@ router.post('/voice-command', auth, async (req, res) => {
         }
       }
 
+      // A charge whose dwell event was cancelled, or belongs to an earlier booking, can never be approved.
+      if (!(await chargeEventBillable(load, charge))) {
+        return res.status(409).json({ error: 'This detention charge belongs to a cancelled or earlier booking and cannot be approved.' });
+      }
+      // Unverified / legacy (null) location: the approval is recorded but nothing is collected or paid until an
+      // admin confirms (PUT .../confirm-unverified). settleAccessorialCharge and the collector enforce this too.
+      const heldForReview = !isAutoPayable(charge);
+
       // Path B — for system detention, COLLECT from the shipper off-session
       // before settling to the carrier. Falls back to accrual (Path A) when
       // Stripe / saved card / mandate aren't available.
@@ -2496,7 +2511,7 @@ router.post('/voice-command', auth, async (req, res) => {
       const collectionEnabled = process.env.ENABLE_ACCESSORIAL_COLLECTION === 'true';
       let collect = null;
       // A charge whose dwell position was not authenticated (link-token fix / manual check-in) is never auto-collected.
-      if (collectionEnabled && charge.source === 'system_detention' && charge.locationVerified !== false) {
+      if (collectionEnabled && charge.source === 'system_detention' && !heldForReview) {
         try {
           const escrow = require('../services/escrowService');
           collect = await escrow.collectAccessorialFromShipper(load._id, charge._id);
@@ -2532,6 +2547,22 @@ router.post('/voice-command', auth, async (req, res) => {
         }
       }
       await load.save();
+
+      if (heldForReview) {
+        if (load.acceptedBy) {
+          try {
+            await notifyUserSafe(load.acceptedBy, {
+              type: 'accessorial_review',
+              title: 'Detention Awaiting Manual Review',
+              body: `The shipper approved your detention charge of $${(charge.amountCents / 100).toFixed(2)} on "${load.title}", but it is awaiting manual review because the arrival or departure location was not verified. It will not be paid until our team confirms it.`,
+              link: '/dashboard/carrier/my-loads',
+              metadata: { loadId: load._id, chargeId: charge._id },
+            });
+          } catch (_) {}
+        }
+        try { await notifyAdmins({ type: 'detention_review', title: 'Unverified detention awaiting confirmation', body: `Load ${load._id}: shipper approved a detention charge whose location was not verified (charge ${charge._id}).`, link: '/dashboard/admin', metadata: { loadId: String(load._id), chargeId: String(charge._id) } }); } catch (_) {}
+        return res.json({ charge, awaitingReview: true, message: 'Approved. This charge is awaiting manual review because the location was not verified; it will not be collected or paid until our team confirms it.' });
+      }
 
       // SCA required — do NOT settle yet; the webhook settles once the shipper
       // completes authentication and the collection PI succeeds.
@@ -2570,6 +2601,60 @@ router.post('/voice-command', auth, async (req, res) => {
       res.json({ charge });
     } catch (err) {
       console.error('Error approving accessorial:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // PUT /:id/accessorials/:chargeId/confirm-unverified — ADMIN confirms a shipper-approved detention charge whose
+  // dwell location was not verified (or is legacy/null), then collection (if enabled) and payout proceed.
+  router.put('/:id/accessorials/:chargeId/confirm-unverified', auth, async (req, res) => {
+    try {
+      if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+      const load = await Load.findById(req.params.id);
+      if (!load) return res.status(404).json({ error: 'Load not found' });
+      const charge = load.accessorialCharges.id(req.params.chargeId);
+      if (!charge) return res.status(404).json({ error: 'Charge not found' });
+      if (charge.source !== 'system_detention' || charge.status !== 'approved' || isAutoPayable(charge)) {
+        return res.status(409).json({ error: 'Only a shipper-approved detention charge awaiting location review can be confirmed' });
+      }
+      if (!(await chargeEventBillable(load, charge))) {
+        return res.status(409).json({ error: 'This detention charge belongs to a cancelled or earlier booking' });
+      }
+      charge.adminConfirmedAt = new Date();
+      charge.adminConfirmedBy = req.user.userId;
+      await load.save();
+
+      let collect = null;
+      if (process.env.ENABLE_ACCESSORIAL_COLLECTION === 'true') {
+        try { collect = await require('../services/escrowService').collectAccessorialFromShipper(load._id, charge._id); }
+        catch (e) { collect = { ok: false, code: 'error', error: e.message }; }
+        if (collect && collect.ok === false && !collect.requiresAction &&
+            !['stripe_unavailable', 'no_payment_method', 'no_mandate'].includes(collect.code)) {
+          return res.status(402).json({ error: collect.error || 'Shipper payment failed', code: collect.code });
+        }
+        if (collect && collect.requiresAction) {
+          charge.shipperPaymentStatus = 'requires_action';
+          charge.shipperPaymentIntentId = collect.paymentIntentId || null;
+          await load.save();
+          return res.json({ charge, requiresAction: true, clientSecret: collect.clientSecret });
+        }
+        if (collect && collect.ok) {
+          charge.shipperPaymentStatus = 'collected';
+          charge.shipperPaymentIntentId = collect.paymentIntentId || null;
+          await load.save();
+        }
+      }
+      let settled = null;
+      try {
+        const { settleAccessorialCharge } = require('./paymentRoutes');
+        settled = await settleAccessorialCharge(load._id, charge._id);
+      } catch (e) { console.warn('[accessorial confirm] settle failed:', e.message); }
+      if (load.acceptedBy) {
+        try { await notifyUserSafe(load.acceptedBy, { type: 'accessorial_approved', title: 'Detention Confirmed', body: `Our team confirmed your detention charge of $${(charge.amountCents / 100).toFixed(2)} on "${load.title}".`, link: '/dashboard/carrier/my-loads', metadata: { loadId: load._id, chargeId: charge._id } }); } catch (_) {}
+      }
+      res.json({ charge, settled });
+    } catch (err) {
+      console.error('Error confirming unverified accessorial:', err);
       res.status(500).json({ error: 'Server error' });
     }
   });

@@ -90,6 +90,27 @@ Golden path, once, yourself (two browsers or phone+laptop):
   proof; you can revoke consent in Profile at any time."
 - Where to report issues (your phone/email/group chat).
 
+## Database changes in this release
+
+Run these once, before or at deploy, from `mongosh` against the Atlas database.
+
+1. **Drop the old dwell-event index** (required):
+   ```js
+   db.dwellevents.dropIndex('load_1_carrier_1_stopType_1_stopIndex_1')
+   ```
+   Why: arrival records are now unique per booking (load + booking + carrier + stop). Without the drop, a
+   carrier that re-books a load cannot check in again (duplicate key on the old index).
+   - Check whether it exists: `db.dwellevents.getIndexes()` and look for that name. If it is not listed, skip.
+   - Safe on an empty or missing collection (nothing to drop; it errors harmlessly with "index not found").
+   - The app creates the new index by itself on startup.
+   - Any dwell event still open from before the deploy (`departedAt: null`) should be closed by hand, e.g.
+     `db.dwellevents.updateMany({ departedAt: null }, { $set: { departedAt: new Date(), closedReason: 'cancelled' } })`
+     (only for loads that are no longer booked; leave events of loads still in progress).
+2. **Optional:** fill in road miles on existing loads: `cd backend && node scripts/backfillLoadDistances.js --dry-run`,
+   then without `--dry-run` once the output looks right.
+3. **Tracker links expire:** OwnTracks/Traccar links issued before this release stop working. Each carrier must
+   fetch a new one from the app.
+
 ## Troubleshooting
 
 | Symptom | Fix |

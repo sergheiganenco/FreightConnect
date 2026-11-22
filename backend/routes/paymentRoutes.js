@@ -112,7 +112,7 @@ router.post('/intent/:loadId', auth, stripeRequired, async (req, res) => {
   try {
     if (req.user.role !== 'shipper') return res.status(403).json({ error: 'Shippers only' });
 
-    const load = await Load.findById(req.params.loadId).populate('acceptedBy');
+    const load = await Load.findById(req.params.loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
     if (load.postedBy.toString() !== (req.user.companyOwnerId || req.user.userId)) return res.status(403).json({ error: 'Forbidden' });
     if (load.status !== 'accepted') return res.status(409).json({ error: 'Load must be accepted before payment' });
@@ -330,8 +330,8 @@ router.get('/my', auth, async (req, res) => {
 router.get('/invoice/:loadId', auth, async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ loadId: req.params.loadId })
-      .populate('shipperId', 'name companyName email')
-      .populate('carrierId', 'name companyName email');
+      .populate('shipperId', 'name companyName')
+      .populate('carrierId', 'name companyName');
     // No invoice yet is a normal state (pre-payment) — return 200 null so the
     // UI's routine probe doesn't spam the browser console with 404 errors.
     if (!invoice) return res.json(null);
@@ -511,6 +511,11 @@ async function settleAccessorialCharge(loadId, chargeId) {
     const charge = load.accessorialCharges.id(chargeId);
     if (!charge) return { ok: false, error: 'Charge not found' };
     if (charge.status !== 'approved') return { ok: false, error: 'Charge not approved' };
+    // Enforced here, not in callers: unverified / legacy (null) detention is held until an admin confirms it,
+    // and a charge whose dwell event was cancelled or belongs to an earlier booking is never paid.
+    const billing = require('../services/detentionBillingService');
+    if (!billing.isAutoPayable(charge)) return { ok: false, held: true, error: 'Charge is awaiting manual review: location not verified' };
+    if (!(await billing.chargeEventBillable(load, charge))) return { ok: false, error: 'Dwell event is cancelled or belongs to an earlier booking' };
 
     // Idempotency: guard against double-paying the same accessorial charge.
     // If already processed, return without transferring again.

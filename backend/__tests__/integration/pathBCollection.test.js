@@ -42,7 +42,7 @@ async function shipperWithCard(overrides = {}) {
 async function loadWithDetention(shipper, carrier, amountCents = 15000) {
   const load = await createTestLoad(shipper._id, { status: 'delivered', acceptedBy: carrier._id });
   load.accessorialCharges.push({
-    type: 'detention', source: 'system_detention', amountCents, status: 'pending',
+    type: 'detention', source: 'system_detention', locationVerified: true, amountCents, status: 'pending',
     dwellEventId: new mongoose.Types.ObjectId(), evidence: {}, evidenceHash: 'h1',
   });
   await load.save();

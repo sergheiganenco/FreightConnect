@@ -1,4 +1,5 @@
 const express = require('express');
+const { parseWindow } = require('../utils/windowValidation');
 const router = express.Router();
 const { body, param, query } = require('express-validator');
 const validate = require('../middlewares/validate');
@@ -413,6 +414,9 @@ router.post(
       for (let i = 0; i < loads.length; i++) {
         const loadData = loads[i];
         try {
+          // Same strict ISO + end>=start rule as the dedicated window endpoints (a bad window is a per-load error).
+          const pickupTimeWindow = parseWindow(loadData.pickupTimeWindow, 'pickupTimeWindow', { requireZone: true });
+          const deliveryTimeWindow = parseWindow(loadData.deliveryTimeWindow, 'deliveryTimeWindow', { requireZone: true });
           const load = await Load.create({
             title: loadData.title,
             origin: loadData.origin,
@@ -427,8 +431,8 @@ router.post(
             commodityType: loadData.commodityType,
             specialInstructions: loadData.specialInstructions,
             hazardousMaterial: loadData.hazardousMaterial || false,
-            pickupTimeWindow: loadData.pickupTimeWindow,
-            deliveryTimeWindow: loadData.deliveryTimeWindow,
+            pickupTimeWindow,
+            deliveryTimeWindow,
             paymentTerms: loadData.paymentTerms,
             // Provenance (e.g. loads imported from a parsed email keep source:'email').
             source: loadData.source || undefined,
