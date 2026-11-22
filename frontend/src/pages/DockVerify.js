@@ -18,7 +18,12 @@ export default function DockVerify() {
   useEffect(() => {
     api.get(`/dock/${token}`)
       .then(({ data }) => setInfo(data))
-      .catch((e) => setLoadError(e?.response?.data?.error || 'This dock link is not valid.'));
+      .catch((e) => {
+        const st = e?.response?.status;
+        setLoadError(st === 404 || st === 410 || !e?.response
+          ? 'This dock link is invalid or has expired. Ask the shipper for a new dock link. Do not release freight based on this page.'
+          : (e.response.data?.error || 'Could not load this page. Try again shortly. Do not release freight until the pickup is verified.'));
+      });
   }, [token]);
 
   const submit = async () => {
@@ -39,9 +44,11 @@ export default function DockVerify() {
   const locked = result?.locked || info?.state === 'locked';
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', p: 2, pt: 6 }}>
-      <Paper sx={{ width: '100%', maxWidth: 480, p: 3 }}>
-        <Typography variant="h5" fontWeight={800} gutterBottom>Pickup check</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', p: 2, pt: 3 }}>
+      <Box sx={{ width: '100%', maxWidth: 480 }}>
+      <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5, px: 0.5 }}>FreightConnect</Typography>
+      <Paper sx={{ width: '100%', p: { xs: 2, sm: 3 } }}>
+        <Typography variant="h5" fontWeight={800} sx={{ mb: 2, lineHeight: 1.3 }}>Pickup check</Typography>
         {!info && !loadError && <CircularProgress />}
         {loadError && <Alert severity="error">{loadError}</Alert>}
 
@@ -59,15 +66,15 @@ export default function DockVerify() {
             <Box my={2} p={1.5} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="caption">Booked carrier — must match the truck and driver in front of you</Typography>
               <Typography variant="h6">{carrier?.companyName}</Typography>
-              <Typography variant="body2">MC {carrier?.mcNumber || 'not confirmed'} · DOT {carrier?.dotNumber || 'not confirmed'}{carrier?.authorityOnFile ? ' (from FMCSA record)' : ''}</Typography>
+              <Typography variant="body2">MC {carrier?.mcNumber || 'not confirmed'} · DOT {carrier?.dotNumber || 'not confirmed'}{carrier?.authorityOnFile && (carrier.mcNumber || carrier.dotNumber) ? ' (from FMCSA record)' : ''}</Typography>
               {carrier?.identityVerified === true && (
-                <Alert severity="success" sx={{ mt: 1 }}>Identity confirmed: this account is verified as controlling this FMCSA-registered company.</Alert>
+                <Alert severity="success" sx={{ mt: 1 }}>Identity confirmed. This carrier's account is verified as controlling this FMCSA-registered company.</Alert>
               )}
               {carrier && carrier.identityVerified !== true && carrier.authorityOnFile && (
-                <Alert severity="warning" sx={{ mt: 1 }}>Operating authority found for {carrier.companyName} (DOT {carrier.dotNumber || 'not confirmed'}). This account's control of that company has not been independently confirmed — check door markings and driver ID.</Alert>
+                <Alert severity="warning" sx={{ mt: 1 }}>A company named {carrier.companyName} (DOT {carrier.dotNumber || 'not confirmed'}) has operating authority, but we have not confirmed this account belongs to that company. Check the name on the truck door and the driver's ID.</Alert>
               )}
               {carrier && !carrier.identityVerified && !carrier.authorityOnFile && (
-                <Alert severity="warning" sx={{ mt: 1 }}>This carrier's name and numbers are self-reported only and not confirmed with FMCSA. Check the truck's door markings and the driver's ID carefully.</Alert>
+                <Alert severity="warning" sx={{ mt: 1 }}>This carrier typed in its own name and numbers, and they are not confirmed with FMCSA. Check the name on the truck door and the driver's ID carefully.</Alert>
               )}
               {(info.driverName || info.truckId) && (
                 <Typography variant="body2">{[info.driverName && `Driver: ${info.driverName}`, info.truckId && `Truck: ${info.truckId}`].filter(Boolean).join(' · ')}</Typography>
@@ -98,6 +105,9 @@ export default function DockVerify() {
                 {result && !result.ok && (
                   <Alert severity="error" sx={{ mt: 2 }}>
                     {result.message}{result.attemptsRemaining != null && !result.locked ? ` — ${result.attemptsRemaining} attempt(s) remaining` : ''}
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      The code is shown in the driver's FreightConnect app, on the pickup screen for this load. The driver should not read it out over the phone to anyone else.
+                    </Typography>
                   </Alert>
                 )}
               </>
@@ -105,6 +115,7 @@ export default function DockVerify() {
           </>
         )}
       </Paper>
+      </Box>
     </Box>
   );
 }

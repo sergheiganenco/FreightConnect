@@ -7,6 +7,7 @@ import {
   Grid,
   Snackbar,
   Alert,
+  Button,
   MenuItem,
   FormControl,
   InputLabel,
@@ -32,6 +33,8 @@ export default function CarrierMyLoads({ embedded = false }) {
   const [selected, setSelected] = useState(null);
   // Pickup e-signature pad (opened when a load transitions to in-transit)
   const [sigPad, setSigPad] = useState({ open: false, loadId: null });
+  // Load that cannot start yet because its pickup handshake is required but unverified
+  const [blocked, setBlocked] = useState(null);
 
   /* ── fetch loads once ─────────────────────────────────────── */
   const fetchLoads = useCallback(async () => {
@@ -94,7 +97,7 @@ export default function CarrierMyLoads({ embedded = false }) {
       );
       setSnack(true);
     } catch (err) {
-      setError('Failed to update status.');
+      setError(err?.response?.data?.error || 'Failed to update status.');
       console.error(err);
     }
   };
@@ -103,6 +106,15 @@ export default function CarrierMyLoads({ embedded = false }) {
   // Transitioning to in-transit = pickup: capture a BOL e-signature first.
   const updateStatus = async (id, newStatus) => {
     if (newStatus === 'in-transit') {
+      const load = loads.find((l) => l._id === id);
+      const pv = load?.pickupVerification;
+      // Required handshake not yet verified: the server would refuse, so explain instead of asking for a signature.
+      if (pv?.required && !pv.verifiedAt) {
+        setError(null);
+        setBlocked(load);
+        return;
+      }
+      setBlocked(null);
       setSigPad({ open: true, loadId: id });
       return;
     }
@@ -118,7 +130,8 @@ export default function CarrierMyLoads({ embedded = false }) {
       // Non-fatal: even if signature capture fails, still mark the pickup.
       await api.post(`/documents/${id}/pickup-signature`, { dataUrl, signerName });
     } catch (err) {
-      console.error('Pickup signature failed (continuing):', err);
+      // A 409 means the server will also refuse the status change; applyStatus shows its message.
+      console.error('Pickup signature failed (continuing):', err?.response?.data?.error || err.message);
     }
     await applyStatus(id, 'in-transit');
   };
@@ -160,6 +173,18 @@ export default function CarrierMyLoads({ embedded = false }) {
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
+        </Alert>
+      )}
+
+      {blocked && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 3 }}
+          onClose={() => setBlocked(null)}
+          action={<Button color="inherit" size="small" onClick={() => { setSelected(blocked); setBlocked(null); }}>Show my code</Button>}
+        >
+          {blocked.origin} → {blocked.destination} can't start yet: pickup verification is required and has not been done.
+          Show your pickup code to the dock. The dock or shipper must verify it before you can start this load.
         </Alert>
       )}
 

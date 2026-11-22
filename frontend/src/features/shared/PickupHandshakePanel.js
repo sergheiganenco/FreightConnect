@@ -19,6 +19,7 @@ export default function PickupHandshakePanel({ load, userRole }) {
   const [input, setInput] = useState('');       // shipper: the code the driver showed
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);         // { severity, text }
+  const [dockLink, setDockLink] = useState(null); // shipper: { url, expiresAt }
 
   const id = load?._id;
   const booked = load?.status === 'accepted' || load?.status === 'in-transit';
@@ -51,9 +52,17 @@ export default function PickupHandshakePanel({ load, userRole }) {
 
   const copyLink = () => run(async () => {
     const { data } = await api.post(`/loads/${id}/dock-link`);
-    await navigator.clipboard.writeText(`${window.location.origin}${data.path}`);
-    setMsg({ severity: 'success', text: 'Dock link copied. Send it to the facility — they enter the code the driver shows.' });
+    const url = `${window.location.origin}${data.path}`;
+    setDockLink({ url, expiresAt: data.expiresAt });
+    try {
+      await navigator.clipboard.writeText(url);
+      setMsg({ severity: 'success', text: 'Dock link copied. Send it to the facility — they enter the code the driver shows.' });
+    } catch { setMsg({ severity: 'info', text: 'Could not copy automatically. Copy the link below and send it to the facility.' }); }
   });
+  const copyShown = async () => {
+    try { await navigator.clipboard.writeText(dockLink.url); setMsg({ severity: 'success', text: 'Dock link copied.' }); }
+    catch { setMsg({ severity: 'info', text: 'Copy blocked by the browser. Select the link above and copy it manually.' }); }
+  };
   const verify = () => run(async () => {
     try {
       const { data } = await api.post(`/loads/${id}/pickup-verify`, { code: input });
@@ -75,8 +84,8 @@ export default function PickupHandshakePanel({ load, userRole }) {
 
   const status = verified ? { color: semantic.success, label: `Verified at ${new Date(pv.verifiedAt).toLocaleString()}` }
     : locked ? { color: semantic.error, label: 'Locked — too many wrong codes' }
-    : pv.required ? { color: semantic.warning, label: 'Waiting for dock verification (required before pickup)' }
-    : { color: semantic.muted, label: 'Not required — waiting for dock verification' };
+    : pv.required ? { color: semantic.warning, label: isCarrier ? 'Required: the dock must verify this code before you can start the load.' : 'Waiting for dock verification (required before pickup)' }
+    : { color: semantic.muted, label: isCarrier ? 'Pickup code (optional for this load). If the dock asks for it, show this code.' : 'Not required — waiting for dock verification' };
 
   return (
     <Box mb={2} p={2} sx={{ borderRadius: 2, border: `1px solid ${surface.glassBorder}`, bgcolor: surface.glassLight }}>
@@ -99,6 +108,21 @@ export default function PickupHandshakePanel({ load, userRole }) {
             {!pv.required && <Button size="small" variant="text" onClick={require_} disabled={busy}>Require before pickup</Button>}
             {locked && <Button size="small" color="error" variant="contained" onClick={unlock} disabled={busy}>Unlock</Button>}
           </Stack>
+          {dockLink && (
+            <Box>
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  size="small" fullWidth value={dockLink.url} label="Dock link"
+                  inputProps={{ readOnly: true, 'aria-label': 'Dock link' }}
+                  onFocus={(e) => e.target.select()}
+                />
+                <Button size="small" variant="outlined" onClick={copyShown}>Copy</Button>
+              </Stack>
+              <Typography variant="caption" sx={{ color: T.secondary }}>
+                Expires {new Date(dockLink.expiresAt).toLocaleDateString()} (14 days). Anyone with this link can see the booked carrier's name for this load (not the rate, not the code).
+              </Typography>
+            </Box>
+          )}
           {!locked && (
             <Stack direction="row" spacing={1}>
               <TextField

@@ -925,11 +925,12 @@ export default function ShipperPostLoad() {
         <Grid container spacing={2} sx={{ mb: 2 }}>
           <Grid item xs={12} sm={6}>
             <Autocomplete
+              freeSolo
               options={cities}
-              getOptionLabel={opt => opt.label}
-              onChange={(_, val) => handleChange("origin", val ? val.label : "")}
+              getOptionLabel={opt => (typeof opt === "string" ? opt : opt.label)}
+              onInputChange={(_, val) => handleChange("origin", val)}
               renderInput={params =>
-                <TextField {...params} label="Pickup City" required error={fieldErrors.origin} />
+                <TextField {...params} label="Pickup City" required error={fieldErrors.origin} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />
               }
             />
           </Grid>
@@ -1005,11 +1006,12 @@ export default function ShipperPostLoad() {
         <Grid container spacing={2} sx={{ mb: 2 }}>
           <Grid item xs={12} sm={6}>
             <Autocomplete
+              freeSolo
               options={cities}
-              getOptionLabel={opt => opt.label}
-              onChange={(_, val) => handleChange("destination", val ? val.label : "")}
+              getOptionLabel={opt => (typeof opt === "string" ? opt : opt.label)}
+              onInputChange={(_, val) => handleChange("destination", val)}
               renderInput={params =>
-                <TextField {...params} label="Delivery City" required error={fieldErrors.destination} />
+                <TextField {...params} label="Delivery City" required error={fieldErrors.destination} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />
               }
             />
           </Grid>

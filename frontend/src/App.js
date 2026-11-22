@@ -101,7 +101,8 @@ function CarrierVerificationPage() {
 // footer under the app. Gate the chrome off for /dashboard routes.
 function MarketingChrome({ children }) {
   const { pathname } = useLocation();
-  if (pathname.startsWith('/dashboard')) return null;
+  // /dock/* is a standalone no-account page for dock staff on a phone.
+  if (pathname.startsWith('/dashboard') || pathname.startsWith('/dock/')) return null;
   return children;
 }
 
