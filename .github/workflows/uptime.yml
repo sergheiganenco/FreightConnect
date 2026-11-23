@@ -1,0 +1,30 @@
+# Uptime check: asks the live site "are you up, and is the database connected?" every 10 minutes.
+# If it fails three tries in a row, the run fails and GitHub emails the repository owner. No extra account needed.
+# Note: GitHub pauses scheduled workflows after 60 days without a commit; it emails before doing so.
+name: Uptime
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the live site
+        run: |
+          for attempt in 1 2 3; do
+            body=$(curl -sS --max-time 60 https://freightconnect.onrender.com/api/health || true)
+            if echo "$body" | grep -q '"status":"ok"'; then
+              echo "Up: $body"
+              exit 0
+            fi
+            echo "Attempt $attempt failed: $body"
+            sleep 45
+          done
+          echo "::error::FreightConnect is down or its database is disconnected."
+          exit 1

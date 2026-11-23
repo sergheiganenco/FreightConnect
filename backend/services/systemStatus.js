@@ -8,6 +8,7 @@ const mongoose = require('mongoose');
 
 const DOCS_DIR = path.join(__dirname, '..', 'public', 'documents');
 const MARKER = path.join(DOCS_DIR, '.storage-marker');
+const DAY_MS = 24 * 60 * 60 * 1000;
 const bootedAt = Date.now() - Math.round(process.uptime() * 1000);
 
 // What each connection is for, and whether the platform is unsafe to run for real customers without it.
@@ -42,11 +43,14 @@ function getSystemStatus(env = process.env) {
   });
   const storage = storageStatus();
   const database = mongoose.connection.readyState === 1;
+  const lastAt = require('../jobs/nightlyBackup').lastBackupAt();
+  const backup = { lastAt, recent: !!lastAt && Date.now() - new Date(lastAt).getTime() < 2 * DAY_MS };
   const problems = [];
   if (!database) problems.push('The database is not connected.');
   if (!storage.writable) problems.push('Uploaded documents cannot be saved.');
+  if (!backup.recent && env.NODE_ENV === 'production') problems.push(lastAt ? 'The last database backup is more than 2 days old.' : 'No database backup has been taken yet.');
   connections.filter((c) => !c.on && c.critical).forEach((c) => problems.push(`${c.label} is off. ${c.note}`));
-  return { ok: problems.length === 0, problems, database, storage, connections, startedAt: new Date(bootedAt).toISOString() };
+  return { ok: problems.length === 0, problems, database, storage, backup, connections, startedAt: new Date(bootedAt).toISOString() };
 }
 
 module.exports = { getSystemStatus, storageStatus };

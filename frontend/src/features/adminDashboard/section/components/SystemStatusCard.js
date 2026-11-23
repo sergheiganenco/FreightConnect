@@ -22,6 +22,11 @@ export default function SystemStatusCard() {
       note: storage.writable ? null : "Uploaded documents cannot be saved.",
       pending: storage.writable && storage.survivesRestart === null && "Confirmed after the next restart",
     },
+    {
+      label: "Database backup",
+      on: !!status.backup?.recent,
+      note: status.backup?.lastAt ? `Last backup: ${new Date(status.backup.lastAt).toLocaleString()}` : "No backup has been taken yet.",
+    },
     ...status.connections,
   ];
 
@@ -35,7 +40,7 @@ export default function SystemStatusCard() {
       ))}
       <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1} mt={1}>
         {items.map((i) => (
-          <Tooltip key={i.label} title={i.note || i.pending || ""}>
+          <Tooltip key={i.label} title={i.pending || i.note || ""}>
             <Chip
               size="small"
               label={`${i.label}: ${i.on ? (i.pending ? "on (unconfirmed)" : "on") : "off"}`}

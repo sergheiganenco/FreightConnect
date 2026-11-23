@@ -63,3 +63,4 @@ Mongo DB psw.txt
 *credentials*.txt
 *.secret
 backend/public/documents/.storage-marker
+backend/public/documents/backups/

@@ -186,6 +186,7 @@ app.use('/documents/receipts', requireFileAccess, express.static(path.join(__dir
 // Load photo evidence is PRIVATE: stored on the persistent disk under documents/ but never
 // served statically - explicit 404 so a future broader static mount cannot expose it.
 app.use('/documents/load-evidence', (req, res) => res.status(404).end());
+app.use('/documents/backups', (req, res) => res.status(404).end()); // database backups sit on this disk; never served
 app.use('/documents/evidence', requireFileAccess, express.static(path.join(__dirname, 'public/documents/evidence'), {
   setHeaders: (res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -605,6 +606,7 @@ server.listen(PORT, () => {
     require('./jobs/fraudMonitor').start();
     require('./jobs/eldPoller').start();
     require('./jobs/loadLocator').start();
+    require('./jobs/nightlyBackup').start();
     // AI Agents
     require('./agents').initializeAgents();
   }
