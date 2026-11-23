@@ -41,10 +41,11 @@ function driverForTruck(owner, truck) {
 
 async function assertTruckAccess({ owner, truck, caller }) {
   if (caller.companyRole !== 'driver') return;
-  const me = await User.findById(caller.userId).select('name').lean();
+  // The roster driver of this truck must resolve to exactly ONE active driver login, and it must be the caller.
+  // (Sub-accounts cannot rename themselves - PUT /users/me - so the name is the owner's assignment, not the caller's claim.)
   const mine = driverForTruck(owner, truck);
-  const myName = norm(me && me.name);
-  if (!myName || !mine || norm(mine.name) !== myName) {
+  const login = mine ? await driverLoginId(owner, mine) : null;
+  if (!login || String(login) !== String(caller.userId)) {
     throw new AutopilotError(403, 'Drivers can only view a plan for the truck assigned to them');
   }
 }
@@ -283,7 +284,8 @@ async function planForTruck({ companyId, caller, truckId, overrides = {}, now = 
     start: { lat: start.lat, lng: start.lng, availableAt: start.availableAt.toISOString() },
     startSource: start.source,
     hosAssumed: !hos,
-    rules: { ...plannerRules, homeBase: plannerRules.homeBase || null, homeBy: plannerRules.homeBy ? plannerRules.homeBy.toISOString() : null },
+    // The saved company rules (and home base coordinates) are owner/dispatcher data: not echoed to a driver.
+    rules: caller.companyRole === 'driver' ? null : { ...plannerRules, homeBase: plannerRules.homeBase || null, homeBy: plannerRules.homeBy ? plannerRules.homeBy.toISOString() : null },
     notes,
     ...result,
   };

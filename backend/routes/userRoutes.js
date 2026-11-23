@@ -677,6 +677,10 @@ router.put('/me', auth, profileValidation, validate, async (req, res) => {
       }
     }
 
+    // A sub-account's name is set by its company owner (it identifies the driver on the roster): it cannot rename itself.
+    if (user.parentAccountId && name != null && name !== user.name) {
+      return res.status(403).json({ error: 'Your name is managed by your company account owner.' });
+    }
     user.name = name ?? user.name;
     user.email = email ?? user.email;
     user.phone = phone ?? user.phone;

@@ -125,7 +125,7 @@ describe('autopilot routes', () => {
     expect(mine.status).toBe(200);
     // cost per mile is owner/dispatcher data: a driver's plan carries no cost or net
     expect(mine.body.data.plans[0].totals.netCents).toBeNull();
-    expect(mine.body.data.rules.costPerMileCents).toBeUndefined();
+    expect(mine.body.data.rules).toBeNull();
     expect((await plan(ownerToken)).body.data.plans[0].totals.netCents).not.toBeNull();
     expect((await plan(t, 'truckId=T2')).status).toBe(403);
     const dispatcher = await createTestUser({ role: 'carrier', companyRole: 'dispatcher', parentAccountId: owner._id });

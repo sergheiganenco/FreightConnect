@@ -61,6 +61,7 @@ async function atomicBookLoad({ loadId, carrierId, gate, extra = {}, termsVersio
     status: 'accepted',
     acceptedBy: carrierId,
     acceptanceFingerprint: gate.fingerprint,
+    assignedTruckId: null, // a link from an earlier booking never survives; callers that assign a truck pass it in `extra`
     ...extra,
   };
   if (gate.riskFlags && gate.riskFlags.length > 0) update.riskFlags = gate.riskFlags;
