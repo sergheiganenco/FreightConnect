@@ -53,7 +53,7 @@ export default function Signup() {
       await api.post('/users/signup', { ...data, tosAccepted: true });
       setSnack({
         open: true,
-        message: `Registered ${data.name} (${data.role}) successfully!`,
+        message: 'Account created. Sign in to continue.',
       });
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
@@ -74,7 +74,10 @@ export default function Signup() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          p: 2,
+          boxSizing: 'border-box',
+          px: 2,
+          pt: { xs: 11, md: 13 },
+          pb: 4,
         }}
       >
         <Paper
@@ -258,12 +261,12 @@ export default function Signup() {
             <TextField
               type={showPassword ? 'text' : 'password'}
               label="Password"
-              placeholder="Password (min 6 chars)"
+              placeholder="Password"
+              helperText={errors.password?.message || 'At least 8 characters with an uppercase letter, a lowercase letter, a number and a special character (!@#$%^&*(),.?":{}|<>).'}
               autoComplete="new-password"
               aria-label="Password"
               fullWidth
               error={!!errors.password}
-              helperText={errors.password?.message}
               FormHelperTextProps={{ role: 'alert' }}
               InputProps={{
                 startAdornment: (
@@ -293,10 +296,9 @@ export default function Signup() {
               sx={{ ...darkFieldSx }}
               {...register('password', {
                 required: 'Password is required',
-                minLength: {
-                  value: 6,
-                  message: 'Password must be at least 6 characters',
-                },
+                minLength: { value: 8, message: 'Password must be at least 8 characters' },
+                validate: (v) => (/[A-Z]/.test(v) && /[a-z]/.test(v) && /[0-9]/.test(v) && /[!@#$%^&*(),.?":{}|<>]/.test(v))
+                  || 'Password needs an uppercase letter, a lowercase letter, a number and a special character',
               })}
             />
 
@@ -398,7 +400,7 @@ export default function Signup() {
         <Alert
           onClose={() => setSnack({ ...snack, open: false })}
           severity={
-            snack.message.startsWith('Registered') ? 'success' : 'error'
+            snack.message.startsWith('Account created') ? 'success' : 'error'
           }
           sx={{ width: '100%' }}
         >

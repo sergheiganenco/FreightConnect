@@ -424,7 +424,12 @@ export default function CarrierAnalytics() {
           <Card sx={{ bgcolor: CARD_BG, borderRadius: 4, boxShadow: 6, color: TEXT_MAIN, height: 240, border: `1.5px solid ${BORDER_COLOR}` }}>
             <CardContent>
               <Typography fontWeight={700} fontSize="1.13em" mb={1} color={chart.cyan}>Cost Breakdown</Typography>
-              <ResponsiveContainer width="100%" height={120}>
+              {!(data.costBreakdown || []).length && (
+                <Typography variant="body2" sx={{ opacity: 0.8, mt: 3 }}>
+                  No expenses recorded for this period. Add fuel, tolls and other costs under Expenses to see where the money goes.
+                </Typography>
+              )}
+              <ResponsiveContainer width="100%" height={(data.costBreakdown || []).length ? 120 : 0}>
                 <PieChart>
                   <Pie
                     data={data.costBreakdown || []}

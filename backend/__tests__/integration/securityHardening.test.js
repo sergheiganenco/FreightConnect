@@ -443,7 +443,7 @@ describe('window validation on load-creating routes; no route but the dedicated 
     expect(reversed.status).toBe(400);
 
     const ok = await request(app).post(`/api/edi/${(await ediDoc())._id}/create-load`).set(bearer(shipper))
-      .send({ status: 'accepted', acceptedBy: String(carrier._id), pickupTimeWindow: { start: '2026-06-01T10:00:00Z', end: '2026-06-01T18:00:00Z' } });
+      .send({ status: 'accepted', acceptedBy: String(carrier._id), pickupTimeWindow: { start: '2031-06-01T10:00:00Z', end: '2031-06-01T18:00:00Z' } });
     expect(ok.status).toBe(201);
     const load = await Load.findById(ok.body.load._id);
     expect(load.status).toBe('open');
@@ -493,7 +493,7 @@ describe('window validation on load-creating routes; no route but the dedicated 
       { ...base, pickupTimeWindow: { start: '2026-06-02T10:00:00Z', end: '2026-06-01T10:00:00Z' } },
       { ...base, deliveryTimeWindow: { start: '2026-06-01T10:00', end: '2026-06-02T10:00' } },
       { ...base, deliveryTimeWindow: { start: null, end: '2026-06-02T10:00:00Z' } },
-      { ...base, pickupTimeWindow: { start: '2026-06-01T10:00:00Z', end: '2026-06-01T18:00:00Z' } },
+      { ...base, pickupTimeWindow: { start: '2031-06-01T10:00:00Z', end: '2031-06-01T18:00:00Z' } },
     ] });
     expect(res.body.errors.map((e) => e.index)).toEqual([0, 1, 2, 3]);
     expect(res.body.created).toHaveLength(1);

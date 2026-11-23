@@ -196,6 +196,14 @@ const diffApi = (next, prev) => Object.fromEntries(Object.entries(next).filter((
 
 // Required to save an existing load: what the server requires (loads from EDI/import may lack the rest).
 const EDIT_REQUIRED = ['title', 'equipmentType', 'origin', 'destination', 'rate'];
+const REQUIRED_MSG = 'This field is required.';
+const OVERWEIGHT_MSG = 'Acknowledge the overweight permit requirement.';
+const FIELD_LABELS = {
+  title: 'Title', commodityCategory: 'Commodity category', commodityType: 'Commodity type', weight: 'Weight',
+  equipmentType: 'Equipment type', origin: 'Pickup city', pickupWindowStart: 'Pickup time', pickupWindowEnd: 'Pickup end',
+  destination: 'Delivery city', deliveryWindowStart: 'Delivery time', deliveryWindowEnd: 'Delivery end', rate: 'Rate',
+  currency: 'Currency', paymentTerms: 'Payment terms', termsAccepted: 'Terms', overweightAcknowledged: 'Overweight acknowledgement',
+};
 
 const EQUIPMENT_SUBTYPES = {
   Reefer:    [{ value: 'multi_temp', label: 'Multi-Temp' }, { value: 'frozen', label: 'Frozen' }, { value: 'produce', label: 'Produce' }],
@@ -219,6 +227,12 @@ export default function ShipperPostLoad() {
   const [editBlock, setEditBlock] = useState(''); // why the load cannot be edited (not open, not ours, not found)
   const editBase = useRef(null); // the loaded load as the PUT body would carry it, to send only the changes
   const [newLoad, setNewLoad] = useState(initialLoad);
+  // A saved draft may predate fields added since: lay it over the defaults so every array/string exists.
+  const restoreForm = (d) => setNewLoad(Object.fromEntries(Object.entries(initialLoad).map(([k, v]) => {
+    const x = d?.[k];
+    return [k, Array.isArray(v) ? (Array.isArray(x) ? x : v) : (x == null ? v : x)];
+  })));
+  const [stepSummary, setStepSummary] = useState('');
   const [openSnackbar, setOpenSnackbar] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -242,7 +256,7 @@ export default function ShipperPostLoad() {
 
   // ── Draft Manager ────────────────────────────────────────────────────────
   // Editing uses its own draft slot so it never touches (or offers) the new-load draft.
-  const { hasDraft, draftData, resumeDraft, discardDraft, clearDraft, showResumeDialog } = useDraftManager(isEdit ? `shipperEditLoad_${editId}` : 'shipperPostLoad', newLoad, setNewLoad);
+  const { hasDraft, draftData, resumeDraft, discardDraft, clearDraft, showResumeDialog } = useDraftManager(isEdit ? `shipperEditLoad_${editId}` : 'shipperPostLoad', newLoad, restoreForm);
 
   // ── Edit mode: load the load and prefill the form ────────────────────────
   useEffect(() => {
@@ -254,7 +268,7 @@ export default function ShipperPostLoad() {
         if (cancelled) return;
         if (data.status !== 'open') { setEditBlock('This load can no longer be edited.'); return; }
         const { form, stops: loadedStops } = loadToForm(data);
-        editBase.current = { api: formToApi(form, loadedStops, data.reefer), reefer: data.reefer }; // reefer: keeps its other settings on save
+        editBase.current = { api: formToApi(form, loadedStops, data.reefer), reefer: data.reefer, pickupLocal: form.pickupWindowStart, pickupEndLocal: form.pickupWindowEnd }; // reefer: keeps its other settings on save
         setNewLoad(form);
         setStops(loadedStops);
       } catch (err) {
@@ -371,32 +385,54 @@ export default function ShipperPostLoad() {
   const requiredFields = isEdit ? EDIT_REQUIRED : [
     "title", "commodityType", "commodityCategory", "weight",
     "equipmentType", "origin", "pickupWindowStart",
-    "destination", "deliveryFacilityName", "deliveryAddress",
-    "deliveryContactName", "deliveryContactPhone", "deliveryWindowStart",
+    "destination", "deliveryWindowStart",
     "rate", "currency", "paymentTerms", "termsAccepted",
   ];
+
+  // Same rules as the server (utils/windowValidation): pickup not already over, ends not before starts, delivery not before pickup.
+  const dateProblems = () => {
+    const e = {};
+    const ms = (v) => (v ? new Date(v).getTime() : NaN);
+    const ps = ms(newLoad.pickupWindowStart), pe = ms(newLoad.pickupWindowEnd);
+    const ds = ms(newLoad.deliveryWindowStart), de = ms(newLoad.deliveryWindowEnd);
+    const pickupUnchanged = isEdit && newLoad.pickupWindowStart === editBase.current?.pickupLocal && newLoad.pickupWindowEnd === editBase.current?.pickupEndLocal;
+    const pLast = Number.isNaN(pe) ? ps : pe;
+    if (!Number.isNaN(pLast) && !pickupUnchanged && pLast < Date.now() - 60 * 60 * 1000) e.pickupWindowStart = 'The pickup time is in the past.';
+    if (!Number.isNaN(ps) && !Number.isNaN(pe) && pe < ps) e.pickupWindowEnd = 'Pickup end cannot be before pickup start.';
+    if (!Number.isNaN(ds) && !Number.isNaN(de) && de < ds) e.deliveryWindowEnd = 'Delivery end cannot be before delivery start.';
+    const dLast = Number.isNaN(de) ? ds : de;
+    if (!Number.isNaN(ps) && !Number.isNaN(dLast) && dLast < ps) e.deliveryWindowStart = 'Delivery cannot be before pickup.';
+    return e;
+  };
+
+  // Show the problems: red helper text per field, a summary by the buttons, and focus on the first bad field.
+  const reportErrors = (errors, merge) => {
+    setFieldErrors((prev) => (merge ? { ...prev, ...errors } : errors));
+    const keys = Object.keys(errors);
+    if (!keys.length) return;
+    setStepSummary(`Fix ${keys.length} field${keys.length === 1 ? '' : 's'} to continue: ${keys.map((k) => FIELD_LABELS[k] || k).join(', ')}`);
+    setTimeout(() => {
+      const el = document.querySelector('form [aria-invalid="true"], form .Mui-error');
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.focus?.({ preventScroll: true });
+    }, 60);
+  };
 
   const validateFields = () => {
     let errors = {};
     requiredFields.forEach((k) => {
-      if (!newLoad[k]) errors[k] = true;
+      if (!newLoad[k]) errors[k] = REQUIRED_MSG;
     });
-    if (
-      newLoad.pickupWindowStart &&
-      newLoad.deliveryWindowStart &&
-      new Date(newLoad.pickupWindowStart) >= new Date(newLoad.deliveryWindowStart)
-    ) {
-      errors["pickupWindowStart"] = true;
-      errors["deliveryWindowStart"] = true;
-    }
+    Object.assign(errors, dateProblems());
     // Block submission when overweight and not acknowledged
     if (newLoad.weight && newLoad.equipmentType) {
       const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
       if (maxLbs && Number(newLoad.weight) > maxLbs && !newLoad.overweightAcknowledged) {
-        errors["overweightAcknowledged"] = true;
+        errors["overweightAcknowledged"] = OVERWEIGHT_MSG;
       }
     }
-    setFieldErrors(errors);
+    reportErrors(errors, false);
     return Object.keys(errors).length === 0;
   };
 
@@ -409,33 +445,23 @@ export default function ShipperPostLoad() {
     // Step 1 — Load Basics
     ['title', 'commodityCategory', 'commodityType', 'weight', 'equipmentType'],
     // Step 2 — Route & Schedule
-    ['origin', 'pickupWindowStart', 'destination', 'deliveryFacilityName',
-      'deliveryAddress', 'deliveryContactName', 'deliveryContactPhone', 'deliveryWindowStart'],
+    ['origin', 'pickupWindowStart', 'destination', 'deliveryWindowStart'],
   ];
 
   const validateStep = (step) => {
     let errors = {};
     (STEP_REQUIRED[step] || []).filter((k) => !isEdit || EDIT_REQUIRED.includes(k)).forEach((k) => {
-      if (!newLoad[k]) errors[k] = true;
+      if (!newLoad[k]) errors[k] = REQUIRED_MSG;
     });
     // Step 1: block advancing while overweight is not acknowledged
     if (step === 0 && newLoad.weight && newLoad.equipmentType) {
       const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
       if (maxLbs && Number(newLoad.weight) > maxLbs && !newLoad.overweightAcknowledged) {
-        errors["overweightAcknowledged"] = true;
+        errors["overweightAcknowledged"] = OVERWEIGHT_MSG;
       }
     }
-    // Step 2: pickup must be before delivery
-    if (
-      step === 1 &&
-      newLoad.pickupWindowStart &&
-      newLoad.deliveryWindowStart &&
-      new Date(newLoad.pickupWindowStart) >= new Date(newLoad.deliveryWindowStart)
-    ) {
-      errors["pickupWindowStart"] = true;
-      errors["deliveryWindowStart"] = true;
-    }
-    setFieldErrors((prev) => ({ ...prev, ...errors }));
+    if (step === 1) Object.assign(errors, dateProblems());
+    reportErrors(errors, true);
     return Object.keys(errors).length === 0;
   };
 
@@ -450,10 +476,11 @@ export default function ShipperPostLoad() {
       setOpenSnackbar(true);
       return;
     }
+    setStepSummary('');
     setActiveStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
   };
 
-  const handleBack = () => setActiveStep((s) => Math.max(s - 1, 0));
+  const handleBack = () => { setStepSummary(''); setActiveStep((s) => Math.max(s - 1, 0)); };
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
@@ -677,7 +704,10 @@ export default function ShipperPostLoad() {
           borderColor: "#a48bf7"
         },
         "& .Mui-error .MuiOutlinedInput-notchedOutline": {
-          borderColor: "#e91e63"
+          borderColor: "#fca5a5"
+        },
+        "& .MuiFormHelperText-root.Mui-error, & .MuiInputLabel-root.Mui-error, & .MuiFormLabel-asterisk.Mui-error": {
+          color: "#fecaca"
         }
       }}
     >
@@ -743,15 +773,15 @@ export default function ShipperPostLoad() {
               }}
               inputProps={{ maxLength: limits.title }}
               placeholder={autoTitleEnabled ? 'e.g. Flatbed | Fertilizer | Dallas → NYC | 41,000 lbs' : ''}
-              error={fieldErrors.title}
-              helperText={
+              error={!!fieldErrors.title}
+              helperText={fieldErrors.title ? fieldErrors.title : (
                 <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   {autoTitleEnabled
                     ? <><AutoFixHighIcon sx={{ fontSize: 14, color: '#22d3ee' }} /> Auto-fills as you select Equipment, Cities & Weight</>
                     : `${newLoad.title.length}/${limits.title}`
                   }
                 </Box>
-              }
+              )}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -765,6 +795,11 @@ export default function ShipperPostLoad() {
                       if (e.target.checked) titleManuallyEdited.current = false;
                     }}
                     size="small"
+                    sx={{
+                      '& .MuiSwitch-switchBase': { color: '#fff' },
+                      '& .MuiSwitch-track': { bgcolor: 'rgba(255,255,255,0.45)', opacity: 1, border: '1px solid rgba(255,255,255,0.7)' },
+                      '& .Mui-checked + .MuiSwitch-track': { bgcolor: '#22d3ee', opacity: 1 },
+                    }}
                   />
                 }
                 label={<Typography variant="body2" color="rgba(255,255,255,0.7)">Auto-generate title</Typography>}
@@ -774,7 +809,7 @@ export default function ShipperPostLoad() {
 
           {/* Commodity Category (dropdown) */}
           <Grid item xs={12} sm={6}>
-            <FormControl fullWidth error={fieldErrors.commodityCategory}>
+            <FormControl fullWidth error={!!fieldErrors.commodityCategory}>
               <InputLabel required>Commodity Category</InputLabel>
               <Select
                 required
@@ -790,12 +825,13 @@ export default function ShipperPostLoad() {
                   <MenuItem value={cat} key={cat}>{cat}</MenuItem>
                 ))}
               </Select>
+              {fieldErrors.commodityCategory && <FormHelperText>{fieldErrors.commodityCategory}</FormHelperText>}
             </FormControl>
           </Grid>
 
           {/* Commodity Type (cascading dropdown) */}
           <Grid item xs={12} sm={6}>
-            <FormControl fullWidth error={fieldErrors.commodityType}>
+            <FormControl fullWidth error={!!fieldErrors.commodityType}>
               <InputLabel required>Commodity Type</InputLabel>
               <Select
                 required
@@ -809,6 +845,7 @@ export default function ShipperPostLoad() {
                   <MenuItem value={ct} key={ct}>{ct}</MenuItem>
                 ))}
               </Select>
+              {fieldErrors.commodityType && <FormHelperText>{fieldErrors.commodityType}</FormHelperText>}
             </FormControl>
           </Grid>
 
@@ -822,7 +859,7 @@ export default function ShipperPostLoad() {
               value={newLoad.weight}
               onChange={e => handleChange("weight", e.target.value, limits.weight)}
               inputProps={{ min: 0 }}
-              error={fieldErrors.weight}
+              error={!!fieldErrors.weight} helperText={fieldErrors.weight || undefined}
             />
             {/* Weight overload warning + acknowledgment gate */}
             {newLoad.weight && newLoad.equipmentType && (() => {
@@ -902,7 +939,7 @@ export default function ShipperPostLoad() {
         <Grid container spacing={2} sx={{ mb: 2 }}>
           {/* Equipment Type (expanded dropdown) */}
           <Grid item xs={12} sm={6}>
-            <FormControl fullWidth error={fieldErrors.equipmentType}>
+            <FormControl fullWidth error={!!fieldErrors.equipmentType}>
               <InputLabel required>Equipment Type</InputLabel>
               <Select
                 required
@@ -915,6 +952,7 @@ export default function ShipperPostLoad() {
                   <MenuItem value={eq} key={eq}>{eq}</MenuItem>
                 ))}
               </Select>
+              {fieldErrors.equipmentType && <FormHelperText>{fieldErrors.equipmentType}</FormHelperText>}
             </FormControl>
           </Grid>
 
@@ -1114,7 +1152,7 @@ export default function ShipperPostLoad() {
               inputValue={newLoad.origin || ""}
               onInputChange={(_, val) => handleChange("origin", val)}
               renderInput={params =>
-                <TextField {...params} label="Pickup City" required error={fieldErrors.origin} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />
+                <TextField {...params} label="Pickup City" required error={!!fieldErrors.origin} helperText={fieldErrors.origin || "Pick a suggestion or type City, ST (e.g. Austin, TX)"} />
               }
             />
           </Grid>
@@ -1127,7 +1165,7 @@ export default function ShipperPostLoad() {
               InputLabelProps={{ shrink: true }}
               value={newLoad.pickupWindowStart}
               onChange={e => handleChange("pickupWindowStart", e.target.value)}
-              error={fieldErrors.pickupWindowStart}
+              error={!!fieldErrors.pickupWindowStart} helperText={fieldErrors.pickupWindowStart || undefined}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -1138,7 +1176,8 @@ export default function ShipperPostLoad() {
               InputLabelProps={{ shrink: true }}
               value={newLoad.pickupWindowEnd}
               onChange={e => handleChange("pickupWindowEnd", e.target.value)}
-              helperText="Optional"
+              error={!!fieldErrors.pickupWindowEnd}
+              helperText={fieldErrors.pickupWindowEnd || "Optional"}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -1197,52 +1236,48 @@ export default function ShipperPostLoad() {
               inputValue={newLoad.destination || ""}
               onInputChange={(_, val) => handleChange("destination", val)}
               renderInput={params =>
-                <TextField {...params} label="Delivery City" required error={fieldErrors.destination} helperText="Pick a suggestion or type City, ST (e.g. Austin, TX)" />
+                <TextField {...params} label="Delivery City" required error={!!fieldErrors.destination} helperText={fieldErrors.destination || "Pick a suggestion or type City, ST (e.g. Austin, TX)"} />
               }
             />
           </Grid>
           <Grid item xs={12} sm={6}>
             <TextField
               label="Delivery Facility Name"
-              required
               fullWidth
               value={newLoad.deliveryFacilityName}
               onChange={e => handleChange("deliveryFacilityName", e.target.value, limits.deliveryFacilityName)}
               inputProps={{ maxLength: limits.deliveryFacilityName }}
-              error={fieldErrors.deliveryFacilityName}
+              error={!!fieldErrors.deliveryFacilityName} helperText={fieldErrors.deliveryFacilityName || "Optional"}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
             <TextField
               label="Delivery Address"
-              required
               fullWidth
               value={newLoad.deliveryAddress}
               onChange={e => handleChange("deliveryAddress", e.target.value, limits.deliveryAddress)}
               inputProps={{ maxLength: limits.deliveryAddress }}
-              error={fieldErrors.deliveryAddress}
+              error={!!fieldErrors.deliveryAddress} helperText={fieldErrors.deliveryAddress || "Optional"}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
             <TextField
               label="Delivery Contact Name"
-              required
               fullWidth
               value={newLoad.deliveryContactName}
               onChange={e => handleChange("deliveryContactName", e.target.value, limits.deliveryContactName)}
               inputProps={{ maxLength: limits.deliveryContactName }}
-              error={fieldErrors.deliveryContactName}
+              error={!!fieldErrors.deliveryContactName} helperText={fieldErrors.deliveryContactName || "Optional"}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
             <TextField
               label="Delivery Contact Phone"
-              required
               fullWidth
               value={newLoad.deliveryContactPhone}
               onChange={e => handleChange("deliveryContactPhone", e.target.value, limits.deliveryContactPhone)}
               inputProps={{ maxLength: limits.deliveryContactPhone }}
-              error={fieldErrors.deliveryContactPhone}
+              error={!!fieldErrors.deliveryContactPhone} helperText={fieldErrors.deliveryContactPhone || "Optional"}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -1254,7 +1289,7 @@ export default function ShipperPostLoad() {
               InputLabelProps={{ shrink: true }}
               value={newLoad.deliveryWindowStart}
               onChange={e => handleChange("deliveryWindowStart", e.target.value)}
-              error={fieldErrors.deliveryWindowStart}
+              error={!!fieldErrors.deliveryWindowStart} helperText={fieldErrors.deliveryWindowStart || undefined}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -1265,7 +1300,8 @@ export default function ShipperPostLoad() {
               InputLabelProps={{ shrink: true }}
               value={newLoad.deliveryWindowEnd}
               onChange={e => handleChange("deliveryWindowEnd", e.target.value)}
-              helperText="Optional"
+              error={!!fieldErrors.deliveryWindowEnd}
+              helperText={fieldErrors.deliveryWindowEnd || "Optional"}
             />
           </Grid>
         </Grid>
@@ -1363,7 +1399,7 @@ export default function ShipperPostLoad() {
               fullWidth
               value={newLoad.rate}
               onChange={e => handleChange("rate", e.target.value)}
-              error={fieldErrors.rate}
+              error={!!fieldErrors.rate} helperText={fieldErrors.rate || undefined}
               inputProps={{ min: 0 }}
             />
             {/* Rate Suggestion */}
@@ -1413,7 +1449,7 @@ export default function ShipperPostLoad() {
             </FormControl>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <FormControl fullWidth error={fieldErrors.paymentTerms} ref={paymentRef}>
+            <FormControl fullWidth error={!!fieldErrors.paymentTerms} ref={paymentRef}>
               <InputLabel required>Payment Terms</InputLabel>
               <Select
                 value={newLoad.paymentTerms}
@@ -1425,7 +1461,7 @@ export default function ShipperPostLoad() {
                   <MenuItem value={t} key={t}>{t}</MenuItem>
                 ))}
               </Select>
-              {fieldErrors.paymentTerms && <FormHelperText>Select payment terms</FormHelperText>}
+              {fieldErrors.paymentTerms && <FormHelperText>{fieldErrors.paymentTerms}</FormHelperText>}
             </FormControl>
           </Grid>
 
@@ -1714,6 +1750,11 @@ export default function ShipperPostLoad() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* WIZARD FOOTER NAVIGATION                                           */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
+        {stepSummary && (
+          <Alert severity="error" sx={{ mt: 3, bgcolor: 'rgba(127,29,29,0.55)', color: '#fecaca', '& .MuiAlert-icon': { color: '#fecaca' } }}>
+            {stepSummary}
+          </Alert>
+        )}
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 4 }}>
           <Button
             type="button"

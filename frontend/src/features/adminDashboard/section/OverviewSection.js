@@ -41,7 +41,7 @@ export default function OverviewSection() {
     ...(typeof stats.revenue === "number"
       ? [{
           icon: <AttachMoney fontSize="large" sx={{ color: semantic.success }} />,
-          label: "Total Revenue",
+          label: "Delivered freight value",
           value: `$${stats.revenue.toLocaleString()}`,
         }]
       : []),

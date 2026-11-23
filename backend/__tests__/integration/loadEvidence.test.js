@@ -293,6 +293,8 @@ describe('load photo evidence', () => {
       const deliver = () => request(app).put('/api/users/fleet/T1/deliver').set(bearer(carrier));
       expect((await deliver()).body.reason).toBe('pickup_photos_required');
       await up(load, bearer(carrier)).expect(201);
+      expect((await deliver()).body.reason).toBe('pod_required');
+      await Load.updateOne({ _id: load._id }, { $set: { 'documents.pod': '/documents/uploads/x-pod.jpg' } });
       expect((await deliver()).body.reason).toBe('delivery_photos_required');
       await Load.updateOne({ _id: load._id }, { $set: { status: 'in-transit' } });
       await up(load, bearer(carrier), { stage: 'delivery' }).expect(201);
@@ -302,6 +304,8 @@ describe('load photo evidence', () => {
 
     test('required delivery photos block delivered via /status and /deliver', async () => {
       const { carrier, load } = await setup({ status: 'in-transit', evidenceRequired: { pickup: false, delivery: true } });
+      expect((await status(load, bearer(carrier), 'delivered')).body.reason).toBe('pod_required');
+      await Load.updateOne({ _id: load._id }, { $set: { 'documents.pod': '/documents/uploads/x-pod.jpg' } });
       const b1 = await status(load, bearer(carrier), 'delivered');
       expect(b1.status).toBe(409);
       expect(b1.body.reason).toBe('delivery_photos_required');

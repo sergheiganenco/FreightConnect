@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import SearchOffIcon from '@mui/icons-material/SearchOff';
 import HomeIcon from '@mui/icons-material/Home';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { brand, gradient, surface } from '../theme/tokens';
+import { brand, glassCard, text } from '../theme/tokens';
 
 export default function NotFound() {
   const navigate = useNavigate();
@@ -16,7 +16,8 @@ export default function NotFound() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: gradient.dashboardBg,
+        background: 'radial-gradient(ellipse 90% 640px at 50% 0, rgba(106,31,207,0.75) 0%, rgba(31,45,255,0.35) 45%, rgba(13,13,53,0) 100%) no-repeat top, #0d0d35',
+        color: text.primary,
         p: 2,
       }}
     >
@@ -25,28 +26,25 @@ export default function NotFound() {
           p: { xs: 4, md: 6 },
           maxWidth: 520,
           width: '100%',
-          borderRadius: 5,
+          ...glassCard.standard,
           textAlign: 'center',
-          background: 'rgba(255,255,255,0.97)',
-          backdropFilter: 'blur(20px)',
-          boxShadow: '0 24px 80px rgba(31,45,255,0.18)',
         }}
       >
-        <SearchOffIcon sx={{ fontSize: 72, color: brand.indigo, mb: 2, opacity: 0.85 }} />
+        <SearchOffIcon sx={{ fontSize: 72, color: brand.indigoLight, mb: 2 }} />
 
         <Typography
           variant="h1"
           fontWeight={900}
-          sx={{ fontSize: { xs: '4rem', md: '6rem' }, color: brand.indigo, lineHeight: 1 }}
+          sx={{ fontSize: { xs: '4rem', md: '6rem' }, color: brand.indigoLight, lineHeight: 1 }}
         >
           404
         </Typography>
 
-        <Typography variant="h5" fontWeight={800} mt={1} mb={1} color="#1e1e2e">
+        <Typography variant="h5" fontWeight={800} mt={1} mb={1} color={text.primary}>
           Page not found
         </Typography>
 
-        <Typography variant="body1" color="text.secondary" mb={4}>
+        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.82)' }} mb={4}>
           The page you're looking for doesn't exist or has been moved.
         </Typography>
 
@@ -70,12 +68,12 @@ export default function NotFound() {
             startIcon={<ArrowBackIcon />}
             onClick={() => navigate(-1)}
             sx={{
-              borderColor: brand.indigo,
-              color: brand.indigo,
+              borderColor: brand.indigoLight,
+              color: text.primary,
               fontWeight: 700,
               borderRadius: 9999,
               px: 3,
-              '&:hover': { bgcolor: surface.indigoTintLight, borderColor: brand.indigo },
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.08)', borderColor: '#fff' },
             }}
           >
             Go Back

@@ -76,7 +76,8 @@ describe('edit an open load', () => {
   test('windows are validated like posting and stops are edited', async () => {
     expect((await edit({ pickupTimeWindow: { start: '2026-06-02T10:00:00Z', end: '2026-06-01T10:00:00Z' } })).status).toBe(400);
     expect((await edit({ deliveryTimeWindow: { start: 'tomorrow' } })).status).toBe(400);
-    const ok = await edit({ pickupTimeWindow: { start: '2031-06-01T10:00:00Z', end: '2031-06-01T14:00:00Z' }, stops: [{ type: 'delivery', address: '1 Main St, Tulsa, OK' }] });
+    const ok = await edit({ pickupTimeWindow: { start: '2031-06-01T10:00:00Z', end: '2031-06-01T14:00:00Z' }, deliveryTimeWindow: { start: '2031-06-03T10:00:00Z', end: '2031-06-03T14:00:00Z' }, stops: [{ type: 'delivery', address: '1 Main St, Tulsa, OK' }] });
+    expect((await edit({ pickupTimeWindow: { start: '2032-06-01T10:00:00Z', end: '2032-06-01T14:00:00Z' } })).status).toBe(400); // pickup after delivery
     expect(ok.status).toBe(200);
     const saved = await Load.findById(load._id);
     expect(saved.pickupTimeWindow.start.toISOString()).toBe('2031-06-01T10:00:00.000Z');

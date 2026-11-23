@@ -579,7 +579,7 @@ export default function AdminVerifications() {
         <Box>
           <Stack direction="row" alignItems="center" spacing={1.5}>
             <VerifiedUserIcon sx={{ color: brand.indigo, fontSize: 28 }} />
-            <Typography variant="h4" fontWeight={900} sx={{ color: T.primary, letterSpacing: 1 }}>
+            <Typography variant="h5" fontWeight={900} sx={{ color: T.primary, letterSpacing: 1 }}>
               Verifications
             </Typography>
           </Stack>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography, Grid, Stack, Divider } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { surface, text, gradient, focusRing } from '../theme/tokens';
+import { surface, text, focusRing } from '../theme/tokens';
 
 const footerLinks = {
   Product: [
@@ -51,7 +51,7 @@ export default function FooterFull() {
             variant="h6"
             sx={{
               fontWeight: 700,
-              background: gradient.primary,
+              background: 'linear-gradient(90deg, #c4b5fd, #f9a8d4)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
               mb: 1,

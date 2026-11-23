@@ -23,7 +23,7 @@ function weekOfYear(date) {
 router.get('/', auth, async (req, res) => {
   if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
   try {
-    const carrierId = req.user.userId;
+    const carrierId = req.user.companyOwnerId || req.user.userId;
 
     // Period filter
     const { period } = req.query;
@@ -69,14 +69,14 @@ router.get('/', auth, async (req, res) => {
       .sort(([a], [b]) => (a > b ? 1 : -1))
       .map(([week, d]) => ({ week, value: d.revenue }));
 
-    // ── Cost breakdown (estimated from revenue) ───────────────────────────────
-    const costBreakdown = [
-      { name: 'Fuel',        value: Math.round(totalRevenue * 0.35) },
-      { name: 'Maintenance', value: Math.round(totalRevenue * 0.18) },
-      { name: 'Insurance',   value: Math.round(totalRevenue * 0.12) },
-      { name: 'Payroll',     value: Math.round(totalRevenue * 0.25) },
-      { name: 'Tolls',       value: Math.round(totalRevenue * 0.10) },
-    ];
+    // ── Cost breakdown: the expenses this company actually recorded in the period (empty when none) ──
+    const spent = await require('../models/Expense').aggregate([
+      { $match: { carrier: { $in: [...new Set([String(carrierId), String(req.user.userId)])].map((id) => new (require('mongoose').Types.ObjectId)(id)) }, date: { $gte: startDate } } },
+      { $group: { _id: '$category', cents: { $sum: '$amountCents' } } },
+      { $sort: { cents: -1 } },
+    ]);
+    const label = (c) => String(c).replace(/_/g, ' ').replace(/^./, (m) => m.toUpperCase());
+    const costBreakdown = spent.map((e) => ({ name: label(e._id), value: Math.round(e.cents / 100) }));
 
     // ── Top revenue routes ────────────────────────────────────────────────────
     const routeMap = {};

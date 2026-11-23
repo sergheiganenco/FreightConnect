@@ -1,6 +1,6 @@
 // src/components/Navbar.js
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Toolbar,
@@ -38,7 +38,6 @@ export default function Navbar() {
   const [anchorEl, setAnchorEl] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
 
   const token = localStorage.getItem('token');
   const role  = localStorage.getItem('role');     // "carrier" | "shipper" | "admin"
@@ -54,8 +53,6 @@ export default function Navbar() {
 
   const handleMenuOpen  = (e) => setAnchorEl(e.currentTarget);
   const handleMenuClose = () => setAnchorEl(null);
-
-  const isAuthPage = ['/login', '/signup'].includes(location.pathname);
 
   const handleProfile = () => {
     if (role === 'carrier' || role === 'shipper' || role === 'admin') {
@@ -184,7 +181,7 @@ export default function Navbar() {
             </Menu>
           </Box>
         ) : (
-          !isAuthPage && (
+          (
             <>
               {/* ── Desktop nav links ── */}
               <Box

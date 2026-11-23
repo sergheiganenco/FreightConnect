@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Stepper, Step, StepLabel, Button, TextField,
   Paper, Stack, Chip, CircularProgress, Alert, Divider,
@@ -26,6 +26,12 @@ export default function CarrierVerification({ onComplete }) {
   const [uploads, setUploads] = useState({}); // { docType: 'done' | 'uploading' | 'error' }
   const [uploadError, setUploadError] = useState('');
   const [result, setResult] = useState(null); // verification.status/fmcsaData/insurance
+  const [existing, setExisting] = useState(undefined); // undefined = loading; else the stored verification record
+  const [reverify, setReverify] = useState(false);
+
+  useEffect(() => {
+    api.get('/verification/carrier/status').then(({ data }) => setExisting(data || null)).catch(() => setExisting(null));
+  }, []);
 
   // Poll the async FMCSA + insurance verification result for a few seconds.
   const pollStatus = async () => {
@@ -103,6 +109,48 @@ export default function CarrierVerification({ onComplete }) {
   const requiredDone = DOC_TYPES.filter((d) => d.required).every(
     (d) => uploads[d.key] === 'done'
   );
+
+  if (existing === undefined) {
+    return <Box sx={{ textAlign: 'center', mt: 6 }}><CircularProgress /></Box>;
+  }
+
+  if (existing?.status === 'verified' && !reverify) {
+    const ins = renderInsurance(existing.insurance);
+    const f = existing.fmcsaData || {};
+    return (
+      <Box sx={{ maxWidth: 600, mx: 'auto', mt: 2 }}>
+        <Paper sx={{ p: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 3 }}>
+          <Stack direction="row" alignItems="center" spacing={1.5} mb={2}>
+            <VerifiedIcon sx={{ fontSize: 36, color: '#34d399' }} />
+            <Box>
+              <Typography variant="h6" fontWeight={700}>Verified carrier</Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                Your operating authority is verified with the FMCSA{existing.verifiedAt ? ` (${new Date(existing.verifiedAt).toLocaleDateString()})` : ''}.
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack spacing={0.5} mb={2}>
+            {f.legalName && <Typography variant="body2"><strong>Legal name:</strong> {f.legalName}</Typography>}
+            {f.dotNumber && <Typography variant="body2"><strong>DOT:</strong> {f.dotNumber}</Typography>}
+            {f.mcNumber && <Typography variant="body2"><strong>MC:</strong> {f.mcNumber}</Typography>}
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <VerifiedIcon sx={{ fontSize: 18, color: ins.color }} />
+            <Typography variant="body2" fontWeight={700} sx={{ color: ins.color }}>{ins.label}</Typography>
+          </Stack>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)', display: 'block', ml: 3.25 }}>{ins.detail}</Typography>
+          <Stack direction="row" spacing={2} mt={3}>
+            <Button variant="contained" onClick={onComplete} sx={{ background: 'linear-gradient(135deg, #6a1fcf, #e1129a)', borderRadius: 9999 }}>
+              Go to Dashboard
+            </Button>
+            <Button variant="outlined" onClick={() => setReverify(true)} sx={{ borderRadius: 9999, color: '#fff', borderColor: 'rgba(255,255,255,0.4)' }}>
+              Re-verify
+            </Button>
+          </Stack>
+        </Paper>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: 600, mx: 'auto', mt: 2 }}>
@@ -204,7 +252,7 @@ export default function CarrierVerification({ onComplete }) {
               variant="contained"
               onClick={handleLookup}
               disabled={lookupStatus === 'loading' || (!mcNumber && !dotNumber)}
-              sx={{ background: 'linear-gradient(135deg, #6a1fcf, #e1129a)', borderRadius: 9999 }}
+              sx={{ background: 'linear-gradient(135deg, #6a1fcf, #e1129a)', color: '#fff', borderRadius: 9999, '&.Mui-disabled': { color: 'rgba(255,255,255,0.6)', background: 'rgba(255,255,255,0.12)' } }}
             >
               {lookupStatus === 'loading' ? <CircularProgress size={20} color="inherit" /> : 'Verify with FMCSA'}
             </Button>

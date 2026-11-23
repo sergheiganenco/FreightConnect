@@ -17,11 +17,16 @@ import {
 import api from '../../services/api';
 import StatusChip from '../../features/carrierDashboard/sections/components/StatusChip';
 import LoadDetailsModal from '../../components/LoadDetailsModal';
-import PickupWindowPanel, { fmtWin } from '../../features/shared/PickupWindowPanel';
+import PickupWindowPanel from '../../features/shared/PickupWindowPanel';
 import ReturnLoadSuggestions from '../../components/ReturnLoadSuggestions';
 import PickupRiskPanel from '../../features/shared/PickupRiskPanel';
 import SignaturePad from '../../components/SignaturePad';
-import { glassCard } from '../../theme/tokens';
+import ProofOfDeliveryDialog from '../../features/shared/ProofOfDeliveryDialog';
+import { glassCard, radius } from '../../theme/tokens';
+
+// Short date like the load board ("Nov 12, 8:00 AM"); a window shows its end time too.
+const fmtShort = (d) => new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const fmtWindow = (w) => (w?.end ? `${fmtShort(w.start)} - ${fmtShort(w.end)}` : fmtShort(w.start));
 
 // Loads someone else booked where this carrier had a bid: "You're on standby" with an opt-out.
 function StandbyBids() {
@@ -57,6 +62,8 @@ export default function CarrierMyLoads({ embedded = false }) {
   const [selected, setSelected] = useState(null);
   // Pickup e-signature pad (opened when a load transitions to in-transit)
   const [sigPad, setSigPad] = useState({ open: false, loadId: null });
+  // Proof-of-delivery dialog: the server refuses 'delivered' without a POD on the load
+  const [podLoad, setPodLoad] = useState(null);
   // Load that cannot start yet because its pickup handshake is required but unverified
   const [blocked, setBlocked] = useState(null);
   // Blocking explanation shown inside the modal (and on the page): { text, focus: 'photos' | 'pickup' }
@@ -125,6 +132,10 @@ export default function CarrierMyLoads({ embedded = false }) {
       setNotice(null);
       setSnack(true);
     } catch (err) {
+      if (newStatus === 'delivered' && err?.response?.data?.reason === 'pod_required') {
+        const load = loads.find((l) => l._id === id);
+        if (load) { setPodLoad(load); return; }
+      }
       setError(err?.response?.data?.error || 'Failed to update status.');
       console.error(err);
     }
@@ -173,6 +184,7 @@ export default function CarrierMyLoads({ embedded = false }) {
     if (newStatus === 'delivered') {
       const load = loads.find((l) => l._id === id);
       if (await photosMissing(load, load?.status === 'accepted' ? ['pickup', 'delivery'] : ['delivery'])) return;
+      if (load) { setPodLoad(load); return; }
     }
     await applyStatus(id, newStatus);
   };
@@ -203,11 +215,9 @@ export default function CarrierMyLoads({ embedded = false }) {
   /* ── UI ───────────────────────────────────────────────────── */
   return (
     <Box sx={{ maxWidth: 1000, mx: 'auto', pt: embedded ? 0 : 2 }}>
-      {!embedded && (
-        <Typography variant="h4" fontWeight={700} mb={2}>
-          My Loads
-        </Typography>
-      )}
+      <Typography variant="h5" component="h1" fontWeight={700} mb={2}>
+        My Loads
+      </Typography>
 
       {/* filter dropdown */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
@@ -270,7 +280,9 @@ export default function CarrierMyLoads({ embedded = false }) {
                 <Paper
                   sx={{
                     ...glassCard.standard,
+                    borderRadius: `${radius.lg}px`,
                     p: 2,
+                    pl: 2.5,
                     borderLeft: `6px solid ${accent[l.status] || accent.open}`,
                     cursor: 'pointer'
                   }}
@@ -289,10 +301,12 @@ export default function CarrierMyLoads({ embedded = false }) {
                     </Typography>
                     <FormControl
                       size="small"
-                      sx={{ minWidth: 140 }}
+                      sx={{ minWidth: 160 }}
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <InputLabel>Update status</InputLabel>
                       <Select
+                        label="Update status"
                         value={l.status}
                         onChange={(e) => updateStatus(l._id, e.target.value)}
                       >
@@ -308,8 +322,8 @@ export default function CarrierMyLoads({ embedded = false }) {
                   </Typography>
                   {(l.bookedWindow?.start || l.pickupTimeWindow?.start) && (
                     <Typography variant="body2" color="text.secondary" mb={1}>
-                      Pickup: {fmtWin(l.bookedWindow?.start ? l.bookedWindow : l.pickupTimeWindow)}
-                      {l.deliveryTimeWindow?.start && <><br />Delivery: {fmtWin(l.deliveryTimeWindow)}</>}
+                      Pickup: {fmtWindow(l.bookedWindow?.start ? l.bookedWindow : l.pickupTimeWindow)}
+                      {l.deliveryTimeWindow?.start && <><br />Delivery: {fmtWindow(l.deliveryTimeWindow)}</>}
                     </Typography>
                   )}
 
@@ -396,6 +410,13 @@ export default function CarrierMyLoads({ embedded = false }) {
           }}
         />
       )}
+
+      <ProofOfDeliveryDialog
+        open={!!podLoad}
+        load={podLoad}
+        onClose={() => setPodLoad(null)}
+        onDelivered={() => { setPodLoad(null); setNotice(null); setSnack(true); fetchLoads(); }}
+      />
 
       {/* Pickup e-signature pad — captured before the in-transit transition */}
       <SignaturePad

@@ -12,6 +12,8 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  // The server sets an HttpOnly cookie that lets this browser open stored documents (plain links cannot send the token).
+  withCredentials: true,
 });
 
 // Attach token if available (before every request)
@@ -42,6 +44,12 @@ api.interceptors.response.use(
 
     // Only handle 401s; bail if no request config to retry.
     if (error.response?.status !== 401 || !originalRequest) {
+      return Promise.reject(error);
+    }
+
+    // A 401 from signing in (or another public auth call) means "wrong credentials", not "session expired":
+    // hand it to the form so it can say so, instead of reloading the page.
+    if (/\/users\/(login|signup|register|forgot-password|reset-password|verify-email)/.test(originalRequest.url || '')) {
       return Promise.reject(error);
     }
 

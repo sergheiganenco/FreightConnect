@@ -49,7 +49,7 @@ export default function AdminProfileSection() {
       }}
         elevation={0}
       >
-        <Typography variant="h4" fontWeight={900} align="center" mb={2} color="#fff" letterSpacing={1.5}>
+        <Typography variant="h5" fontWeight={900} align="center" mb={2} color="#fff" letterSpacing={1.5}>
           Admin Profile
         </Typography>
         <TextField

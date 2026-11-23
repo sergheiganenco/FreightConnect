@@ -63,7 +63,7 @@ const TIER_COLORS = {
  * @param {string} loadId - for schedule conflict check (optional)
  * @param {string} loadStatus - load status (show schedule check only for 'open' loads)
  */
-export default function ReputationBadges({ userId, userRole, loadId, loadStatus }) {
+export default function ReputationBadges({ userId, userRole, loadId, loadStatus, onScheduleCheck }) {
   const [reputation, setReputation] = useState(null);
   const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +105,7 @@ export default function ReputationBadges({ userId, userRole, loadId, loadStatus 
       try {
         const { data } = await api.get(`/loads/${loadId}/schedule-check`);
         setScheduleCheck(data);
+        onScheduleCheck?.(data);
       } catch {
         // non-critical
       }
@@ -112,7 +113,7 @@ export default function ReputationBadges({ userId, userRole, loadId, loadStatus 
     }
 
     fetchSchedule();
-  }, [userRole, loadId, loadStatus]);
+  }, [userRole, loadId, loadStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
@@ -163,7 +164,7 @@ export default function ReputationBadges({ userId, userRole, loadId, loadStatus 
                 />
               </Stack>
               <Typography variant="caption" color="rgba(255,255,255,0.5)">
-                {reputation.stats.totalDelivered} loads delivered · {reputation.stats.memberMonths} months on platform
+                {reputation.stats.totalDelivered} {reputation.stats.totalDelivered === 1 ? 'load' : 'loads'} delivered · {reputation.stats.memberMonths} months on platform
                 {reputation.ratings.count > 0 && ` · ${reputation.ratings.overall.toFixed(1)}★ (${reputation.ratings.count} reviews)`}
               </Typography>
             </Box>
@@ -255,12 +256,12 @@ export default function ReputationBadges({ userId, userRole, loadId, loadStatus 
               key={i}
               severity={c.severity === 'blocking' ? 'error' : 'warning'}
               icon={c.severity === 'blocking' ? <BlockIcon /> : <WarningAmberIcon />}
-              sx={{ mb: 0.5, borderRadius: 2, fontSize: '0.78rem' }}
+              sx={{ mb: 0.5, borderRadius: 2, fontSize: '0.78rem', '& .MuiTypography-root': { color: 'inherit' } }}
             >
               <Typography variant="body2" fontWeight={600} fontSize="0.78rem">
                 {c.severity === 'blocking' ? 'Schedule Conflict' : 'Schedule Warning'}
               </Typography>
-              <Typography variant="caption">{c.message}</Typography>
+              <Typography variant="caption" display="block">{c.message}</Typography>
             </Alert>
           ))}
         </Box>

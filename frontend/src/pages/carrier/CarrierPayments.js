@@ -10,6 +10,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { surface, chart, gradient } from '../../theme/tokens';
+import { payMessage } from '../../utils/payMessage';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const token = () => localStorage.getItem('token');
@@ -102,7 +103,7 @@ export default function CarrierPayments() {
       });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
-      else setError(data.error || 'Could not start onboarding.');
+      else setError(payMessage(data.error, 'Could not start onboarding.'));
     } catch {
       setError('Failed to start Stripe onboarding.');
     } finally {

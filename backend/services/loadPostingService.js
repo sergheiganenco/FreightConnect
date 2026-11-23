@@ -10,7 +10,7 @@ const fetch = require('node-fetch');
 const Load = require('../models/Load');
 const User = require('../models/User');
 const PreferredCarrier = require('../models/PreferredCarrier');
-const { parseWindow } = require('../utils/windowValidation');
+const { parseWindow, windowProblem } = require('../utils/windowValidation');
 const { loadDistanceFields } = require('./routingService');
 const { notifyUserSafe } = require('../utils/notifyUser');
 
@@ -291,6 +291,8 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
       pickupTimeWindow = parseWindow(fields.pickupTimeWindow, 'pickupTimeWindow', windowOpts);
       deliveryTimeWindow = parseWindow(fields.deliveryTimeWindow, 'deliveryTimeWindow', windowOpts);
     } catch (e) { return { status: 400, error: e.message }; }
+    const windowError = windowProblem(pickupTimeWindow, deliveryTimeWindow, { checkPast: true });
+    if (windowError) return { status: 400, error: windowError };
 
     // Prefer supplied coordinates; otherwise best-effort geocode (an outage must NOT block posting).
     const originC = (fields.originLat && fields.originLng)
@@ -430,6 +432,15 @@ async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
     for (const k of WINDOW_FIELDS) {
       if (fields[k] === undefined) continue;
       try { raw[k] = parseWindow(fields[k], k) ?? null; } catch (e) { return { status: 400, error: e.message }; }
+    }
+    // The windows as they would be after this edit must still make sense; a pickup time is checked against the clock only when it changes.
+    if (WINDOW_FIELDS.some((k) => raw[k] !== undefined)) {
+      const after = (k) => (raw[k] !== undefined ? raw[k] : cur[k]);
+      // Re-sending the window a load already has (the edit form sends every field) is not a change.
+      const ms = (w) => `${w?.start ? new Date(w.start).getTime() : ''}/${w?.end ? new Date(w.end).getTime() : ''}`;
+      const pickupMoved = raw.pickupTimeWindow != null && ms(raw.pickupTimeWindow) !== ms(cur.pickupTimeWindow);
+      const windowError = windowProblem(after('pickupTimeWindow'), after('deliveryTimeWindow'), { checkPast: pickupMoved });
+      if (windowError) return { status: 400, error: windowError };
     }
 
     // Requirement flags only (never a code or stored evidence); a flag changes only when it is sent.

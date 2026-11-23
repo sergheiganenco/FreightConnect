@@ -33,4 +33,17 @@ function parseWindow(w, name, { requireZone = false } = {}) {
   return end ? { start, end } : { start };
 }
 
-module.exports = { parseWindow, parseBound };
+/**
+ * Do the two windows make sense together? Returns an error message or null.
+ * checkPast: the pickup window must not already be over (a window that is open right now is fine).
+ */
+function windowProblem(pickup, delivery, { checkPast = false, now = Date.now() } = {}) {
+  const t = (d) => (d ? new Date(d).getTime() : null);
+  const pEnd = t(pickup?.end) ?? t(pickup?.start);
+  if (checkPast && pEnd != null && pEnd < now - 60 * 60 * 1000) return 'The pickup time is in the past.';
+  const dEnd = t(delivery?.end) ?? t(delivery?.start);
+  if (t(pickup?.start) != null && dEnd != null && dEnd < t(pickup.start)) return 'Delivery cannot be before pickup.';
+  return null;
+}
+
+module.exports = { parseWindow, parseBound, windowProblem };

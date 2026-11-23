@@ -1,7 +1,7 @@
 // Shared shell for the public (logged-out) pages: background, width, heading.
 import React from 'react';
 import { Box, Container, Typography } from '@mui/material';
-import { gradient, text, focusRing } from '../theme/tokens';
+import { text, focusRing } from '../theme/tokens';
 
 // Body copy colour with enough contrast on the purple gradient.
 export const bodyText = 'rgba(255,255,255,0.82)';
@@ -14,8 +14,8 @@ export default function PublicPage({ title, intro, maxWidth = 'lg', children }) 
     <Box
       sx={{
         minHeight: '100vh',
-        background: gradient.dashboardBg,
-        backgroundAttachment: 'fixed',
+        // One continuous dark base; the colour glow sits only in the top block and fades out before the first card.
+        background: 'radial-gradient(ellipse 90% 640px at 50% 0, rgba(106,31,207,0.75) 0%, rgba(31,45,255,0.35) 45%, rgba(13,13,53,0) 100%) no-repeat top, #0d0d35',
         color: text.primary,
         pt: { xs: 11, md: 13 },
         pb: { xs: 6, md: 10 },

@@ -60,7 +60,7 @@ function CarrierDashboard() {
       );
     } catch (err) {
       console.error('Error delivering load:', err.response?.data || err.message);
-      setError('Failed to mark load as delivered');
+      setError(err.response?.data?.error || 'Failed to mark load as delivered');
     }
   };
 

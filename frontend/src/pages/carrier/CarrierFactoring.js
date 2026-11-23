@@ -127,8 +127,6 @@ function SubmitDialog({ open, onClose, onSuccess }) {
     return s + (l?.rate || 0);
   }, 0);
   const totalCents  = Math.round(totalRate * 100);
-  const advanceCents = Math.round(totalCents * ADVANCE_PCT / 100);
-  const feeCents     = totalCents - advanceCents;
 
   const toggle = (id) => {
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -174,8 +172,7 @@ function SubmitDialog({ open, onClose, onSuccess }) {
         <Card sx={{ ...CARD_SX, mb: 2 }}>
           <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Typography variant="caption" sx={{ color: '#9ca3af' }}>
-              FreightConnect Finance advances <strong style={{ color: '#10b981' }}>{ADVANCE_PCT}%</strong> of your invoice value immediately.
-              The remaining {100 - ADVANCE_PCT}% is our factoring fee. No waiting 30-60 days.
+              Factoring is not available yet. Requests entered here are recorded only; no money is advanced.
             </Typography>
           </CardContent>
         </Card>
@@ -234,14 +231,6 @@ function SubmitDialog({ open, onClose, onSuccess }) {
                   <Typography variant="caption" sx={{ color: '#9ca3af' }}>Invoice Total</Typography>
                   <Typography variant="body1" fontWeight={700} sx={{ color: '#e5e7eb' }}>{fmtCents(totalCents)}</Typography>
                 </Grid>
-                <Grid item xs={4}>
-                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>You Receive ({ADVANCE_PCT}%)</Typography>
-                  <Typography variant="body1" fontWeight={700} sx={{ color: '#10b981' }}>{fmtCents(advanceCents)}</Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>Fee ({100 - ADVANCE_PCT}%)</Typography>
-                  <Typography variant="body1" fontWeight={700} sx={{ color: '#f59e0b' }}>{fmtCents(feeCents)}</Typography>
-                </Grid>
               </Grid>
             </CardContent>
           </Card>
@@ -266,7 +255,7 @@ function SubmitDialog({ open, onClose, onSuccess }) {
           disabled={loading || selected.length === 0}
           sx={{ bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' } }}
         >
-          {loading ? <CircularProgress size={20} /> : `Submit — Receive ${fmtCents(advanceCents)}`}
+          {loading ? <CircularProgress size={20} /> : 'Record request'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -415,7 +404,7 @@ export default function CarrierFactoring() {
         <Box>
           <Typography variant="h5" fontWeight={700} sx={{ color: '#fff' }}>Invoice Factoring</Typography>
           <Typography variant="caption" sx={{ color: '#9ca3af' }}>
-            Get paid immediately — FreightConnect Finance advances {ADVANCE_PCT}% of your invoices
+            Early access: record factoring requests for your delivered loads
           </Typography>
         </Box>
         <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
@@ -431,6 +420,10 @@ export default function CarrierFactoring() {
         </Box>
       </Box>
 
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Factoring through FreightConnect is not available yet during early access. Requests entered here are recorded, but no money is advanced.
+      </Alert>
+
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {/* KPI row */}
@@ -444,42 +437,7 @@ export default function CarrierFactoring() {
         <Grid item xs={6} sm={3}>
           <KPI label="Funded" value={funded.length} color="#10b981" sub={fmtCents(totalFunded) + ' received'} />
         </Grid>
-        <Grid item xs={6} sm={3}>
-          <KPI
-            label="Advance Rate"
-            value={`${ADVANCE_PCT}%`}
-            color="#6366f1"
-            sub="of invoice value"
-          />
-        </Grid>
       </Grid>
-
-      {/* How Factoring Works */}
-      <Card sx={{ ...CARD_SX, mb: 3 }}>
-        <CardContent>
-          <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 1.5 }}>
-            How Factoring Works
-          </Typography>
-          <Grid container spacing={2}>
-            {[
-              { step: '1', title: 'Deliver Loads', desc: 'Complete delivery — load status becomes Delivered' },
-              { step: '2', title: 'Submit Request', desc: `Select delivered loads and submit for factoring` },
-              { step: '3', title: 'Get Approved', desc: 'FreightConnect Finance reviews (typically same day)' },
-              { step: '4', title: 'Receive Advance', desc: `${ADVANCE_PCT}% of invoice value wired to your account` },
-            ].map(s => (
-              <Grid item xs={6} sm={3} key={s.step}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1 }}>
-                    <Typography variant="body2" fontWeight={700}>{s.step}</Typography>
-                  </Box>
-                  <Typography variant="body2" fontWeight={700} sx={{ color: '#e5e7eb' }}>{s.title}</Typography>
-                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>{s.desc}</Typography>
-                </Box>
-              </Grid>
-            ))}
-          </Grid>
-        </CardContent>
-      </Card>
 
       {/* Requests table */}
       <Card sx={CARD_SX}>

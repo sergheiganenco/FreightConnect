@@ -4,6 +4,7 @@ import {
   Modal, Paper, Typography, Button, Stack, DialogActions, Box,
   Divider, TextField, Chip, CircularProgress, Collapse, Alert,
   Tooltip, InputAdornment, Select, MenuItem, FormControl, InputLabel,
+  Dialog, DialogTitle, DialogContent,
 } from '@mui/material';
 import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -22,6 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import RatingDialog from './RatingDialog';
 import FundEscrowDialog from './FundEscrowDialog';
 import api from '../services/api';
+import { payMessage } from '../utils/payMessage';
 import { getSocket } from '../services/socket';
 import StatusChip from '../features/carrierDashboard/sections/components/StatusChip';
 import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
@@ -120,6 +122,11 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [showBidForm, setShowBidForm] = useState(false); // carrier form toggle
   const [counterInput, setCounterInput] = useState({}); // {[bidId]: amount}
   const [accepting, setAccepting] = useState(false);     // accept request in flight
+  const [scheduleBlock, setScheduleBlock] = useState(null); // schedule-check result when the server would refuse the accept
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
   const noticeTargetRef = useRef(null);                  // panel to scroll to when a notice is passed in
   const bidSectionRef = useRef(null);                    // scroll target for "Place Bid"
 
@@ -587,7 +594,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
       // For now: show confirmation that intent was created
       setOk('Payment authorized and held in escrow. Funds release automatically on delivery.');
     } catch (err) {
-      setPaymentError(err.response?.data?.error || 'Failed to initiate payment');
+      setPaymentError(payMessage(err.response?.data?.error, 'Failed to initiate payment'));
     }
     setPaymentLoading(false);
   };
@@ -604,6 +611,23 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
       setError(err.response?.data?.error || 'Could not decline this offer.');
     } finally {
       setDeclining(false);
+    }
+  };
+
+  // ── Shipper: cancel own load (open: free; accepted: carrier owed a TONU fee) ──
+  const cancelLoad = async () => {
+    setCancelError('');
+    setCancelling(true);
+    try {
+      const { data } = await api.put(`/loads/${loadState._id}/cancel`, cancelReason.trim() ? { reason: cancelReason.trim().slice(0, 500) } : {});
+      setLoadState((prev) => ({ ...prev, status: 'cancelled' }));
+      setCancelOpen(false);
+      setOk(data?.message || 'Load cancelled.');
+      onLoadAccepted?.(loadState._id);
+    } catch (err) {
+      setCancelError(err.response?.data?.error || 'Could not cancel this load.');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -801,6 +825,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
             userRole={userRole}
             loadId={loadState._id}
             loadStatus={loadState.status}
+            onScheduleCheck={(d) => setScheduleBlock(d && d.canAccept === false ? d : null)}
           />
         )}
 
@@ -938,7 +963,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         {/* Map */}
         {route.length ? (
           <MapContainer center={route[0]} zoom={6}
-                        style={{ height: 360, width: '100%', marginBottom: 16, borderRadius: 8 }}>
+                        style={{ height: 360, width: '100%', marginBottom: 16, borderRadius: 8, position: 'relative', zIndex: 0 }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <Marker position={route[0]} />
             <Marker position={route[route.length - 1]} />
@@ -1841,11 +1866,16 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         >
           {isCarrier && isOpen ? (
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems="center">
+              {scheduleBlock && (
+                <Typography variant="caption" sx={{ color: semantic.warning, flexBasis: '100%', textAlign: 'center' }}>
+                  Accept is unavailable: this load conflicts with your schedule (see Schedule Conflict above).
+                </Typography>
+              )}
               <Button
                 variant="contained"
                 size="large"
                 fullWidth
-                disabled={accepting}
+                disabled={accepting || !!scheduleBlock}
                 onClick={acceptLoad}
                 sx={{
                   flex: 1,
@@ -1895,15 +1925,6 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
             </Stack>
           ) : (
             <DialogActions disableSpacing sx={{ p: 0 }}>
-              {isCarrier && (
-                <Button
-                  variant="contained"
-                  sx={{ mr: 2, borderRadius: 9999, fontWeight: 700, textTransform: 'none', bgcolor: brand.indigo, '&:hover': { bgcolor: '#5558e6' } }}
-                  disabled
-                >
-                  Accepted
-                </Button>
-              )}
               {loadState.status === 'delivered' && (
                 <Button variant="outlined" color="secondary" onClick={() => setRatingOpen(true)} startIcon={<StarIcon />} sx={{ mr: 2, borderRadius: 9999, textTransform: 'none' }}>
                   Rate {userRole === 'carrier' ? 'Shipper' : 'Carrier'}
@@ -1912,6 +1933,11 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
               {isOwner && isOpen && (
                 <Button variant="contained" onClick={editLoad} startIcon={<EditIcon />} sx={{ mr: 2, borderRadius: 9999, fontWeight: 700, textTransform: 'none', bgcolor: brand.indigo, '&:hover': { bgcolor: '#5558e6' } }}>
                   Edit
+                </Button>
+              )}
+              {isOwner && ['open', 'accepted'].includes(loadState.status) && (
+                <Button variant="outlined" color="error" onClick={() => { setCancelError(''); setCancelOpen(true); }} sx={{ mr: 2, borderRadius: 9999, textTransform: 'none' }}>
+                  Cancel load
                 </Button>
               )}
               <Button variant="outlined" onClick={onClose} sx={{ borderRadius: 9999, textTransform: 'none', borderColor: surface.glassBorder, color: T.primary, '&:hover': { borderColor: T.muted, bgcolor: surface.glassSubtle } }}>Close</Button>
@@ -1930,6 +1956,30 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
           toRole={userRole === 'carrier' ? 'shipper' : 'carrier'}
           fromRole={userRole}
         />
+        <Dialog open={cancelOpen} onClose={() => !cancelling && setCancelOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Cancel this load?</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <Typography variant="body2">
+                {loadState.status === 'accepted'
+                  ? 'A carrier has already booked this load. Cancelling releases them, notifies them, and a $250 TONU (truck ordered, not used) fee is owed to the carrier unless your contract sets a different rate. Any escrow hold is released.'
+                  : 'This load is still open and has no carrier. It will be withdrawn from the load board. No fee applies.'}
+              </Typography>
+              <TextField
+                label="Reason (optional)" size="small" fullWidth multiline minRows={2}
+                value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
+                inputProps={{ maxLength: 500 }}
+              />
+              {cancelError && <Alert severity="error">{cancelError}</Alert>}
+              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                <Button onClick={() => setCancelOpen(false)} disabled={cancelling}>Keep load</Button>
+                <Button variant="contained" color="error" onClick={cancelLoad} disabled={cancelling}>
+                  {cancelling ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Cancel load'}
+                </Button>
+              </Stack>
+            </Stack>
+          </DialogContent>
+        </Dialog>
         <FundEscrowDialog
           open={fundOpen}
           onClose={() => setFundOpen(false)}

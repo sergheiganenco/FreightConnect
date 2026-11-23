@@ -3,7 +3,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Box, Container, Typography, Button, Grid, Paper, Chip } from '@mui/material';
 import { Handshake, ShieldCheck, FileSignature, MapPin } from 'lucide-react';
-import { gradient, text, glassCard, buttonVariants, radius, brand, tint } from '../theme/tokens';
+import { text, glassCard, buttonVariants, radius, brand, tint } from '../theme/tokens';
 import { bodyText, focusSx } from '../components/PublicPage';
 import LoadCard from '../features/carrierDashboard/sections/components/LoadCard';
 
@@ -77,8 +77,8 @@ export default function Home() {
     <Box
       sx={{
         minHeight: '100vh',
-        background: gradient.dashboardBg,
-        backgroundAttachment: 'fixed',
+        // One continuous dark base; the colour glow sits only in the top block and fades out before the first card.
+        background: 'radial-gradient(ellipse 90% 640px at 50% 0, rgba(106,31,207,0.75) 0%, rgba(31,45,255,0.35) 45%, rgba(13,13,53,0) 100%) no-repeat top, #0d0d35',
         color: text.primary,
         pt: { xs: 11, md: 13 },
         pb: { xs: 6, md: 10 },

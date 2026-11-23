@@ -80,7 +80,20 @@ let theme = createTheme({
         root: {
           borderRadius: 9999,
           textTransform: 'none',
+          // Every surface in the app is dark glass: keep disabled buttons readable instead of dark-on-dark.
+          '&.Mui-disabled': { color: 'rgba(255,255,255,0.6)' },
         },
+        contained: {
+          '&.Mui-disabled': { color: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(255,255,255,0.12)' },
+        },
+        outlined: {
+          '&.Mui-disabled': { borderColor: 'rgba(255,255,255,0.2)' },
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: { '&.Mui-disabled': { color: 'rgba(255,255,255,0.35)' } },
       },
     },
     /* Dividers visible on dark backgrounds */

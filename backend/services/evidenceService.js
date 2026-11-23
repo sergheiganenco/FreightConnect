@@ -34,6 +34,13 @@ async function pickupBlockers(load) {
 }
 
 async function deliveryBlockers(load) {
+  // Every delivery needs proof: an uploaded POD (photo or signed receipt) or the receiver's signature.
+  if (!load.documents?.pod && !load.deliverySignature?.dataUrl) {
+    return {
+      error: 'Proof of delivery required: add a photo of the signed receipt or the receiver\'s signature before marking this load delivered.',
+      reason: 'pod_required',
+    };
+  }
   if (!load.evidenceRequired?.delivery) return null;
   if (await hasPhoto(load, 'delivery')) return null;
   return {

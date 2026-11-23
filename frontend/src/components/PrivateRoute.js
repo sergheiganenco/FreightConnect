@@ -1,10 +1,11 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 
-/** Requires a valid auth token. Redirects to / if not logged in. */
+/** Requires a valid auth token. Redirects to /login (remembering the path) if not logged in. */
 function PrivateRoute({ children }) {
+  const location = useLocation();
   const token = localStorage.getItem('token');
-  return token ? children : <Navigate to="/" replace />;
+  return token ? children : <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
 }
 
 /**
@@ -14,17 +15,18 @@ function PrivateRoute({ children }) {
  * Usage: <RoleRoute role="shipper">...</RoleRoute>
  */
 export function RoleRoute({ children, role }) {
+  const location = useLocation();
   const token = localStorage.getItem('token');
   const userRole = localStorage.getItem('role');
 
-  if (!token) return <Navigate to="/" replace />;
+  if (!token) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   // Admin-created accounts must set their own password before using the app.
   if (localStorage.getItem('mustChangePassword') === '1') {
     return <Navigate to="/change-password" replace />;
   }
   if (userRole !== role) {
     // Redirect to the user's correct dashboard instead of showing a blank/error page
-    const dashboardMap = { carrier: '/dashboard/carrier', admin: '/dashboard/admin' };
+    const dashboardMap = { carrier: '/dashboard/carrier', shipper: '/dashboard/shipper', admin: '/dashboard/admin' };
     return <Navigate to={dashboardMap[userRole] || '/'} replace />;
   }
   return children;

@@ -301,7 +301,7 @@ export default function AdminUsers() {
           )}
           <TextField fullWidth label="Full Name" name="name"     sx={{ mb: 2, mt: 1 }} value={createForm.name}     onChange={handleCreateChange} required />
           <TextField fullWidth label="Email"     name="email"    type="email" sx={{ mb: 2 }} value={createForm.email}    onChange={handleCreateChange} required />
-          <TextField fullWidth label="Password"  name="password" type="password" sx={{ mb: 2 }} value={createForm.password} onChange={handleCreateChange} required helperText="Min 8 characters" />
+          <TextField fullWidth label="Password"  name="password" type="password" sx={{ mb: 2 }} value={createForm.password} onChange={handleCreateChange} required helperText="Temporary password; the user must change it at first sign-in. Use 8+ characters with upper and lower case, a number and a special character." />
           <TextField fullWidth select label="Role" name="role" sx={{ mb: 2 }} value={createForm.role} onChange={handleCreateChange}>
             {ROLES.map(r => <MenuItem key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</MenuItem>)}
           </TextField>

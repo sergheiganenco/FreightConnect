@@ -23,6 +23,7 @@ const { sendEmailWithAttachment, sendEmail } = require('../services/emailService
 const verificationService = require('../services/verificationService');
 const mfaService = require('../services/mfaService');
 const { pickupBlockers, deliveryBlockers } = require('../services/evidenceService');
+const { setFileCookie } = require('../middlewares/fileAccess');
 
 
 
@@ -344,6 +345,7 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
     }
 
     const token = signSessionToken(user);
+    setFileCookie(res, { userId: user._id, role: user.role, companyOwnerId: user.parentAccountId || user._id });
 
     return res.json({
       token,
@@ -463,6 +465,7 @@ router.post('/refresh-token', auth, async (req, res) => {
     // Same claims as login: a refreshed sub-account token must keep its company
     // role and scope (it used to come back looking like an owner token).
     const token = signSessionToken(user);
+    setFileCookie(res, { userId: user._id, role: user.role, companyOwnerId: user.parentAccountId || user._id });
 
     res.json({
       token,
@@ -629,6 +632,7 @@ router.get('/me', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('-password');
     if (!user) return res.status(404).json({ error: "User not found" });
+    setFileCookie(res, req.user); // keeps document links working for sessions that began before the cookie existed
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch profile" });

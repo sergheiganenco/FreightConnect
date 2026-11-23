@@ -20,6 +20,7 @@ import PeopleIcon from "@mui/icons-material/People";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import HistoryIcon from "@mui/icons-material/History";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import api from "../../services/api";
 import { useNavigate } from "react-router-dom";
@@ -92,7 +93,7 @@ export default function AdminOverview() {
     },
     {
       icon: <AttachMoneyIcon sx={{ fontSize: 40, color: "#ffe76c" }} />,
-      label: "Revenue (YTD)",
+      label: "Delivered freight value",
       value: stats?.revenue ? `$${stats.revenue.toLocaleString()}` : "$0",
       color: CARD_COLORS[4],
       onClick: null,
@@ -103,10 +104,9 @@ export default function AdminOverview() {
     <Box sx={{ width: "100%", maxWidth: 1100, mx: "auto", py: 4 }}>
       <Stack direction="row" alignItems="center" spacing={2} mb={2}>
         <Typography
-          variant="h3"
+          variant="h5"
           fontWeight={900}
           color="#fff"
-          letterSpacing={1}
           sx={{ flex: 1 }}
         >
           Admin Overview
@@ -229,7 +229,7 @@ export default function AdminOverview() {
                       gap: 1.5, flexWrap: "wrap",
                     }}
                   >
-                    <ErrorOutlineIcon sx={{ color: "#f04ca7" }} />
+                    {a.type === "exception" ? <ErrorOutlineIcon sx={{ color: "#f04ca7" }} /> : <HistoryIcon sx={{ color: "rgba(255,255,255,0.6)" }} />}
                     <Typography fontWeight={600}>{a.description || "Activity"}</Typography>
                     <Chip
                       label={new Date(a.date).toLocaleString()}

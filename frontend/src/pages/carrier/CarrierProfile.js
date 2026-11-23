@@ -14,6 +14,7 @@ import AddIcon from "@mui/icons-material/Add";
 import PaymentIcon from "@mui/icons-material/Payment";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import { payMessage } from "../../utils/payMessage";
 import api from "../../services/api";
 import TrustScoreBadge from "../../components/TrustScoreBadge";
 import GpsConsentCard from "../../components/GpsConsentCard";
@@ -178,7 +179,7 @@ export default function Profile() {
       const { data } = await api.post("/payments/connect/onboard");
       window.location.href = data.url;
     } catch (err) {
-      setSnackbar({ open: true, message: err.response?.data?.error || "Failed to start onboarding", severity: "error" });
+      setSnackbar({ open: true, message: payMessage(err.response?.data?.error, "Failed to start onboarding"), severity: "error" });
       setOnboarding(false);
     }
   };

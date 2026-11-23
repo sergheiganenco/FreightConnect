@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { motion } from 'framer-motion';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Box,
   Paper,
@@ -33,6 +33,7 @@ export default function Login() {
 
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const onSubmit = async ({ email, password }) => {
     email = email.trim();
@@ -56,7 +57,11 @@ export default function Login() {
       }
       localStorage.removeItem('mustChangePassword');
 
-      if (user.role === 'admin') {
+      // Return to the page they were sent away from, if it belongs to their own dashboard.
+      const back = location.state?.from;
+      if (typeof back === 'string' && back.startsWith(`/dashboard/${user.role}`)) {
+        navigate(back);
+      } else if (user.role === 'admin') {
         navigate('/dashboard/admin');
       } else if (user.role === 'carrier') {
         navigate('/dashboard/carrier');
@@ -66,7 +71,7 @@ export default function Login() {
         navigate('/');
       }
     } catch (err) {
-      setError('api', {
+      setError('root.api', {
         type: 'manual',
         message:
           err.response?.data?.error ||
@@ -140,7 +145,7 @@ export default function Login() {
           onSubmit={handleSubmit(onSubmit)}
           sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
         >
-          {errors.api && (
+          {errors.root?.api && (
             <Typography
               role="alert"
               sx={{
@@ -149,7 +154,7 @@ export default function Login() {
                 fontSize: '0.875rem',
               }}
             >
-              {errors.api.message}
+              {errors.root.api.message}
             </Typography>
           )}
 

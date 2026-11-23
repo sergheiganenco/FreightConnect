@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import { payMessage } from '../utils/payMessage';
 import api from '../services/api';
 import { brand, surface, text as T, semantic, tint } from '../theme/tokens';
 
@@ -164,7 +165,7 @@ export default function FundEscrowDialog({ open, onClose, loadId, onFunded }) {
         }
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Unable to start escrow funding. Please try again.');
+      setError(payMessage(err.response?.data?.error, 'Unable to start escrow funding. Please try again.'));
     }
     setLoading(false);
   }, [loadId]);

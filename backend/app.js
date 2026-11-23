@@ -169,12 +169,14 @@ app.post('/api/documents/upload', auth, upload.single('file'), (req, res) => {
 // attachment (never rendered/executed inline) with a locked-down CSP — defense
 // in depth against stored XSS from uploaded files.
 const nosniff = (res) => res.setHeader('X-Content-Type-Options', 'nosniff');
-app.use('/documents/uploads', express.static(path.join(__dirname, 'public/documents/uploads'), { setHeaders: nosniff }));
-app.use('/documents/receipts', express.static(path.join(__dirname, 'public/documents/receipts'), { setHeaders: nosniff }));
+// Stored documents are never public: signed-in users only, and a load's own documents only for its parties (middlewares/fileAccess).
+const { requireFileAccess } = require('./middlewares/fileAccess');
+app.use('/documents/uploads', requireFileAccess, express.static(path.join(__dirname, 'public/documents/uploads'), { setHeaders: nosniff }));
+app.use('/documents/receipts', requireFileAccess, express.static(path.join(__dirname, 'public/documents/receipts'), { setHeaders: nosniff }));
 // Load photo evidence is PRIVATE: stored on the persistent disk under documents/ but never
 // served statically - explicit 404 so a future broader static mount cannot expose it.
 app.use('/documents/load-evidence', (req, res) => res.status(404).end());
-app.use('/documents/evidence', express.static(path.join(__dirname, 'public/documents/evidence'), {
+app.use('/documents/evidence', requireFileAccess, express.static(path.join(__dirname, 'public/documents/evidence'), {
   setHeaders: (res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', 'attachment');

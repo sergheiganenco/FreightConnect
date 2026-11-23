@@ -45,7 +45,7 @@ describe('Integration — Full Load Lifecycle', () => {
   test('full happy path: open → accepted → in-transit → delivered', async () => {
     const shipper = await createTestUser({ role: 'shipper' });
     const carrier = await createVerifiedCarrier();
-    const load = await createTestLoad(shipper._id);
+    const load = await createTestLoad(shipper._id, { documents: { pod: '/documents/uploads/x-pod.jpg' } });
 
     const carrierToken = generateToken(carrier);
 
@@ -84,6 +84,7 @@ describe('Integration — Full Load Lifecycle', () => {
     const load = await createTestLoad(shipper._id, {
       status: 'in-transit',
       acceptedBy: carrier._id,
+      documents: { pod: '/documents/uploads/x-pod.jpg' },
     });
 
     const res = await request(app)

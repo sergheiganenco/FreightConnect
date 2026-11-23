@@ -51,7 +51,7 @@ export default function ResetPassword() {
 
   const onSubmit = async ({ password }) => {
     if (!token || !email) {
-      setError('api', {
+      setError('root.api', {
         type: 'manual',
         message: 'Invalid or expired reset link.',
       });
@@ -67,13 +67,13 @@ export default function ResetPassword() {
       if (res.data?.success) {
         setDone(true);
       } else {
-        setError('api', {
+        setError('root.api', {
           type: 'manual',
           message: res.data?.message || 'Could not reset password.',
         });
       }
     } catch (err) {
-      setError('api', {
+      setError('root.api', {
         type: 'manual',
         message:
           err.response?.data?.message ||
@@ -195,7 +195,7 @@ export default function ResetPassword() {
               onSubmit={handleSubmit(onSubmit)}
               sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
             >
-              {errors.api && (
+              {errors.root?.api && (
                 <Typography
                   role="alert"
                   sx={{
@@ -204,7 +204,7 @@ export default function ResetPassword() {
                     fontSize: '0.875rem',
                   }}
                 >
-                  {errors.api.message}
+                  {errors.root.api.message}
                 </Typography>
               )}
 

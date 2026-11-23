@@ -33,7 +33,7 @@ describe('stale truck pointer', () => {
     shipper = await createTestUser({ role: 'shipper' });
     A = await carrier();
     B = await carrier();
-    load = await createTestLoad(shipper._id);
+    load = await createTestLoad(shipper._id, { documents: { pod: '/documents/uploads/x-pod.jpg' } }); // delivery needs proof
     await request(app).put('/api/users/fleet/T1/assign-load').set(bearer(A)).send({ loadId: String(load._id) }).expect(200);
   });
   // Simulates cancel + re-book by B without going through cancel (which also clears A's truck pointer):

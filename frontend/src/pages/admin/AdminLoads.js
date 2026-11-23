@@ -155,7 +155,7 @@ export default function AdminLoads() {
         <TextField
           variant="filled"
           size="small"
-          placeholder="Search Title, Origin, Destination"
+          placeholder="Search loads"
           value={q}
           onChange={e => setQ(e.target.value)}
           onKeyPress={e => { if (e.key === "Enter") applyFilters(); }}

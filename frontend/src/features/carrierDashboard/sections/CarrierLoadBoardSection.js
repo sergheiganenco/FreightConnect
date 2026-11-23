@@ -99,7 +99,7 @@ export default function CarrierLoadBoardSection() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5" fontWeight={700}>Loads</Typography>
         {tab === 0 && (
-          <IconButton onClick={() => setDrawer(true)}>
+          <IconButton onClick={() => setDrawer(true)} aria-label="Filter loads" sx={{ color: '#fff' }}>
             <FilterAltIcon />
           </IconButton>
         )}
