@@ -22,6 +22,7 @@ import ReturnLoadSuggestions from '../../components/ReturnLoadSuggestions';
 import PickupRiskPanel from '../../features/shared/PickupRiskPanel';
 import SignaturePad from '../../components/SignaturePad';
 import ProofOfDeliveryDialog from '../../features/shared/ProofOfDeliveryDialog';
+import DeliveryPassDialog from '../../features/shared/DeliveryPassDialog';
 import { glassCard, radius } from '../../theme/tokens';
 
 // Short date like the load board ("Nov 12, 8:00 AM"); a window shows its end time too.
@@ -64,6 +65,8 @@ export default function CarrierMyLoads({ embedded = false }) {
   const [sigPad, setSigPad] = useState({ open: false, loadId: null });
   // Proof-of-delivery dialog: the server refuses 'delivered' without a POD on the load
   const [podLoad, setPodLoad] = useState(null);
+  // The load whose documents are being shown to the receiver (QR code)
+  const [passLoad, setPassLoad] = useState(null);
   // Load that cannot start yet because its pickup handshake is required but unverified
   const [blocked, setBlocked] = useState(null);
   // Blocking explanation shown inside the modal (and on the page): { text, focus: 'photos' | 'pickup' }
@@ -368,6 +371,15 @@ export default function CarrierMyLoads({ embedded = false }) {
                     <StatusChip status={l.status} />
                   )}
 
+                  {l.status === 'in-transit' && (
+                    <Button
+                      size="small" variant="outlined" sx={{ ml: 1.5 }}
+                      onClick={(e) => { e.stopPropagation(); setPassLoad(l); }}
+                    >
+                      Present documents
+                    </Button>
+                  )}
+
                   {/* Return-load suggestions: collapsed, fetched on expand */}
                   {['accepted', 'in-transit'].includes(l.status) && (
                     <Box mt={1.5} onClick={(e) => e.stopPropagation()}>
@@ -417,6 +429,8 @@ export default function CarrierMyLoads({ embedded = false }) {
         onClose={() => setPodLoad(null)}
         onDelivered={() => { setPodLoad(null); setNotice(null); setSnack(true); fetchLoads(); }}
       />
+
+      <DeliveryPassDialog load={passLoad} onClose={() => { setPassLoad(null); fetchLoads(); }} />
 
       {/* Pickup e-signature pad — captured before the in-transit transition */}
       <SignaturePad

@@ -430,3 +430,4 @@ router.post('/:loadId/pickup-signature', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.helpers = { parseSignatureDataUrl, regenerateBol }; // shared with the receiver's delivery pass

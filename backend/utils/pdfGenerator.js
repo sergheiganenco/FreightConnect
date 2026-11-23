@@ -154,14 +154,14 @@ exports.generateBOL = (load, carrier, shipper) => {
     if (load.specialInstructions) y = infoRow(doc, 'Special Instructions', load.specialInstructions, y);
     y += 8; drawHRule(doc, y); y += 12;
 
-    // Dates & Rate
-    y = sectionTitle(doc, 'DATES & RATE', y);
+    // Dates. The rate is NOT printed here: the receiver reads this document, and the rate is between shipper and carrier (rate confirmation).
+    y = sectionTitle(doc, 'DATES', y);
     y = infoRow(doc, 'Pickup Window Start', fmtDate(load.pickupTimeWindow && load.pickupTimeWindow.start), y);
     y = infoRow(doc, 'Pickup Window End', fmtDate(load.pickupTimeWindow && load.pickupTimeWindow.end), y);
     y = infoRow(doc, 'Delivery Window Start', fmtDate(load.deliveryTimeWindow && load.deliveryTimeWindow.start), y);
     y = infoRow(doc, 'Delivery Window End', fmtDate(load.deliveryTimeWindow && load.deliveryTimeWindow.end), y);
     y = infoRow(doc, 'Delivered At', fmtDate(load.deliveredAt), y);
-    y = infoRow(doc, 'Agreed Rate', fmtMoney(load.rate), y);
+    if (load.deliverySignature && load.deliverySignature.note) y = infoRow(doc, 'Receiver Notes', load.deliverySignature.note, y);
     y += 8; drawHRule(doc, y); y += 16;
 
     // Terms

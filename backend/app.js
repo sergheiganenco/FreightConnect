@@ -509,6 +509,7 @@ app.use('/api/tracking-portal', trackingPortalRoutes);
 
 // Pickup handshake: carrier code, shipper verify/unlock, public no-account dock link
 app.use('/api', require('./routes/pickupVerificationRoutes'));
+app.use('/api', require('./routes/deliveryPassRoutes')); // receiver reads + signs delivery documents by link
 // Photo evidence at pickup/delivery (files stream only through authenticated endpoints)
 app.use('/api', require('./routes/evidenceRoutes'));
 

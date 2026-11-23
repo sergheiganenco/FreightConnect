@@ -23,19 +23,20 @@ function getSecret() {
   if (!secret) throw new Error('TRACKING_TOKEN_SECRET or JWT_SECRET must be configured for dock tokens');
   return secret;
 }
-function sign(loadId, exp) {
-  return crypto.createHmac('sha256', getSecret()).update(`dock:${loadId}.${exp}`).digest('hex').slice(0, 32);
+// `purpose` is part of what is signed, so a pickup (dock) link can never be used as a delivery (receive) link.
+function sign(loadId, exp, purpose = 'dock') {
+  return crypto.createHmac('sha256', getSecret()).update(`${purpose}:${loadId}.${exp}`).digest('hex').slice(0, 32);
 }
-function signDockToken(loadId) {
+function signDockToken(loadId, purpose = 'dock') {
   const exp = Math.floor((Date.now() + DOCK_TOKEN_TTL_MS) / 1000).toString(36);
-  return { token: `${loadId}.${exp}.${sign(loadId, exp)}`, expiresAt: new Date(parseInt(exp, 36) * 1000) };
+  return { token: `${loadId}.${exp}.${sign(loadId, exp, purpose)}`, expiresAt: new Date(parseInt(exp, 36) * 1000) };
 }
 /** @returns {{loadId}|{error:'invalid'|'expired'}} — never throws (secret missing → invalid). */
-function parseDockToken(token) {
+function parseDockToken(token, purpose = 'dock') {
   const parts = String(token || '').split('.');
   if (parts.length !== 3 || !/^[a-f0-9]{24}$/.test(parts[0]) || !/^[a-z0-9]{1,10}$/.test(parts[1])) return { error: 'invalid' };
   let expected;
-  try { expected = sign(parts[0], parts[1]); } catch (_) { return { error: 'invalid' }; }
+  try { expected = sign(parts[0], parts[1], purpose); } catch (_) { return { error: 'invalid' }; }
   const a = Buffer.from(parts[2]);
   const b = Buffer.from(expected);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { error: 'invalid' };
@@ -190,4 +191,4 @@ async function unlock({ loadId, actorId }) {
   return !!load;
 }
 
-module.exports = { MAX_ATTEMPTS, signDockToken, parseDockToken, dockInfo, attemptVerify, unlock };
+module.exports = { MAX_ATTEMPTS, signDockToken, parseDockToken, carrierIdentity, dockInfo, attemptVerify, unlock };

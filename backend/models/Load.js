@@ -162,7 +162,9 @@ const LoadSchema = new mongoose.Schema({
   deliverySignature: {
     dataUrl:     { type: String, default: null },
     signerName:  { type: String, default: null },
-    signedByRole:{ type: String, enum: ['carrier', 'shipper', null], default: null },
+    // 'receiver' = signed by the receiving company on its own device through the delivery pass link (no account)
+    signedByRole:{ type: String, enum: ['carrier', 'shipper', 'receiver', null], default: null },
+    note:        { type: String, default: null, maxlength: 1000 }, // shortage / damage noted by the receiver when signing
     signedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     signedAt:    { type: Date, default: null },
   },

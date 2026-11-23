@@ -24,6 +24,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import VerifyEmail from './pages/VerifyEmail';
 import DockVerify from './pages/DockVerify';
+import ReceiveDelivery from './pages/ReceiveDelivery';
 
 /* dashboard + admin pages (lazy — split into their own chunks, loaded on demand) */
 const AIInsightsPanel = lazy(() => import('./components/AIInsightsPanel'));
@@ -107,7 +108,7 @@ function CarrierVerificationPage() {
 function MarketingChrome({ children }) {
   const { pathname } = useLocation();
   // /dock/* is a standalone no-account page for dock staff on a phone.
-  if (pathname.startsWith('/dashboard') || pathname.startsWith('/dock/')) return null;
+  if (pathname.startsWith('/dashboard') || (pathname.startsWith('/dock/') || pathname.startsWith('/receive/'))) return null;
   return children;
 }
 
@@ -136,6 +137,7 @@ function App() {
           <Route path="/verify-email" element={<VerifyEmail />} />
           {/* Public no-account dock check for the pickup handshake */}
           <Route path="/dock/:token" element={<DockVerify />} />
+          <Route path="/receive/:token" element={<ReceiveDelivery />} />
           {/* Forced first-login / self-service password change (token required) */}
           <Route path="/change-password" element={<PrivateRoute><ChangePassword /></PrivateRoute>} />
 
