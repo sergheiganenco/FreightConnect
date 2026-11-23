@@ -881,6 +881,9 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         const channelId = `load_${load._id}`;
         const existing = await Channel.findOne({ channelId });
         if (!existing) {
+          // Anything still filed under this id was written after the previous booking's thread was set aside
+          // (e.g. its cancellation note): it is not this carrier's to read.
+          await Message.deleteMany({ channelId });
           const channel = await Channel.create({
             channelType: "load_thread",
             channelId,
@@ -1803,14 +1806,15 @@ router.post('/voice-command', auth, async (req, res) => {
     keyGenerator: (req) => `${req.user?.companyOwnerId || req.user?.userId || 'anon'}:${req.params.id}`,
     message: { error: 'Too many check-call answers for this load, please try again later' },
   }, 'rl:checkcall:');
-  const cleanNote = (v) => String(v).replace(/<[^>]*>/g, ' ').replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Bounded before any regex runs, and the tag pattern cannot backtrack across '<'.
+  const cleanNote = (v) => String(v).slice(0, 300).replace(/<[^<>]*>/g, ' ').replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim();
 
   // POST /api/loads/:id/check-call  { status, delayMinutes?, reason?, note? } — booked carrier company only (owner/dispatcher/driver)
   router.post('/:id/check-call', auth, param('id').isMongoId(),
     body('status').isIn(['on_schedule', 'delayed', 'at_facility', 'stopped']),
     body('delayMinutes').if(body('status').equals('delayed')).isInt({ min: 5, max: 2880 }).toInt(),
     body('reason').optional().isIn(Object.keys(CHECK_REASONS)),
-    body('note').optional().isString().isLength({ max: 300 }).customSanitizer(cleanNote),
+    body('note').optional().isString().bail().isLength({ max: 300 }).bail().customSanitizer(cleanNote),
     validate, checkCallLimiter, async (req, res) => { // limiter after validation: only well-formed answers use the hourly budget
       try {
         if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Only the booked carrier can answer a check call' });

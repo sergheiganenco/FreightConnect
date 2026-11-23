@@ -114,7 +114,14 @@ describe('check call monitor', () => {
     expect((await list(load._id, bearer(carrier)).expect(200)).body.checkCalls).toHaveLength(1);
 
     // un-book (carrier drops) then another carrier books it
+    const Channel = require('../../models/Channel');
+    await Channel.create({ channelType: 'load_thread', channelId: `load_${load._id}`, loadId: load._id, participants: [{ user: carrier._id, role: 'carrier' }, { user: shipper._id, role: 'shipper' }] });
+    expect(await Message.countDocuments({ channelId: `load_${load._id}` })).toBeGreaterThan(0); // the check call was posted there
     await Load.findOneAndUpdate({ _id: load._id }, { $set: { status: 'open', acceptedBy: null } });
+    // the thread of that booking is set aside: nothing is left under the id the next carrier's thread will use
+    expect(await Channel.countDocuments({ channelId: `load_${load._id}` })).toBe(0);
+    expect(await Message.countDocuments({ channelId: `load_${load._id}` })).toBe(0);
+    expect(await Channel.countDocuments({ loadId: load._id })).toBe(1);
     let fresh = await Load.findById(load._id).lean();
     expect(fresh.checkCalls).toBeUndefined();
     expect(fresh.checkCallState).toBeUndefined();

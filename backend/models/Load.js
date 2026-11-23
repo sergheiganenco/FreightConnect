@@ -479,7 +479,19 @@ async function closeOpenDwellEvents(loadId) {
     );
   } catch (err) { console.error('[load] closing dwell events failed:', err.message); }
 }
-async function onUnbooked(loadId) { await archiveEvidence(loadId); await closeOpenDwellEvents(loadId); }
+// The load thread belongs to ONE booking. When the load goes back on the board, the thread is set aside under its own id
+// (both parties of that booking keep it), so the next carrier starts a fresh thread and never reads the previous one.
+// A cancelled load keeps its thread: nobody else will ever be booked on it.
+async function archiveThread(loadId) {
+  try {
+    const l = await mongoose.model('Load').findById(loadId).select('status acceptedBy').lean();
+    if (!l || l.acceptedBy || l.status !== 'open') return;
+    const from = `load_${loadId}`, to = `${from}_${Date.now()}`;
+    const r = await require('./Channel').updateOne({ channelId: from }, { $set: { channelId: to } });
+    if (r.modifiedCount) await require('./Message').updateMany({ channelId: from }, { $set: { channelId: to } });
+  } catch (err) { console.error('[load] thread archive failed:', err.message); }
+}
+async function onUnbooked(loadId) { await archiveEvidence(loadId); await closeOpenDwellEvents(loadId); await archiveThread(loadId); }
 
 // Un-booking also archives the photos taken under that booking, so a later booking
 // (another carrier, or the same one again) must add its own. Done as a follow-up update
