@@ -209,3 +209,19 @@ describe('parseLoads engine selection (no API key)', () => {
     expect(result.warnings).toContain('empty input');
   });
 });
+
+describe('cities are read cleanly from ordinary sentences', () => {
+  const { heuristicParse: hp } = require('../../services/loadParserService');
+  const lane = (t) => { const [l] = hp(t).loads; return l ? `${l.origin} > ${l.destination}` : null; };
+  test('equipment and filler words are not part of the city', () => {
+    expect(lane('Need a dry van from Chicago, IL to Dallas, TX. 20,000 lbs, $2,400.')).toBe('Chicago, IL > Dallas, TX');
+    expect(lane('Reefer load Atlanta, GA -> Miami, FL 38k lbs $1,900')).toBe('Atlanta, GA > Miami, FL');
+    expect(lane('flatbed from King of Prussia, PA to New York, NY $900')).toMatch(/^King Of Prussia, PA > New York, NY$/i);
+    expect(lane('Salt Lake City, UT - Las Vegas, NV $1500 van')).toBe('Salt Lake City, UT > Las Vegas, NV');
+  });
+  test('a state code without a comma is understood; an all-caps "IN" is not Indiana', () => {
+    expect(lane('dry van from Chicago IL to Dallas TX $2400')).toBe('Chicago, IL > Dallas, TX');
+    expect(lane('53 van out of Fort Worth TX going to Oklahoma City OK $1,100')).toBe('Fort Worth, TX > Oklahoma City, OK');
+    expect(lane('LOAD IN CHICAGO, IL TO ST. LOUIS, MO $700')).toBe('CHICAGO, IL > ST. LOUIS, MO');
+  });
+});

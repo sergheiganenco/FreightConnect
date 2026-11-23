@@ -97,6 +97,18 @@ const CITY_FILLER = new Set([
   'will', 'need', 'available', 'hauling', 'run', 'get', 'moving',
 ]);
 
+// Words that end the sentence part before a city: everything up to the last of these is not the city's name.
+// ('of', 'the', 'and' are left out on purpose: King of Prussia, Truth or Consequences.)
+const BEFORE_CITY = new Set([
+  'from', 'to', 'at', 'near', 'pu', 'del', 'pickup', 'delivery', 'deliver', 'origin', 'destination', 'dest', 'out',
+  'load', 'loads', 'van', 'reefer', 'flatbed', 'tanker', 'truck', 'trailer', 'conestoga', 'lowboy', 'rgn', 'deck', 'only',
+]);
+
+// A city followed by an UPPERCASE state code with no comma. Skipped when another all-caps word follows, so
+// "LOAD IN CHICAGO" is not read as Indiana. Case-sensitive on purpose.
+const STATES = 'AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC';
+const BARE_STATE = new RegExp(`\\b([A-Za-z][A-Za-z.'\\-]*) (${STATES})\\b(?!\\s+[A-Z]{2,})`, 'g');
+
 /**
  * Extract an origin → destination lane from a text block.
  * Tries a connector-joined pair first (Chicago, IL to Dallas, TX), then falls
@@ -105,6 +117,7 @@ const CITY_FILLER = new Set([
  */
 function extractLane(block) {
   if (!block) return null;
+  block = block.replace(BARE_STATE, '$1, $2'); // "Chicago IL to Dallas TX" → "Chicago, IL to Dallas, TX"
   const paired = new RegExp(`(${CITY_STATE})\\s*${CONNECTOR}\\s*(${CITY_STATE})`, 'i');
   const p = block.match(paired);
   if (p) return { origin: cleanPlace(p[1]), destination: cleanPlace(p[2]) };
@@ -128,6 +141,10 @@ function cleanPlace(s) {
   if (!m) return t;
   const state = m[2].toUpperCase();
   const words = m[1].split(' ').filter(Boolean);
+  // "dry van from Chicago" is not a city: drop everything through the last word that cannot be part of a place name.
+  for (let i = words.length - 2; i >= 0; i -= 1) {
+    if (BEFORE_CITY.has(words[i].toLowerCase())) { words.splice(0, i + 1); break; }
+  }
   while (words.length > 1 && CITY_FILLER.has(words[0].toLowerCase())) words.shift();
   const cased = words.map((w) =>
     w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w
