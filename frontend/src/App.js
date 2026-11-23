@@ -79,6 +79,7 @@ const AdminExceptions = lazy(() => import('./pages/admin/AdminExceptions'));
 const AdminVerifications = lazy(() => import('./pages/admin/AdminVerifications'));
 const AdminLedger = lazy(() => import('./pages/admin/AdminLedger'));
 const AdminReviewQueue = lazy(() => import('./pages/admin/AdminReviewQueue'));
+const AdminOpsDesk = lazy(() => import('./pages/admin/AdminOpsDesk'));
 const AdminFactoring = lazy(() => import('./pages/admin/AdminFactoring'));
 const ShipperClaims = lazy(() => import('./pages/shipper/ShipperClaims'));
 const CarrierClaims = lazy(() => import('./pages/carrier/CarrierClaims'));
@@ -209,6 +210,7 @@ function App() {
             <Route path="exceptions" element={<AdminExceptions />} />
             <Route path="ledger" element={<AdminLedger />} />
             <Route path="review-queue" element={<AdminReviewQueue />} />
+            <Route path="ops-desk" element={<AdminOpsDesk />} />
             <Route path="factoring" element={<AdminFactoring />} />
             <Route path="claims" element={<AdminClaims />} />
             <Route path="profile" element={<AdminProfile />} />

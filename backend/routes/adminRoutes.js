@@ -28,6 +28,16 @@ router.get('/system-status', auth, ADMIN_ONLY, (req, res) => {
   }
 });
 
+// ── GET /api/admin/ops-desk ── everything that needs a person, each with a rule-based recommendation
+router.get('/ops-desk', auth, ADMIN_ONLY, async (req, res) => {
+  try {
+    res.json(await require('../services/opsDesk').getDesk({ adminId: req.user.userId }));
+  } catch (err) {
+    console.error('[admin/ops-desk] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── GET /api/admin/audit-logs ─────────────────────────────────────────────────
 // Paginated audit trail, filterable by entity / action / userId.
 router.get('/audit-logs', auth, ADMIN_ONLY, async (req, res) => {

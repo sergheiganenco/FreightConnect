@@ -15,6 +15,7 @@ import GavelIcon from "@mui/icons-material/Gavel";
 
 const NAV = [
   { key: "overview",       icon: <DashboardIcon />,    label: "Overview" },
+  { key: "ops-desk",       icon: <FactCheckIcon />,     label: "Operations Desk" },
   { key: "loads",          icon: <ListAltIcon />,       label: "All Loads" },
   { key: "users",          icon: <PeopleAltIcon />,     label: "Users" },
   { key: "companies",      icon: <BusinessIcon />,      label: "Companies" },
