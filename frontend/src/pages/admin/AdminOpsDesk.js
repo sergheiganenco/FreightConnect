@@ -7,7 +7,7 @@ import api from "../../services/api";
 const SEVERITY_COLOR = { critical: "error", high: "error", medium: "warning", low: "default" };
 const ACTION_LABEL = { approve: "Recommend: approve", deny: "Recommend: deny", resolve: "Recommend: resolve", dismiss: "Recommend: dismiss", review: "Needs your decision" };
 const KIND_LABEL = {
-  claim: "Claim", exception: "Issue", fraud: "Fraud", review: "Account", carrier_verification: "Carrier", shipper_verification: "Shipper", contact: "Message",
+  payout: "Payout", claim: "Claim", exception: "Issue", fraud: "Fraud", review: "Account", carrier_verification: "Carrier", shipper_verification: "Shipper", contact: "Message",
 };
 const age = (h) => (h < 1 ? "under an hour" : h < 48 ? `${h} h` : `${Math.round(h / 24)} days`);
 

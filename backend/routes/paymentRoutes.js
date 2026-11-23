@@ -444,12 +444,26 @@ async function createEscrowHoldForLoad(loadId) {
     if (!load) return { funded: false, error: 'Load not found' };
 
     // Reuse existing hold if present
+    const amountCents = load.rateCents != null ? load.rateCents : Math.round(load.rate * 100);
     const existing = await Payment.findOne({ loadId: load._id, status: { $in: ['pending', 'in_escrow'] } });
     if (existing) {
-      return { funded: existing.status === 'in_escrow', paymentIntentId: existing.stripePaymentIntentId, clientSecret: existing.stripeClientSecret };
+      // Reuse a hold only if it is for THIS booking: same carrier, same amount. A leftover from an earlier booking
+      // would charge the old amount and pay the old carrier.
+      const sameBooking = String(existing.carrierId || '') === String(load.acceptedBy || '') && existing.amountCents === amountCents;
+      if (sameBooking) {
+        if (load.escrowPaymentIntentId !== existing.stripePaymentIntentId) {
+          await Load.updateOne({ _id: load._id }, { $set: { escrowPaymentIntentId: existing.stripePaymentIntentId } });
+        }
+        return { funded: existing.status === 'in_escrow', paymentIntentId: existing.stripePaymentIntentId, clientSecret: existing.stripeClientSecret };
+      }
+      if (existing.stripePaymentIntentId) {
+        try { await stripe.paymentIntents.cancel(existing.stripePaymentIntentId, { cancellation_reason: 'abandoned' }); }
+        catch (e) { return { funded: false, error: 'An earlier payment hold for this load could not be cancelled. Contact support.' }; }
+      }
+      existing.status = 'cancelled';
+      await existing.save();
     }
 
-    const amountCents = load.rateCents != null ? load.rateCents : Math.round(load.rate * 100);
     const feeCents = calculatePlatformFee(amountCents);
     const payoutCents = calculateCarrierPayout(amountCents);
 
@@ -478,7 +492,9 @@ async function createEscrowHoldForLoad(loadId) {
     }, {
       // Idempotency: concurrent accepts (double-click / two tabs) must not create two
       // holds. Keyed by load+carrier so a genuinely different booking gets its own hold.
-      idempotencyKey: `escrow_hold_${load._id}_${load.acceptedBy || 'none'}`,
+      // The amount and the number of earlier payments for this load are part of the key, so re-booking after a
+      // cancelled hold (even by the same carrier) gets a fresh hold and not Stripe's remembered, cancelled one.
+      idempotencyKey: `escrow_hold_${load._id}_${load.acceptedBy || 'none'}_${amountCents}_${await Payment.countDocuments({ loadId: load._id })}`,
     });
 
     await Payment.create({

@@ -61,15 +61,29 @@ module.exports = (io) => {
   // escrow flags so a reopened load starts clean. Returns true if a hold existed.
   async function releaseEscrowHold(loadId, reason) {
     const Payment = require('../models/Payment');
-    const payment = await Payment.findOne({ loadId, status: 'in_escrow' });
+    // 'pending' too: a payment the shipper started but never confirmed must not linger, or the next booking of this
+    // load would pick it up with the old carrier and the old amount.
+    const payment = await Payment.findOne({ loadId, status: { $in: ['pending', 'in_escrow'] } });
     if (!payment) return false;
+    const wasHeld = payment.status === 'in_escrow';
 
     if (process.env.STRIPE_SECRET_KEY && payment.stripePaymentIntentId) {
       try {
         const escrowService = require('../services/escrowService');
         await escrowService.cancelHold(payment.stripePaymentIntentId, reason);
       } catch (holdErr) {
-        console.error('[cancel] Stripe hold cancel failed (non-fatal):', holdErr.message);
+        // The hold may still be live on the shipper's card. Do NOT record it as cancelled: leave the payment as it
+        // is and tell the admins, so the record never says money was freed when it was not.
+        console.error('[cancel] Stripe hold cancel failed:', holdErr.message);
+        const { notifyAdmins } = require('../utils/notifyUser');
+        notifyAdmins({
+          type: 'payment:hold_cancel_failed',
+          title: 'A payment hold could not be cancelled',
+          body: `Load ${loadId}: the hold on the shipper's card was not released automatically. Cancel it in Stripe.`,
+          link: '/dashboard/admin/ledger',
+          metadata: { loadId: String(loadId), paymentId: String(payment._id), priority: 'high' },
+        }).catch(() => {});
+        return wasHeld;
       }
     }
 

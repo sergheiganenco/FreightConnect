@@ -18,6 +18,7 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const Load = require('../models/Load');
 const OpsProposal = require('../models/OpsProposal');
+const Payment = require('../models/Payment');
 
 const CLAIM_REVIEW_LIMIT_CENTS = Number(process.env.OPS_CLAIM_REVIEW_LIMIT_CENTS) || 50000; // $500
 const HOUR = 60 * 60 * 1000;
@@ -94,7 +95,7 @@ async function autoResolve() {
 // ── Step 2: the queue ────────────────────────────────────────────────────────
 async function collectCases({ adminId, env = process.env } = {}) {
   const open = { $in: ['open', 'investigating'] };
-  const [claims, exceptions, reviews, frauds, carriers, shippers, contacts] = await Promise.all([
+  const [claims, exceptions, reviews, frauds, carriers, shippers, contacts, stuckPayouts] = await Promise.all([
     Claim.find({ status: open }).sort({ createdAt: 1 }).limit(200).lean(),
     Exception.find({ status: open }).sort({ createdAt: 1 }).limit(200).lean(),
     ReviewQueue.find({ status: 'pending' }).sort({ createdAt: 1 }).limit(200).populate('subjectUser', 'companyName name').lean(),
@@ -102,6 +103,8 @@ async function collectCases({ adminId, env = process.env } = {}) {
     User.find({ role: 'carrier', 'verification.status': 'pending' }).select('companyName name verification createdAt updatedAt').limit(200).lean(),
     User.find({ role: 'shipper', 'shipperVerification.status': 'pending' }).select('companyName name createdAt updatedAt').limit(200).lean(),
     adminId ? Notification.find({ userId: adminId, type: 'contact:message', read: false }).sort({ createdAt: 1 }).limit(100).lean() : [],
+    // Money taken from the shipper but not yet sent on: every hour it sits is a carrier waiting to be paid.
+    Payment.find({ status: 'captured', updatedAt: { $lt: new Date(Date.now() - HOUR) } }).sort({ updatedAt: 1 }).limit(100).lean(),
   ]);
   const loadIds = [...claims, ...exceptions].map((c) => c.loadId);
   const loads = loadIds.length
@@ -113,6 +116,11 @@ async function collectCases({ adminId, env = process.env } = {}) {
   const age = (d) => Math.max(0, Math.round((now - new Date(d || now).getTime()) / HOUR));
 
   const cases = [
+    ...stuckPayouts.map((p) => ({
+      kind: 'payout', id: p._id, title: `Carrier payout not sent: ${money(p.carrierPayoutCents ?? p.amountCents)}`, detail: `Load ${p.loadId}`,
+      severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger',
+      proposal: review('The shipper has been charged, but the payout to the carrier (or its factoring company) has not gone out. Send it from Stripe or the ledger.'),
+    })),
     ...claims.map((c) => ({
       kind: 'claim', id: c._id, title: `Cargo claim: ${c.type}, ${money(c.amountCents)}`, detail: loadOf(c.loadId)?.title || null,
       severity: c.amountCents > CLAIM_REVIEW_LIMIT_CENTS ? 'high' : 'medium', ageHours: age(c.createdAt), link: '/dashboard/admin/claims', proposal: claimProposal(c, loadOf(c.loadId)),

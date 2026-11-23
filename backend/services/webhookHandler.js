@@ -270,11 +270,15 @@ const HANDLERS = {
     const paymentIntentId = transfer.metadata?.paymentIntentId;
 
     if (!paymentIntentId && !loadId) return;
+    // A detention / lumper / other accessorial transfer is NOT the freight payout: it must never mark the freight
+    // payment as released (that would leave the freight hold uncaptured and the carrier unpaid for the load).
+    if (transfer.metadata?.accessorialType) return;
 
     const query = paymentIntentId
       ? { stripePaymentIntentId: paymentIntentId }
       : { loadId };
-    const payment = await Payment.findOne(query);
+    // Only money that is held or captured can become "released". A refunded, disputed or cancelled payment stays as it is.
+    const payment = await Payment.findOne({ ...query, status: { $in: ['in_escrow', 'captured'] } });
     if (!payment) return;
 
     payment.status = 'released';
