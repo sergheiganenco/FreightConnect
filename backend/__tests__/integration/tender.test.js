@@ -243,6 +243,15 @@ describe('carrier network routes', () => {
     expect(add.status).toBe(201);
     expect(String(add.body.carrier)).toBe(String(carrier._id));
     expect((await as('post', '/api/preferred-carriers', shipper).send({ dotNumber: '7654321' })).status).toBe(409);
+    // an unverified holder of a DOT is not found by number; two verified holders of one DOT are refused
+    const other = await verifiedShipper();
+    const pending = await verifiedCarrier({ dot: '2222222' });
+    await User.updateOne({ _id: pending._id }, { $set: { 'verification.status': 'pending' } });
+    expect((await as('post', '/api/preferred-carriers', other).send({ dotNumber: '2222222' })).status).toBe(404);
+    await verifiedCarrier({ dot: '7654321' });
+    const twin = await as('post', '/api/preferred-carriers', other).send({ dotNumber: '7654321' });
+    expect(twin.status).toBe(409);
+    expect(await PreferredCarrier.countDocuments({ shipper: other._id })).toBe(0);
 
     const hauler = await verifiedCarrier();
     await Load.create({ title: 'Done', origin: 'A', destination: 'B', rate: 100, equipmentType: 'Dry Van', postedBy: shipper._id, acceptedBy: hauler._id, status: 'delivered' });

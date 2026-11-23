@@ -60,7 +60,7 @@ async function buildPlan(shipperCompanyId, input) {
 // Can this carrier be offered the load at all? (Whether it may BOOK is still decided by the booking gate at accept.)
 function offerable(load, carrier) {
   if (!carrier || carrier.role !== 'carrier' || carrier.active === false) return false;
-  if (['suspended', 'rejected'].includes(carrier.verification?.status)) return false;
+  if (carrier.verification?.status !== 'verified') return false; // anything else could not book it and would only burn the answer window
   return checkLoadEligibility({ load, carrier }).eligible;
 }
 

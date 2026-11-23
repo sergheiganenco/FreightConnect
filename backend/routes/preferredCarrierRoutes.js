@@ -34,10 +34,14 @@ router.post(
       if (!req.body.carrierId && !dotNumber) return res.status(400).json({ error: 'carrierId or dotNumber is required' });
 
       // A carrier COMPANY account (never a team member's login), found by id or by its FMCSA-confirmed DOT number.
-      const carrier = await User.findOne({
-        ...(req.body.carrierId ? { _id: req.body.carrierId } : { 'verification.fmcsaData.dotNumber': dotNumber }),
+      // By DOT: only a carrier whose FMCSA check currently stands, and only when exactly one account holds that number
+      // (two accounts claiming one DOT is an impersonation signal: the shipper must not be handed either by number).
+      const found = await User.find({
+        ...(req.body.carrierId ? { _id: req.body.carrierId } : { 'verification.fmcsaData.dotNumber': dotNumber, 'verification.status': 'verified' }),
         role: 'carrier', parentAccountId: null, active: { $ne: false },
-      }).select('_id');
+      }).select('_id').limit(2);
+      if (found.length > 1) return res.status(409).json({ error: 'More than one account uses that DOT number. Contact us so we can check it before you add this carrier.' });
+      const carrier = found[0];
       if (!carrier) {
         return res.status(404).json({ error: dotNumber ? 'No verified carrier with that DOT number is on FreightConnect' : 'Carrier not found' });
       }
