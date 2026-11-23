@@ -6,6 +6,7 @@ import ListAltIcon       from "@mui/icons-material/ListAlt";
 import DirectionsCarIcon from "@mui/icons-material/DirectionsCar";
 import BadgeIcon from '@mui/icons-material/Badge';
 import MapIcon from '@mui/icons-material/Map';
+import DashboardIcon from '@mui/icons-material/Dashboard';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import ChatIcon from '@mui/icons-material/Chat';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -59,7 +60,8 @@ const coreItems = [
 //         (unset)   → visible to every company role
 const moreItems = [
   { key: "team",         label: "Team",          icon: <GroupsIcon />,          access: 'owner' },
-  { key: "fleet",        label: "Fleet",         icon: <DirectionsCarIcon />,   access: 'manager' },
+  { key: "dispatch",     label: "Dispatch",      icon: <DashboardIcon />,       access: 'manager' },
+  { key: "fleet",        label: "Fleet",        icon: <DirectionsCarIcon />,   access: 'manager' },
   { key: "drivers",      label: "Drivers",       icon: <BadgeIcon />,           access: 'manager' },
   { key: "fleetHos",     label: "Fleet HOS",     icon: <MonitorHeartIcon />,    access: 'manager' },
   { key: "fleetMap",     label: "Fleet Map",     icon: <MapIcon /> },

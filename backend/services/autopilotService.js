@@ -281,7 +281,10 @@ async function planForTruck({ companyId, caller, truckId, overrides = {}, now = 
 
   return {
     truck: { truckId: truck.truckId, driverName: (driver && driver.name) || truck.driverName || null },
-    start: { lat: start.lat, lng: start.lng, availableAt: start.availableAt.toISOString() },
+    // The home base location is company data: a driver is told the plan starts there, not where it is.
+    start: caller.companyRole === 'driver' && start.source === 'home_base'
+      ? { availableAt: start.availableAt.toISOString() }
+      : { lat: start.lat, lng: start.lng, availableAt: start.availableAt.toISOString() },
     startSource: start.source,
     hosAssumed: !hos,
     // The saved company rules (and home base coordinates) are owner/dispatcher data: not echoed to a driver.
@@ -308,4 +311,4 @@ async function getRules(companyId) {
   };
 }
 
-module.exports = { planForTruck, getRules, AutopilotError };
+module.exports = { planForTruck, getRules, AutopilotError, driverForTruck, NOT_AVAILABLE_STATUSES };

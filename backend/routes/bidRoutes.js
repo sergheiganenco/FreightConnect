@@ -281,32 +281,10 @@ router.put('/:id/accept', auth, async (req, res) => {
 
     // Auto-create load_thread channel
     try {
-      const Channel = require('../models/Channel');
-      const Message = require('../models/Message');
-      const channelId = `load_${bid.loadId._id}`;
-      if (!await Channel.findOne({ channelId })) {
-        await Channel.create({
-          channelType: 'load_thread',
-          channelId,
-          loadId: bid.loadId._id,
-          participants: [
-            { user: bid.carrierId, role: 'carrier' },
-            { user: bid.loadId.postedBy, role: 'shipper' },
-          ],
-        });
-        await Message.create({
-          channelType: 'load_thread',
-          channelId,
-          sender: null,
-          content: `✅ Bid accepted at $${finalAmount.toLocaleString()}. Good luck on the road!`,
-          messageType: 'system',
-        });
-        const io = getIO();
-        // ChatProvider listens for the plain 'chat:channelCreated' event name (the
-        // per-user room already scopes delivery) — a dynamic suffix was never received.
-        io.to(`user_${bid.loadId.postedBy}`).emit('chat:channelCreated', {});
-        io.to(`user_${bid.carrierId}`).emit('chat:channelCreated', {});
-      }
+      await require('../services/loadThread').openLoadThread({
+        loadId: bid.loadId._id, carrierId: bid.carrierId, shipperId: bid.loadId.postedBy,
+        welcome: `✅ Bid accepted at $${finalAmount.toLocaleString()}. Good luck on the road!`, preview: 'Bid accepted',
+      });
     } catch (chatErr) {
       console.error('Failed to create load chat (non-fatal):', chatErr.message);
     }
@@ -446,6 +424,14 @@ router.put('/:id/accept-counter', auth, async (req, res) => {
       });
       throw bidErr;
     }
+
+    // Same thread handling as every other booking path (never reuse another booking's thread).
+    try {
+      await require('../services/loadThread').openLoadThread({
+        loadId: bid.loadId._id, carrierId: bid.carrierId, shipperId: bid.loadId.postedBy,
+        welcome: '✅ Counter-offer accepted. You can now communicate directly here.', preview: 'Counter-offer accepted',
+      });
+    } catch (chatErr) { console.error('Failed to create load chat (non-fatal):', chatErr.message); }
 
     notify(bid.loadId.postedBy.toString(), 'bid:accepted', {
       bidId: bid._id,

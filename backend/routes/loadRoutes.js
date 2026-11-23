@@ -876,36 +876,10 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
 
       // Auto-create a load_thread channel between the carrier company and shipper.
       try {
-        const Channel = require("../models/Channel");
-        const Message = require("../models/Message");
-        const channelId = `load_${load._id}`;
-        const existing = await Channel.findOne({ channelId });
-        if (!existing) {
-          // Anything still filed under this id was written after the previous booking's thread was set aside
-          // (e.g. its cancellation note): it is not this carrier's to read.
-          await Message.deleteMany({ channelId });
-          const channel = await Channel.create({
-            channelType: "load_thread",
-            channelId,
-            loadId: load._id,
-            participants: [
-              { user: companyId, role: "carrier" },
-              { user: load.postedBy, role: "shipper" },
-            ],
-            lastMessageAt: new Date(),
-            lastMessagePreview: "Carrier accepted this load",
-          });
-          await Message.create({
-            channelType: "load_thread",
-            channelId,
-            sender: null,
-            content: `✓ Carrier accepted this load. You can now communicate directly here.`,
-            messageType: "system",
-            readBy: [],
-          });
-          // Notify shipper via their personal room
-          io.to(`user_${load.postedBy}`).emit('chat:channelCreated', { channel });
-        }
+        await require('../services/loadThread').openLoadThread({
+          loadId: load._id, carrierId: companyId, shipperId: load.postedBy,
+          welcome: '✓ Carrier accepted this load. You can now communicate directly here.', preview: 'Carrier accepted this load',
+        });
       } catch (chatErr) {
         console.error("Failed to create load thread (non-fatal):", chatErr);
       }

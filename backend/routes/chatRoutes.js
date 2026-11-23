@@ -7,11 +7,8 @@ const Message = require('../models/Message');
 const { getIO } = require('../utils/socket');
 
 // Helper — verify caller is a participant
-function isParticipant(channel, userId) {
-  return channel.participants.some(
-    (p) => p.user.toString() === userId.toString()
-  );
-}
+const { canAccessChannel } = require('../services/loadThread');
+const isParticipant = (channel, user) => canAccessChannel(channel, user);
 
 // ----------------------------------------
 // POST /api/chat/channels
@@ -108,7 +105,7 @@ router.get('/channels/:channelId', auth, async (req, res) => {
       .populate('participants.user', 'name role');
 
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (!isParticipant(channel, req.user.userId)) {
+    if (!isParticipant(channel, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -127,7 +124,7 @@ router.get('/channels/:channelId/messages', auth, async (req, res) => {
   try {
     const channel = await Channel.findOne({ channelId: req.params.channelId });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (!isParticipant(channel, req.user.userId)) {
+    if (!isParticipant(channel, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -155,7 +152,7 @@ router.post('/channels/:channelId/messages', auth, async (req, res) => {
   try {
     const channel = await Channel.findOne({ channelId: req.params.channelId });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (!isParticipant(channel, req.user.userId)) {
+    if (!isParticipant(channel, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
     if (channel.status === 'locked') {
@@ -269,7 +266,7 @@ router.post('/channels/:channelId/read', auth, async (req, res) => {
   try {
     const channel = await Channel.findOne({ channelId: req.params.channelId });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (!isParticipant(channel, req.user.userId)) {
+    if (!isParticipant(channel, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -306,7 +303,7 @@ router.post('/channels/:channelId/mute', auth, async (req, res) => {
   try {
     const channel = await Channel.findOne({ channelId: req.params.channelId });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    if (!isParticipant(channel, req.user.userId)) {
+    if (!isParticipant(channel, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

@@ -221,7 +221,9 @@ export default function CarrierAutopilot() {
         const { data } = await api.get('/users/fleet');
         const trucks = data.fleet || [];
         setFleet(trucks);
-        if (trucks.length) setTruckId(trucks[0].truckId);
+        // ?truckId= (from the Dispatch Board) preselects that truck when it is in this fleet.
+        const wanted = new URLSearchParams(window.location.search).get('truckId');
+        if (trucks.length) setTruckId(trucks.some((t) => t.truckId === wanted) ? wanted : trucks[0].truckId);
       } catch { setError('Could not load your fleet.'); }
       try { // owner/dispatcher only; drivers just use the defaults on the server
         const { data } = await api.get('/autopilot/rules');

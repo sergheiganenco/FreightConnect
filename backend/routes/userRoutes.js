@@ -948,7 +948,7 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
       const Channel = require("../models/Channel");
       const Message = require("../models/Message");
       const channelId = `load_${load._id}`;
-      const channel = await Channel.findOne({ channelId });
+      const { channel } = await require('../services/loadThread').openLoadThread({ loadId: load._id, carrierId: user._id, shipperId: load.postedBy, preview: 'Carrier dispatched' });
       if (channel) {
         const driverInfo = truck.driverName ? ` Driver: ${truck.driverName}.` : "";
         await Message.create({

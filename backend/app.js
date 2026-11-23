@@ -296,8 +296,14 @@ io.on('connection', (socket) => {
   });
 
   // ── Chat: join / leave channel rooms ───────────────────────────
-  socket.on('joinChannel', ({ channelId }) => {
-    if (channelId) socket.join(channelId);
+  // Joining a room delivers every message in it: same membership rule as reading the channel over HTTP.
+  socket.on('joinChannel', async ({ channelId } = {}) => {
+    try {
+      if (typeof channelId !== 'string' || channelId.length > 200) return;
+      const channel = await require('./models/Channel').findOne({ channelId }).select('channelType participants').lean();
+      const { canAccessChannel } = require('./services/loadThread');
+      if (canAccessChannel(channel, { userId: socket.userId, companyOwnerId: socket.companyOwnerId })) socket.join(channelId);
+    } catch (_) { /* not joined */ }
   });
 
   socket.on('leaveChannel', ({ channelId }) => {
@@ -305,14 +311,17 @@ io.on('connection', (socket) => {
   });
 
   // ── Chat: typing indicators ─────────────────────────────────────
-  socket.on('typing', ({ channelId }) => {
+  // Typing / read events only reach rooms this socket was allowed to join.
+  socket.on('typing', ({ channelId } = {}) => {
+    if (!socket.rooms.has(channelId)) return;
     socket.to(channelId).emit('userTyping', {
       channelId,
       userId: socket.userId,
     });
   });
 
-  socket.on('stopTyping', ({ channelId }) => {
+  socket.on('stopTyping', ({ channelId } = {}) => {
+    if (!socket.rooms.has(channelId)) return;
     socket.to(channelId).emit('userStoppedTyping', {
       channelId,
       userId: socket.userId,
@@ -320,7 +329,8 @@ io.on('connection', (socket) => {
   });
 
   // ── Chat: read receipts ─────────────────────────────────────────
-  socket.on('markRead', ({ channelId }) => {
+  socket.on('markRead', ({ channelId } = {}) => {
+    if (!socket.rooms.has(channelId)) return;
     socket.to(channelId).emit('readReceipt', {
       channelId,
       userId: socket.userId,
@@ -474,6 +484,8 @@ app.use('/api/return-loads', returnLoadRoutes);
 
 // Truck Autopilot (read-only chain planner; booking uses PUT /api/loads/:id/accept)
 app.use('/api/autopilot', require('./routes/autopilotRoutes'));
+// Dispatch Board (read-only fleet overview for owners/dispatchers)
+app.use('/api/dispatch', require('./routes/dispatchRoutes'));
 
 // Public Tracking Portal Routes
 const trackingPortalRoutes = require('./routes/trackingPortalRoutes');

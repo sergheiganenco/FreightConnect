@@ -486,9 +486,7 @@ async function archiveThread(loadId) {
   try {
     const l = await mongoose.model('Load').findById(loadId).select('status acceptedBy').lean();
     if (!l || l.acceptedBy || l.status !== 'open') return;
-    const from = `load_${loadId}`, to = `${from}_${Date.now()}`;
-    const r = await require('./Channel').updateOne({ channelId: from }, { $set: { channelId: to } });
-    if (r.modifiedCount) await require('./Message').updateMany({ channelId: from }, { $set: { channelId: to } });
+    await require('../services/loadThread').archiveLoadThread(loadId);
   } catch (err) { console.error('[load] thread archive failed:', err.message); }
 }
 async function onUnbooked(loadId) { await archiveEvidence(loadId); await closeOpenDwellEvents(loadId); await archiveThread(loadId); }
