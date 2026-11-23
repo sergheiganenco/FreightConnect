@@ -345,7 +345,7 @@ router.post("/login", authLimiter, loginValidation, validate, async (req, res) =
     }
 
     const token = signSessionToken(user);
-    setFileCookie(res, { userId: user._id, role: user.role, companyOwnerId: user.parentAccountId || user._id });
+    setFileCookie(res, { userId: user._id, role: user.role, companyOwnerId: user.parentAccountId || user._id, companyRole: user.companyRole });
 
     return res.json({
       token,
@@ -465,7 +465,7 @@ router.post('/refresh-token', auth, async (req, res) => {
     // Same claims as login: a refreshed sub-account token must keep its company
     // role and scope (it used to come back looking like an owner token).
     const token = signSessionToken(user);
-    setFileCookie(res, { userId: user._id, role: user.role, companyOwnerId: user.parentAccountId || user._id });
+    setFileCookie(res, { userId: user._id, role: user.role, companyOwnerId: user.parentAccountId || user._id, companyRole: user.companyRole });
 
     res.json({
       token,

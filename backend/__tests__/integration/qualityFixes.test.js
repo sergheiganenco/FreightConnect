@@ -20,7 +20,7 @@ const dir = path.join(__dirname, '..', '..', 'public', 'documents', 'uploads');
 const app = express();
 app.use(express.json());
 app.use('/documents/uploads', requireFileAccess, express.static(dir));
-app.get('/cookie/:id/:role', (req, res) => { setFileCookie(res, { userId: req.params.id, role: req.params.role, companyOwnerId: req.params.id }); res.end(); });
+app.get('/cookie/:id/:role', (req, res) => { setFileCookie(res, { userId: req.params.id, role: req.params.role, companyOwnerId: req.query.owner || req.params.id, companyRole: req.query.cr }); res.end(); });
 app.use('/api/loads', require('../../routes/loadRoutes')(mockIo));
 
 const as = (m, url, user) => request(app)[m](url).set('Authorization', `Bearer ${generateToken(user)}`);
@@ -61,6 +61,21 @@ describe('stored documents', () => {
       `/documents/uploads/%${id.charCodeAt(0).toString(16)}${id.slice(1)}-bol.pdf`, `/documents/uploads//${id}-bol.pdf`, `/documents/uploads/${id.toUpperCase()}-bol.pdf`]) {
       expect((await request(app).get(p).set('Cookie', sneaky)).status).not.toBe(200);
     }
+    // a settlement statement: its company's managers, never its drivers or another company
+    const Settlement = require('../../models/Settlement');
+    const sid = new (require('mongoose').Types.ObjectId)();
+    await Settlement.collection.insertOne({ _id: sid, companyOwnerId: carrier._id });
+    const pay = put(`${sid}-settlement.pdf`);
+    const driver = await createTestUser({ role: 'carrier' });
+    const driverCookie = (await request(app).get(`/cookie/${driver._id}/carrier?owner=${carrier._id}&cr=driver`)).headers['set-cookie'][0].split(';')[0];
+    expect((await request(app).get(pay).set('Cookie', await cookieFor(carrier))).status).toBe(200);
+    expect((await request(app).get(pay).set('Cookie', driverCookie)).status).toBe(404);
+    expect((await request(app).get(pay).set('Cookie', sneaky)).status).toBe(404);
+    // a deactivated account loses its documents even though its cookie has not expired
+    const stale = await cookieFor(shipper);
+    await require('../../models/User').updateOne({ _id: shipper._id }, { $set: { active: false } });
+    await require('../../middlewares/authMiddleware').revokeSessions(shipper._id, { io: null });
+    expect((await request(app).get(bol).set('Cookie', stale)).status).toBe(401);
     // and a path that tries to climb out is not served
     expect((await request(app).get('/documents/uploads/..%2F..%2F..%2Fapp.js').set('Cookie', await cookieFor(admin))).status).not.toBe(200);
   });
