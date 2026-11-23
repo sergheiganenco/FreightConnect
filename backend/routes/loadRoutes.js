@@ -19,7 +19,8 @@ module.exports = (io) => {
   const { pickupBlockers, deliveryBlockers } = require('../services/evidenceService');
   const antiFraudGuard = require('../services/antiFraudGuard');
   const { checkLoadEligibility } = require('../services/loadEligibility');
-  const { carrierOpenVisibleConditions, carrierCanSeeLoad } = require('../services/loadVisibility');
+  const { carrierOpenVisibleConditions, carrierCanSeeLoad, tenderBookable } = require('../services/loadVisibility');
+  const tenderService = require('../services/tenderService');
   const { haversineMiles, boundingBox, round } = require('../utils/geo');
   const { refreshLoad, messages: pickupRiskMessages, noShowSnapshot, fileNoShowReview } = require('../jobs/pickupRiskMonitor');
   const { estimateEconomics } = require('../utils/loadEconomics');
@@ -686,7 +687,8 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
     }
 
     // gate -> validation -> geocode -> distance -> create -> notifications: shared with EDI, bulk and email import
-    const r = await createPostedLoad({ shipperCompanyId: companyId, fields, io });
+    // tender: offer the load to the shipper's network one carrier at a time (services/tenderService) instead of posting it.
+    const r = await createPostedLoad({ shipperCompanyId: companyId, fields, io, options: req.body.tender != null ? { tender: req.body.tender } : {} });
     if (!r.load) return res.status(r.status).json({ error: r.error, ...r.extra });
     res.status(201).json(r.needsLocation ? { ...r.load.toObject(), needsLocation: true } : r.load);
   } catch (err) {
@@ -708,6 +710,37 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       res.json({ ...load.toObject(), needsLocation: flags.needsLocation || undefined, materialChange: flags.materialChange, voidedBids: flags.voidedBids });
     } catch (err) {
       console.error('[PUT /loads/:id] failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ----------------------------------------
+  // Auto-tender. GET: the posting shipper company sees the line and each carrier's answer.
+  // POST decline: the carrier company holding the offer passes; the next carrier in line is offered at once.
+  // ----------------------------------------
+  router.get('/:id/tender', auth, param('id').isMongoId(), validate, async (req, res) => {
+    try {
+      if (req.user.role !== 'shipper') return res.status(403).json({ error: 'Forbidden' });
+      const r = await tenderService.statusForShipper({ loadId: req.params.id, shipperCompanyId: companyOf(req) });
+      if (r.error) return res.status(r.status).json({ error: r.error });
+      res.json(r);
+    } catch (err) {
+      console.error('[GET /loads/:id/tender] failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+  router.post('/:id/tender/decline', auth, param('id').isMongoId(),
+    body('reason').optional({ nullable: true }).isString().isLength({ max: 200 }).withMessage('reason must be text of 200 characters or fewer'),
+    validate, async (req, res) => {
+    try {
+      if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Forbidden' });
+      if (req.user.companyRole === 'driver') return res.status(403).json({ error: 'Only the company owner or a dispatcher can answer an offer.' });
+      const reason = typeof req.body.reason === 'string' ? req.body.reason.replace(/[\u0000-\u001f<>]/g, ' ').trim() : undefined;
+      const r = await tenderService.decline({ loadId: req.params.id, carrierCompanyId: companyOf(req), reason: reason || undefined });
+      if (r.error) return res.status(r.status).json({ error: r.error });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[POST /loads/:id/tender/decline] failed:', err.message);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -830,7 +863,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         acceptUpdate.riskFlags = fraudResult.riskFlags;
       }
       acceptUpdate.assignedTruckId = planTruckId; // null when none: a link from an earlier booking never survives
-      const acceptFilter = { _id: req.params.id, status: "open", acceptedBy: null };
+      const acceptFilter = { _id: req.params.id, status: "open", acceptedBy: null, ...tenderBookable(companyId) };
       // Always conditional on the terms this request was checked against: the version the carrier saw, else the one just read.
       const gatedVersion = seenVersion ?? (loadToCheck.termsVersion || 1);
       acceptFilter.termsVersion = versionIs(gatedVersion);
@@ -1395,7 +1428,7 @@ router.put("/:id/assign-to-truck", auth, async (req, res) => {
 // GET /api/loads/:id/stops
 router.get('/:id/stops', auth, async (req, res) => {
   try {
-    const load = await Load.findById(req.params.id).select('stops origin destination status postedBy acceptedBy loadVisibility');
+    const load = await Load.findById(req.params.id).select('stops origin destination status postedBy acceptedBy loadVisibility tender createdAt');
     if (!load) return res.status(404).json({ error: 'Load not found' });
     // Stops carry facility contact details — gate the same way as the load itself.
     const denied = await browseDenial(load, req);

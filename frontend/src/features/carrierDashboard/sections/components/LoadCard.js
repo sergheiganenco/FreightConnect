@@ -74,6 +74,14 @@ export default function LoadCard({ load, onClick }) {
           </Typography>
         )}
 
+        {load.loadVisibility === 'tender' && load.status === 'open' && (
+          <Chip
+            label={`Offered to you${load.tender?.expiresAt ? ` — answer by ${new Date(load.tender.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`}
+            size="small"
+            sx={{ mb: 0.5, bgcolor: 'rgba(124,140,248,0.2)', color: '#c7d2fe', fontWeight: 700, fontSize: '0.75rem', border: '1px solid rgba(124,140,248,0.5)' }}
+          />
+        )}
+
         {/* Overweight badge — visible to carriers before accepting */}
         {load.overweightAcknowledged && (
           <Chip

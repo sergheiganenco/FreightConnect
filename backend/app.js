@@ -472,6 +472,7 @@ app.use('/api/ratings', ratingRoutes);
 // Preferred Carrier Routes
 const preferredCarrierRoutes = require('./routes/preferredCarrierRoutes');
 app.use('/api/preferred-carriers', preferredCarrierRoutes);
+app.use('/api/contact', require('./routes/contactRoutes'));
 
 // Detention & Dwell Time Routes
 const detentionRoutes = require('./routes/detentionRoutes');
@@ -582,6 +583,7 @@ server.listen(PORT, () => {
     require('./jobs/overdueLoadMonitor').start();
     require('./jobs/pickupRiskMonitor').start();
     require('./jobs/checkCallMonitor').start();
+    require('./jobs/tenderMonitor').start();
     require('./jobs/escrowExpiryMonitor').start();
     require('./jobs/contractAutoPost').start();
     require('./jobs/contractMonitor').start();

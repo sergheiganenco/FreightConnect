@@ -17,6 +17,13 @@ const HAS_COORDS = {
   destinationLat: { $type: 'number' }, destinationLng: { $type: 'number' },
 };
 
+const same = (a, b) => a != null && b != null && String(a) === String(b);
+// A tender load exists for exactly one carrier company, and only until its offer runs out.
+const tenderOfferFor = (companyId) => ({ loadVisibility: 'tender', 'tender.offeredTo': companyId, 'tender.expiresAt': { $gt: new Date() } });
+const holdsTenderOffer = (load, companyId) => same(load.tender?.offeredTo, companyId) && new Date(load.tender.expiresAt).getTime() > Date.now();
+/** For the atomic booking write: a tender load is booked only by the carrier holding the live offer. */
+const tenderBookable = (companyId) => ({ $or: [{ loadVisibility: { $ne: 'tender' } }, tenderOfferFor(companyId)] });
+
 /** Mongo conditions to be OR-ed: open loads visible to this carrier company (and bookable: they have coordinates). */
 async function carrierOpenVisibleConditions(companyId) {
   const entries = await PreferredCarrier.find({ carrier: companyId, isActive: true }).select('shipper').lean();
@@ -29,6 +36,7 @@ async function carrierOpenVisibleConditions(companyId) {
     { status: 'open', loadVisibility: { $in: ['preferred', 'private'] }, postedBy: { $in: preferredShipperIds }, ...HAS_COORDS },
     { status: 'open', loadVisibility: 'preferred', postedBy: { $nin: preferredShipperIds },
       createdAt: { $lte: new Date(Date.now() - FIRST_LOOK_MS) }, ...HAS_COORDS },
+    { status: 'open', ...tenderOfferFor(companyId), ...HAS_COORDS },
   ];
 }
 
@@ -37,6 +45,7 @@ async function carrierCanSeeLoad(load, companyId) {
   if (load.status !== 'open') return true;
   const visibility = load.loadVisibility || 'public';
   if (visibility === 'public') return true;
+  if (visibility === 'tender') return holdsTenderOffer(load, companyId);
   // 'preferred' opens to everyone after the first-look window; 'private' never does.
   if (visibility === 'preferred' && new Date(load.createdAt).getTime() <= Date.now() - FIRST_LOOK_MS) return true;
   return !!(await PreferredCarrier.exists({ shipper: load.postedBy, carrier: companyId, isActive: true }));
@@ -61,10 +70,11 @@ async function filterCarriersWhoCanSee(load, carriers) {
   }
   const visibility = load.loadVisibility || 'public';
   if (load.status !== 'open' || visibility === 'public') return carriers;
+  if (visibility === 'tender') return carriers.filter((c) => holdsTenderOffer(load, c.parentAccountId || c._id));
   if (visibility === 'preferred' && new Date(load.createdAt).getTime() <= Date.now() - FIRST_LOOK_MS) return carriers;
   const entries = await PreferredCarrier.find({ shipper: load.postedBy, isActive: true }).select('carrier').lean();
   const allowed = new Set(entries.map((e) => String(e.carrier)));
   return carriers.filter((c) => allowed.has(String(c.parentAccountId || c._id)));
 }
 
-module.exports = { carrierOpenVisibleConditions, carrierCanSeeLoad, filterCarriersWhoCanSee, blockedOwnerIds, FIRST_LOOK_MS };
+module.exports = { carrierOpenVisibleConditions, carrierCanSeeLoad, filterCarriersWhoCanSee, blockedOwnerIds, tenderBookable, FIRST_LOOK_MS };

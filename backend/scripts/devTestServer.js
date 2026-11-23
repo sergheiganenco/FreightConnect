@@ -40,7 +40,7 @@ async function seed() {
     fleet: [{ truckId: 'TRK-PILOT-1', status: 'Available', available: true }],
     verification: {
       status: 'verified', mcNumber: 'MC-PILOT', dotNumber: 'DOT-PILOT',
-      fmcsaData: { legalName: 'Pilot Carrier LLC', operatingStatus: 'AUTHORIZED FOR PROPERTY', lastChecked: new Date() },
+      fmcsaData: { legalName: 'Pilot Carrier LLC', dotNumber: '1234567', operatingStatus: 'AUTHORIZED FOR PROPERTY', lastChecked: new Date() },
       insurance: {
         cargoLiability: { amount: 100000, policyNumber: 'PILOT-CARGO', expiry: yearFromNow, underwriter: 'Pilot Insurer' },
         autoLiability: { amount: 1000000, policyNumber: 'PILOT-AUTO', expiry: yearFromNow, underwriter: 'Pilot Insurer' },

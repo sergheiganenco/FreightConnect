@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link as RouterLink } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   TextField, Button, Grid, Typography, Box, Paper, Snackbar, Alert, Select, MenuItem,
   FormControl, FormHelperText, InputLabel, FormControlLabel, Switch, Checkbox, Divider, Chip, IconButton,
-  CircularProgress, Collapse, Tooltip, Stepper, Step, StepLabel,
+  CircularProgress, Collapse, Tooltip, Stepper, Step, StepLabel, Link,
 } from "@mui/material";
 import Autocomplete from "@mui/material/Autocomplete";
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
@@ -227,6 +227,19 @@ export default function ShipperPostLoad() {
   const submittingRef = useRef(false); // sync guard: state updates are async
   const paymentRef = useRef(null);
 
+  // ── Auto-tender (new loads only): offer to my carriers one at a time ─────
+  const [tenderMinutes, setTenderMinutes] = useState(30);
+  const [tenderFallback, setTenderFallback] = useState('public');
+  const [network, setNetwork] = useState(null); // null = not loaded yet
+  const wantsTender = !isEdit && newLoad.loadVisibility === 'tender';
+  useEffect(() => {
+    if (!wantsTender || network) return;
+    api.get('/preferred-carriers')
+      .then(({ data }) => setNetwork(Array.isArray(data) ? data.filter((e) => e.isActive) : []))
+      .catch(() => setNetwork([]));
+  }, [wantsTender, network]);
+  const tenderBlocked = wantsTender && network !== null && network.length === 0;
+
   // ── Draft Manager ────────────────────────────────────────────────────────
   // Editing uses its own draft slot so it never touches (or offers) the new-load draft.
   const { hasDraft, draftData, resumeDraft, discardDraft, clearDraft, showResumeDialog } = useDraftManager(isEdit ? `shipperEditLoad_${editId}` : 'shipperPostLoad', newLoad, setNewLoad);
@@ -446,6 +459,11 @@ export default function ShipperPostLoad() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submittingRef.current) return;
+    if (tenderBlocked || (wantsTender && network === null)) {
+      setError('Add carriers to My Carriers first, or choose a different visibility.');
+      setOpenSnackbar(true);
+      return;
+    }
     if (!validateFields()) {
       // Check overweight specifically for a targeted error message
       const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
@@ -508,6 +526,11 @@ export default function ShipperPostLoad() {
         // Remove fields not needed by backend
         delete payload.customInsuranceAmount;
         delete payload.termsAccepted;
+        if (wantsTender) {
+          // The server sets loadVisibility to 'tender' itself.
+          delete payload.loadVisibility;
+          payload.tender = { responseMinutes: tenderMinutes, fallback: tenderFallback };
+        }
         await api.post("/loads", payload, { headers });
       }
       clearDraft();
@@ -1439,9 +1462,55 @@ export default function ShipperPostLoad() {
                 <MenuItem value="public">Public (all carriers)</MenuItem>
                 <MenuItem value="preferred">Preferred carriers only</MenuItem>
                 <MenuItem value="private">Private (invite only)</MenuItem>
+                {!isEdit && <MenuItem value="tender">Offer to my carriers one at a time</MenuItem>}
+                {isEdit && editBase.current?.api?.loadVisibility === 'tender' && (
+                  <MenuItem value="tender">Offering to your carriers one at a time</MenuItem>
+                )}
               </Select>
+              {isEdit && editBase.current?.api?.loadVisibility === 'tender' && (
+                <FormHelperText>Choosing another option stops the offer.</FormHelperText>
+              )}
             </FormControl>
           </Grid>
+          {wantsTender && (
+            <Grid item xs={12}>
+              {tenderBlocked ? (
+                <Alert severity="info">
+                  You have no active carriers in your list yet.{' '}
+                  <Link component={RouterLink} to="/dashboard/shipper/network">Add carriers in My Carriers</Link> to use this option.
+                </Alert>
+              ) : (
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>Time to answer</InputLabel>
+                      <Select value={tenderMinutes} label="Time to answer" onChange={(e) => setTenderMinutes(e.target.value)}>
+                        {[[15, '15 minutes'], [30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [240, '4 hours']].map(([m, l]) => (
+                          <MenuItem key={m} value={m}>{l}</MenuItem>
+                        ))}
+                      </Select>
+                      <FormHelperText>Each carrier gets this long to accept before the next is asked.</FormHelperText>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>If nobody accepts</InputLabel>
+                      <Select value={tenderFallback} label="If nobody accepts" onChange={(e) => setTenderFallback(e.target.value)}>
+                        <MenuItem value="public">Public load board</MenuItem>
+                        <MenuItem value="private">All my carriers at once</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="body2" sx={{ color: '#cbd5e1' }}>
+                      Gold carriers are asked first, then silver, then standard.{' '}
+                      <Link component={RouterLink} to="/dashboard/shipper/network">Manage My Carriers</Link>
+                    </Typography>
+                  </Grid>
+                </Grid>
+              )}
+            </Grid>
+          )}
           <Grid item xs={12} sm={4}>
             <TextField
               label="Expiration Date/Time"

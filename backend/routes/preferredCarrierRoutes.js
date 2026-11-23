@@ -8,13 +8,18 @@ const { PUBLIC_PARTY_SELECT } = require('../services/trustScoreService');
 const Load = require('../models/Load');
 const User = require('../models/User');
 const { notifyUserSafe } = require('../utils/notifyUser');
+const { carrierCanSeeLoad } = require('../services/loadVisibility');
+
+// The network belongs to the company: a sub-account acts for its owner, on the shipper and on the carrier side.
+const companyOf = (req) => req.user.companyOwnerId || req.user.userId;
 
 // ── POST /api/preferred-carriers — Shipper adds a carrier to preferred list ──
 router.post(
   '/',
   auth,
   [
-    body('carrierId').isMongoId().withMessage('Valid carrier ID required'),
+    body('carrierId').optional().isMongoId().withMessage('Valid carrier ID required'),
+    body('dotNumber').optional().isString().trim().matches(/^\d{1,8}$/).withMessage('DOT number must be 1 to 8 digits'),
     body('tier').optional().isIn(['gold', 'silver', 'standard']).withMessage('Tier must be gold, silver, or standard'),
     body('notes').optional().isString().trim(),
   ],
@@ -25,20 +30,25 @@ router.post(
         return res.status(403).json({ error: 'Only shippers can manage preferred carriers' });
       }
 
-      const { carrierId, tier, notes } = req.body;
+      const { tier, notes, dotNumber } = req.body;
+      if (!req.body.carrierId && !dotNumber) return res.status(400).json({ error: 'carrierId or dotNumber is required' });
 
-      // Verify the carrier exists and is a carrier
-      const carrier = await User.findById(carrierId).select('role name companyName');
-      if (!carrier || carrier.role !== 'carrier') {
-        return res.status(404).json({ error: 'Carrier not found' });
+      // A carrier COMPANY account (never a team member's login), found by id or by its FMCSA-confirmed DOT number.
+      const carrier = await User.findOne({
+        ...(req.body.carrierId ? { _id: req.body.carrierId } : { 'verification.fmcsaData.dotNumber': dotNumber }),
+        role: 'carrier', parentAccountId: null, active: { $ne: false },
+      }).select('_id');
+      if (!carrier) {
+        return res.status(404).json({ error: dotNumber ? 'No verified carrier with that DOT number is on FreightConnect' : 'Carrier not found' });
       }
+      const carrierId = carrier._id;
 
       // Determine firstLookHours from tier
       const tierDefaults = { gold: 2, silver: 1, standard: 0 };
       const finalTier = tier || 'standard';
 
       const preferredCarrier = await PreferredCarrier.create({
-        shipper: req.user.userId,
+        shipper: companyOf(req),
         carrier: carrierId,
         tier: finalTier,
         firstLookHours: tierDefaults[finalTier],
@@ -51,7 +61,7 @@ router.post(
         title: 'You were added as a preferred carrier',
         body: `A shipper has added you to their ${finalTier} tier preferred carrier list.`,
         link: '/dashboard/carrier/loads',
-        metadata: { shipperId: req.user.userId, tier: finalTier },
+        metadata: { shipperId: companyOf(req), tier: finalTier },
       });
 
       res.status(201).json(preferredCarrier);
@@ -72,13 +82,32 @@ router.get('/', auth, async (req, res) => {
       return res.status(403).json({ error: 'Only shippers can view their preferred carrier list' });
     }
 
-    const carriers = await PreferredCarrier.find({ shipper: req.user.userId })
+    const carriers = await PreferredCarrier.find({ shipper: companyOf(req) })
       .populate('carrier', PUBLIC_PARTY_SELECT)
       .sort({ tier: 1, addedAt: -1 });
 
     res.json(carriers);
   } catch (err) {
     console.error('[PreferredCarrier] GET list failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/preferred-carriers/candidates — carriers that delivered this shipper's loads and are not in the network yet
+router.get('/candidates', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'shipper') return res.status(403).json({ error: 'Forbidden' });
+    const cid = companyOf(req);
+    const [hauled, already] = await Promise.all([
+      Load.distinct('acceptedBy', { postedBy: cid, status: 'delivered' }),
+      PreferredCarrier.distinct('carrier', { shipper: cid }),
+    ]);
+    const skip = new Set(already.map(String));
+    const ids = hauled.filter((id) => id && !skip.has(String(id))).slice(0, 50);
+    const carriers = await User.find({ _id: { $in: ids }, role: 'carrier', active: { $ne: false } }).select(PUBLIC_PARTY_SELECT).lean();
+    res.json(carriers);
+  } catch (err) {
+    console.error('[PreferredCarrier] GET candidates failed:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -91,7 +120,7 @@ router.get('/shippers', auth, async (req, res) => {
     }
 
     const entries = await PreferredCarrier.find({
-      carrier: req.user.userId,
+      carrier: companyOf(req),
       isActive: true,
     })
       .populate('shipper', 'name companyName')
@@ -111,51 +140,12 @@ router.get('/for-load/:loadId', auth, async (req, res) => {
       return res.status(403).json({ error: 'Only carriers can check preferred access' });
     }
 
-    const load = await Load.findById(req.params.loadId).select('postedBy loadVisibility createdAt');
-    if (!load) {
-      return res.status(404).json({ error: 'Load not found' });
-    }
-
-    // Check if this carrier is a preferred carrier for this shipper
-    const preferredEntry = await PreferredCarrier.findOne({
-      shipper: load.postedBy,
-      carrier: req.user.userId,
-      isActive: true,
-    });
-
-    if (!preferredEntry) {
-      // Not preferred — check if load is still in firstLook window
-      if (load.loadVisibility === 'preferred') {
-        // Find the max firstLookHours for any preferred carrier of this shipper
-        const maxFirstLook = await PreferredCarrier.findOne({
-          shipper: load.postedBy,
-          isActive: true,
-        }).sort({ firstLookHours: -1 }).select('firstLookHours');
-
-        const firstLookMs = (maxFirstLook?.firstLookHours || 0) * 60 * 60 * 1000;
-        const windowEnd = new Date(load.createdAt.getTime() + firstLookMs);
-
-        if (new Date() < windowEnd) {
-          return res.json({
-            hasAccess: false,
-            reason: 'Load is in preferred-carrier first-look window',
-            publicAt: windowEnd,
-          });
-        }
-      }
-
-      return res.json({
-        hasAccess: load.loadVisibility !== 'preferred' || load.loadVisibility === 'public',
-        isPreferred: false,
-      });
-    }
-
-    res.json({
-      hasAccess: true,
-      isPreferred: true,
-      tier: preferredEntry.tier,
-      firstLookHours: preferredEntry.firstLookHours,
-    });
+    if (!/^[a-f0-9]{24}$/i.test(req.params.loadId)) return res.status(404).json({ error: 'Load not found' });
+    const load = await Load.findById(req.params.loadId).select('postedBy status loadVisibility tender createdAt');
+    // A load this carrier may not see answers exactly like one that does not exist.
+    if (!load || load.status !== 'open' || !(await carrierCanSeeLoad(load, companyOf(req)))) return res.status(404).json({ error: 'Load not found' });
+    const entry = await PreferredCarrier.findOne({ shipper: load.postedBy, carrier: companyOf(req), isActive: true }).select('tier firstLookHours');
+    res.json({ hasAccess: true, isPreferred: !!entry, ...(entry ? { tier: entry.tier, firstLookHours: entry.firstLookHours } : {}) });
   } catch (err) {
     console.error('[PreferredCarrier] for-load check failed:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -181,7 +171,7 @@ router.put(
 
       const entry = await PreferredCarrier.findOne({
         _id: req.params.id,
-        shipper: req.user.userId,
+        shipper: companyOf(req),
       });
 
       if (!entry) {
@@ -208,7 +198,7 @@ router.put(
 );
 
 // ── DELETE /api/preferred-carriers/:id — Remove from preferred list ──────────
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, param('id').isMongoId().withMessage('Valid ID required'), validate, async (req, res) => {
   try {
     if (req.user.role !== 'shipper') {
       return res.status(403).json({ error: 'Only shippers can remove preferred carriers' });
@@ -216,7 +206,7 @@ router.delete('/:id', auth, async (req, res) => {
 
     const entry = await PreferredCarrier.findOneAndDelete({
       _id: req.params.id,
-      shipper: req.user.userId,
+      shipper: companyOf(req),
     });
 
     if (!entry) {

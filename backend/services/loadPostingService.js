@@ -276,6 +276,15 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
     const bad = badFieldMessage(fields);
     if (bad) return { status: 400, error: bad };
 
+    // Auto-tender is asked for through options.tender only (the single-post route); the visibility value is never taken from input.
+    if (fields.loadVisibility === 'tender') return { status: 400, error: 'loadVisibility must be public, preferred or private.' };
+    let tenderPlan = null;
+    if (options.tender != null) {
+      const t = await require('./tenderService').buildPlan(shipperCompanyId, options.tender);
+      if (t.error) return { status: 400, error: t.error };
+      tenderPlan = t.plan;
+    }
+
     // Same strict ISO + end>=start rule as the dedicated window endpoints; checked before any outside call.
     let pickupTimeWindow, deliveryTimeWindow;
     try {
@@ -325,11 +334,17 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
       pickupTimeWindow, deliveryTimeWindow,
       // Ownership is the company, never a caller-supplied value.
       postedBy: shipperCompanyId,
+      ...(tenderPlan ? { loadVisibility: 'tender', tenderPlan } : {}),
     });
     await load.save();
 
     // Without coordinates the load cannot be booked; carrier lists hide it until it is located.
     const needsLocation = !(hasCoords(originC) && hasCoords(destinationC));
+    if (tenderPlan) {
+      // Nobody is alerted but the first carrier in line. An unlocated load starts its tender once the locator job places it (jobs/tenderMonitor).
+      if (!needsLocation) await require('./tenderService').advance(load._id, { expectPosition: -1 }).catch((e) => console.error('[tender] start failed:', e.message));
+      return { load: await Load.findById(load._id), needsLocation };
+    }
     if (notify) runSideEffects(load, shipperCompanyId, io).catch(() => {}); // non-blocking
     return { load, needsLocation };
   } catch (err) {
@@ -404,6 +419,8 @@ async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
     // Validate what changes, plus the two places (always required text).
     const bad = badFieldMessage({ origin: cur.origin, destination: cur.destination, ...raw });
     if (bad) return { status: 400, error: bad };
+    // A tender is started only at posting. Choosing another visibility on a tender load ends the tender.
+    if (raw.loadVisibility === 'tender' && cur.loadVisibility !== 'tender') return { status: 400, error: 'loadVisibility must be public, preferred or private.' };
     if (raw.rate !== undefined && !(toNum(raw.rate) > 0)) return { status: 400, error: 'Rate must be a positive number.' };
     if ((cur.contractId || cur.isContractLoad) && raw.rate !== undefined && toNum(raw.rate) !== cur.rate) {
       return { status: 400, error: 'The rate of a contract load is set by the contract.' };
@@ -479,6 +496,10 @@ async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
     }
     for (const k of Object.keys(set)) delete unset[k]; // a path is either set or unset
 
+    if (cur.loadVisibility === 'tender' && set.loadVisibility) {
+      unset.tender = 1;
+      Object.assign(set, { 'tenderPlan.result': 'stopped', 'tenderPlan.endedAt': new Date() });
+    }
     const nextVersion = (cur.termsVersion || 1) + 1;
     if (materialChange) set.termsVersion = nextVersion;
     const upd = { $set: set };

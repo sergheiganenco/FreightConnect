@@ -1,89 +1,105 @@
 import React from 'react';
-import { Stepper, Step, StepLabel, Box, Typography, Container, Paper } from '@mui/material';
-import CountUp from 'react-countup';
-import Slider from 'react-slick';
-import 'slick-carousel/slick/slick.css';
-import 'slick-carousel/slick/slick-theme.css';
-import { gradient, text, glassCard } from '../theme/tokens';
+import { Link } from 'react-router-dom';
+import { Box, Typography, Paper, Button, Grid } from '@mui/material';
+import PublicPage, { bodyText, focusSx } from '../components/PublicPage';
+import { glassCard, buttonVariants, radius } from '../theme/tokens';
 
-// Team data: founder first
-const team = [
-  { name: 'John Smith', role: 'Founder & CEO', img: '/images/john.jpg' },
-  { name: 'Alice Wong', role: 'CTO',            img: '/images/alice.jpg' },
-  { name: 'Bob Patel',  role: 'Head of AI',    img: '/images/bob.jpg' },
-  // ... other members
-];
+const Section = ({ id, title, children }) => (
+  <Box component="section" aria-labelledby={id} sx={{ mb: { xs: 4, md: 6 }, maxWidth: 760 }}>
+    <Typography id={id} variant="h4" component="h2" sx={{ fontWeight: 800, fontSize: { xs: '1.5rem', md: '1.875rem' }, mb: 1.5 }}>
+      {title}
+    </Typography>
+    {children}
+  </Box>
+);
+
+const P = ({ children }) => (
+  <Typography sx={{ color: bodyText, lineHeight: 1.7, mb: 1.5 }}>{children}</Typography>
+);
+
+const Bullets = ({ items }) => (
+  <Box component="ul" sx={{ color: bodyText, lineHeight: 1.7, pl: 3, m: 0 }}>
+    {items.map((i) => <li key={i}>{i}</li>)}
+  </Box>
+);
 
 export default function About() {
-  const steps = ['Post a Load', 'AI Matches Carrier', 'Track in Real-Time'];
-
-  const sliderSettings = {
-    dots: true,
-    infinite: true,
-    speed: 500,
-    slidesToShow: 3,
-    slidesToScroll: 1,
-    responsive: [{ breakpoint: 768, settings: { slidesToShow: 1 } }]
-  };
-
   return (
-    <Box sx={{ minHeight: '100vh', background: gradient.dashboardBg, backgroundAttachment: 'fixed', color: text.primary, pt: 12, pb: 8 }}>
-      <Container maxWidth="lg" sx={{ px: { xs: 2, md: 4 } }}>
-        <Paper sx={{ ...glassCard.elevated, p: { xs: 3, md: 5 } }}>
-          {/* Hero Intro */}
-          <Typography variant="h3" gutterBottom>About FreightConnect</Typography>
-          <Typography variant="body1" gutterBottom>
-            Our mission is to revolutionize freight logistics with cutting-edge AI solutions.
-          </Typography>
+    <PublicPage
+      title="About FreightConnect"
+      intro="A freight marketplace where shippers and carriers deal with each other directly, and the software does the work a middleman's office would do."
+    >
+      <Section id="problem-h" title="The problem">
+        <P>
+          Moving a load usually means a broker sits between the shipper and the truck. The broker takes a cut of
+          the rate, and details get lost on the way: the pickup time changes, the driver never hears, the shipper
+          cannot tell where the freight is.
+        </P>
+      </Section>
 
-          {/* How It Works Stepper */}
-          <Box sx={{ width:'100%', mt:6, mb:6, bgcolor:'transparent' }}>
-            <Stepper alternativeLabel activeStep={1}>
-              {steps.map(label => (
-                <Step key={label}>
-                  <StepLabel sx={{ '& .MuiStepLabel-label':{ color:'#fff' } }}>
-                    {label}
-                  </StepLabel>
-                </Step>
-              ))}
-            </Stepper>
-          </Box>
+      <Section id="what-h" title="What FreightConnect does instead">
+        <P>
+          The shipper and the carrier agree terms with each other. FreightConnect handles the parts around the
+          deal:
+        </P>
+        <Bullets
+          items={[
+            'Checking: a carrier\'s authority and insurance on file with FMCSA are checked before it can book.',
+            'Matching: carriers see loads ranked by a match score based on their lanes and equipment.',
+            'Paperwork: rate confirmation, e-signed bill of lading and proof of delivery, stored with the load.',
+            'Status updates: live tracking with consent, automatic check calls, and warnings for late pickups or deliveries.',
+          ]}
+        />
+      </Section>
 
-          {/* Stats Counters */}
-          <Box sx={{ display:'flex', gap:8, justifyContent:'center', mb:6, flexWrap:'wrap' }}>
-            <Box textAlign="center">
-              <Typography variant="h4"><CountUp end={1200} duration={2}/>+</Typography>
-              <Typography>Loads Matched</Typography>
-            </Box>
-            <Box textAlign="center">
-              <Typography variant="h4"><CountUp end={98} duration={2}/>%</Typography>
-              <Typography>Utilization</Typography>
-            </Box>
-            <Box textAlign="center">
-              <Typography variant="h4"><CountUp end={500} duration={2}/>+</Typography>
-              <Typography>Customers</Typography>
-            </Box>
-          </Box>
+      <Section id="who-h" title="Who it is for">
+        <Grid container spacing={2}>
+          {[
+            ['Shippers', 'Companies that have freight to move and want to choose their carrier and follow the shipment without a broker in between.'],
+            ['Carriers and fleets', 'Owner-operators and trucking companies who want to find freight that fits, book it directly, and manage trucks, drivers and paperwork in one place.'],
+          ].map(([t, d]) => (
+            <Grid item xs={12} sm={6} key={t}>
+              <Paper elevation={0} sx={{ ...glassCard.standard, borderRadius: `${radius.lg}px`, p: 2.5, height: '100%' }}>
+                <Typography component="h3" sx={{ fontWeight: 700, mb: 0.5 }}>{t}</Typography>
+                <Typography variant="body2" sx={{ color: bodyText, lineHeight: 1.6 }}>{d}</Typography>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      </Section>
 
-          {/* Team Carousel (Founder included) */}
-          <Typography variant="h5" gutterBottom textAlign="center">Meet Our Team</Typography>
+      <Section id="safe-h" title="How it keeps both sides safe">
+        <Bullets
+          items={[
+            'Authority and insurance checks, repeated on a schedule.',
+            'Identity and anti-fraud checks when a load is booked.',
+            'A pickup code so the right truck gets the freight.',
+            'Photo evidence at pickup and delivery.',
+            'Every booking, change and message recorded on the load, and a load cannot be booked twice.',
+          ]}
+        />
+      </Section>
 
-          <Slider {...sliderSettings}>
-            {team.map(m => (
-              <Box key={m.name} sx={{ textAlign: 'center', px: 2 }}>
-                <Box
-                  component="img"
-                  src={m.img}
-                  alt={m.name}
-                  sx={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', mx: 'auto' }}
-                />
-                <Typography variant="h6" sx={{ mt:2 }}>{m.name}</Typography>
-                <Typography variant="body2" color="text.secondary">{m.role}</Typography>
-              </Box>
-            ))}
-          </Slider>
-        </Paper>
-      </Container>
-    </Box>
+      <Section id="today-h" title="Where it is today">
+        <P>
+          FreightConnect is in an early-access pilot. Posting and booking loads,
+          bidding, tracking, documents and the fleet tools are working. Payments through the platform are coming
+          and are not switched on yet, so shippers and carriers settle with each other directly for now. We are
+          still improving things as we learn from real use.
+        </P>
+      </Section>
+
+      <Section id="contact-h" title="Get in touch">
+        <P>Questions, feedback or a problem? Send us a message and we will reply by email.</P>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <Button component={Link} to="/contact" sx={{ ...buttonVariants.gradient, ...focusSx, minHeight: 48, px: 4, borderRadius: `${radius.md}px`, textTransform: 'none', fontWeight: 700 }}>
+            Contact us
+          </Button>
+          <Button component={Link} to="/features" sx={{ ...buttonVariants.glass, ...focusSx, minHeight: 48, px: 3, borderRadius: `${radius.md}px`, textTransform: 'none', fontWeight: 600 }}>
+            See the features
+          </Button>
+        </Box>
+      </Section>
+    </PublicPage>
   );
 }

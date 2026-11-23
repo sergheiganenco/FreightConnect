@@ -95,6 +95,11 @@ export default function LoadCard({ load, onClick }) {
 
         <PickupRiskChip load={load} />
 
+        {load.loadVisibility === 'tender' && load.status === 'open' && (
+          <Chip label="Offering to your carriers" size="small"
+            sx={{ mb: 0.5, mr: 0.5, bgcolor: 'rgba(124,140,248,0.15)', color: '#a5b4fc', fontWeight: 700, fontSize: '0.75rem', border: '1px solid rgba(124,140,248,0.4)' }} />
+        )}
+
         {/* Overweight badge */}
         {load.overweightAcknowledged && (
           <Chip

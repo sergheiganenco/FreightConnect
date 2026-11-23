@@ -15,6 +15,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import GroupsIcon from '@mui/icons-material/Groups';
+import HandshakeIcon from '@mui/icons-material/Handshake';
 import GavelIcon from '@mui/icons-material/Gavel';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -50,7 +51,8 @@ const coreItems = [
 // visible to every company role. The backend 403s owner-only routes anyway.
 const moreItems = [
   { key: "team",         label: "Team",         icon: <GroupsIcon fontSize="medium" />, access: 'owner' },
-  { key: "contracts",    label: "Contracts",    icon: <AssignmentIcon fontSize="medium" /> },
+  { key: "network",      label: "My Carriers",  icon: <HandshakeIcon fontSize="medium" /> },
+  { key: "contracts",    label: "Contracts",   icon: <AssignmentIcon fontSize="medium" /> },
   { key: "appointments", label: "Appointments", icon: <CalendarMonthIcon fontSize="medium" /> },
   { key: "analytics",    label: "Analytics",    icon: <BarChartIcon /> },
   { key: "ai-insights",  label: "AI Insights",  icon: <PsychologyIcon fontSize="medium" /> },

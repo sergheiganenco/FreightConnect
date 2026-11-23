@@ -45,7 +45,27 @@ const LoadSchema = new mongoose.Schema({
   accessorials: [{ type: String, maxlength: 100 }],
   insuranceRequired: Number,
   cargoValue: Number,
-  loadVisibility: { type: String, default: 'public', enum: ['public', 'preferred', 'private'] },
+  // 'tender': offered to ONE network carrier at a time (services/tenderService). Never accepted from input directly.
+  loadVisibility: { type: String, default: 'public', enum: ['public', 'preferred', 'private', 'tender'] },
+  // The current offer of a tender load: the only thing about the tender a carrier may read.
+  tender: {
+    offeredTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    expiresAt: Date,
+  },
+  // The shipper's side of the tender (who is in line, who declined). Never selected by default, so it cannot reach a carrier.
+  tenderPlan: {
+    select: false,
+    type: new mongoose.Schema({
+      queue: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+      position: { type: Number, default: -1 }, // index in queue of the carrier currently offered; -1 = not started
+      responseMinutes: Number,
+      fallback: { type: String, enum: ['public', 'private'] },
+      offeredAt: Date,
+      history: [{ _id: false, carrier: mongoose.Schema.Types.ObjectId, outcome: { type: String, enum: ['declined', 'expired', 'skipped', 'cancelled'] }, at: Date, reason: String }],
+      result: { type: String, enum: ['exhausted', 'stopped'] },
+      endedAt: Date,
+    }, { _id: false }),
+  },
   allowCarrierBidding: { type: Boolean, default: true },
   expirationDateTime: Date,
   notes: { type: String, maxlength: 2000 },
@@ -464,6 +484,7 @@ function pickupLifecycle(update, win) {
   if (booked) {
     set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0'); set.bookedAt = new Date();
     set.trackingNonce = crypto.randomBytes(16).toString('hex');
+    u.$unset['tender.expiresAt'] = 1; // a tender offer is answered by booking: if the load is given back, that carrier no longer holds it
     if (win && win.start) set.bookedWindow = { start: win.start, end: win.end }; else u.$unset.bookedWindow = 1;
   } else { u.$unset[`${PV}.code`] = 1; u.$unset.trackingNonce = 1; u.$unset.bookedWindow = 1; set.assignedTruckId = null; } // the truck link belongs to the booking
   return u;
@@ -559,6 +580,9 @@ LoadSchema.index({ status: 1, 'pickupTimeWindow.start': 1 });
 LoadSchema.index({ status: 1, 'bookedWindow.start': 1 });
 // checkCallMonitor: booked/in-transit loads, oldest-evaluated first.
 LoadSchema.index({ status: 1, 'checkCallState.evaluatedAt': 1, _id: 1 });
+// tenderMonitor: open tender loads whose offer has run out; carrier board: the load offered to me.
+LoadSchema.index({ loadVisibility: 1, status: 1, 'tender.expiresAt': 1 });
+LoadSchema.index({ 'tender.offeredTo': 1, status: 1 }, { sparse: true });
 LoadSchema.index({ originLat: 1, originLng: 1 });
 LoadSchema.index({ destinationLat: 1, destinationLng: 1 });
 // Dedup partner/EDI/email-ingested loads per poster+external id (sparse: app loads have none).

@@ -103,6 +103,9 @@ router.post('/', auth, async (req, res) => {
       return res.status(404).json({ error: 'Load not found' });
     }
     if (load.status !== 'open') return res.status(409).json({ error: 'Load is no longer open for bids' });
+    // An offered (tender) load is take-it-or-leave-it at the posted rate, and a shipper may switch bidding off on any load.
+    if (load.loadVisibility === 'tender') return res.status(409).json({ error: 'This load is offered to you at the posted rate: accept or decline the offer' });
+    if (load.allowCarrierBidding === false) return res.status(409).json({ error: 'The shipper is not taking bids on this load' });
 
     // Upsert: carrier can revise their bid (replaces previous)
     const bid = await Bid.findOneAndUpdate(

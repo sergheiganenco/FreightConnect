@@ -2,7 +2,7 @@ const User = require('../models/User');
 const Load = require('../models/Load');
 const { checkLoadEligibility } = require('./loadEligibility');
 const antiFraudGuard = require('./antiFraudGuard');
-const { carrierCanSeeLoad } = require('./loadVisibility');
+const { carrierCanSeeLoad, tenderBookable } = require('./loadVisibility');
 
 /**
  * Shared booking gate + atomic booking.
@@ -66,7 +66,7 @@ async function atomicBookLoad({ loadId, carrierId, gate, extra = {}, termsVersio
   };
   if (gate.riskFlags && gate.riskFlags.length > 0) update.riskFlags = gate.riskFlags;
   const booked = await Load.findOneAndUpdate(
-    { _id: loadId, status: 'open', acceptedBy: null, ...(termsVersion != null ? { termsVersion: versionIs(termsVersion) } : {}) },
+    { _id: loadId, status: 'open', acceptedBy: null, ...tenderBookable(carrierId), ...(termsVersion != null ? { termsVersion: versionIs(termsVersion) } : {}) },
     { $set: update },
     { new: true }
   );

@@ -250,6 +250,7 @@ export default function CarrierLoadBoardSection() {
           userRole="carrier"
           onClose={() => setSelected(null)}
           onLoadAccepted={tab === 0 ? handleAccepted : handleAcceptedRec}
+          onLoadDeclined={tab === 0 ? handleAccepted : handleAcceptedRec}
         />
       )}
     </Box>

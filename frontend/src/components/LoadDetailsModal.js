@@ -28,6 +28,7 @@ import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
 import PickupHandshakePanel from '../features/shared/PickupHandshakePanel';
 import PickupRiskPanel from '../features/shared/PickupRiskPanel';
 import CheckCallPanel from '../features/shared/CheckCallPanel';
+import TenderProgress from '../features/shared/TenderProgress';
 import PickupWindowPanel from '../features/shared/PickupWindowPanel';
 import LoadEvidencePanel from '../features/shared/LoadEvidencePanel';
 import ReputationBadges from './ReputationBadges';
@@ -85,7 +86,7 @@ const TRUCK_ICON = new L.Icon({
   popupAnchor: [0, -30],
 });
 
-export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted, notice, noticeFocus }) {
+export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccepted, onLoadDeclined, notice, noticeFocus }) {
   const navigate = useNavigate();
   const [loadState, setLoadState] = useState(load);
   const [route, setRoute] = useState([]);
@@ -94,6 +95,8 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const [errorMessage, setError] = useState('');
   const [successMessage, setOk] = useState('');
   const [ratingOpen, setRatingOpen] = useState(false);
+  const [declining, setDeclining] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
   const [releaseNote, setReleaseNote] = useState(''); // result of 'Release to standby carriers' (its panel unmounts)
 
   // ── Payment state ───────────────────────────────────────────────
@@ -375,6 +378,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
   const isOwner = userRole === 'shipper';
   const isCarrier = userRole === 'carrier';
   const isOpen = loadState.status === 'open';
+  const isTender = loadState.loadVisibility === 'tender';
   // A load without coordinates (or one the locator job gave up on) is hidden from carriers until its places are corrected.
   const hasCoord = (v) => typeof v === 'number' && Number.isFinite(v);
   const unlocated = !!loadState.locationProblem?.field
@@ -588,6 +592,21 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
     setPaymentLoading(false);
   };
 
+  // ── Decline a tender offer (carrier) ───────────────────────────
+  const declineOffer = async () => {
+    setError('');
+    setDeclining(true);
+    try {
+      await api.post(`/loads/${loadState._id}/tender/decline`, declineReason.trim() ? { reason: declineReason.trim().slice(0, 200) } : {});
+      onLoadDeclined?.(loadState._id); // callers drop the load from their list (never the accept callback: one caller accepts in it)
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not decline this offer.');
+    } finally {
+      setDeclining(false);
+    }
+  };
+
   // ── Direct accept (no bid negotiation) ─────────────────────────
   const acceptLoad = async () => {
     setError('');
@@ -704,6 +723,22 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
             action={<Button color="inherit" size="small" onClick={editLoad}>Fix location</Button>}
           >
             We couldn&apos;t find {loadState.locationProblem?.place ? `"${loadState.locationProblem.place}"` : 'one of this load\'s locations'} — carriers can&apos;t see this load yet.
+          </Alert>
+        )}
+
+        {isOwner && (isTender || loadState.status === 'open') && <TenderProgress loadId={loadState._id} />}
+        {isCarrier && isOpen && isTender && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            This shipper is offering you this load at the posted rate. It is yours alone
+            {loadState.tender?.expiresAt ? ` until ${new Date(loadState.tender.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}.
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} mt={1.5}>
+              <TextField size="small" fullWidth placeholder="Reason (optional)" value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)} inputProps={{ maxLength: 200, 'aria-label': 'Reason for declining (optional)' }}
+                sx={{ '& .MuiInputBase-root': { bgcolor: '#fff' }, '& .MuiInputBase-input': { color: '#0f172a' }, '& .MuiInputBase-input::placeholder': { color: '#475569', opacity: 1 } }} />
+              <Button variant="outlined" color="inherit" disabled={declining} onClick={declineOffer} sx={{ whiteSpace: 'nowrap' }}>
+                {declining ? 'Declining…' : 'Decline offer'}
+              </Button>
+            </Stack>
           </Alert>
         )}
 
@@ -1046,7 +1081,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         )}
 
         {/* ── Carrier bidding section ── */}
-        {isCarrier && isOpen && (
+        {isCarrier && isOpen && !isTender && (
           <Box mb={2} ref={bidSectionRef}>
             <Stack direction="row" alignItems="center" spacing={1} mb={1}>
               <GavelIcon sx={{ fontSize: 18, color: brand.indigoLight }} />
@@ -1152,7 +1187,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         )}
 
         {/* ── Shipper: view bids ── */}
-        {isOwner && (
+        {isOwner && !isTender && (
           <Box mb={2}>
             <Button
               variant="text"
@@ -1829,7 +1864,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
                   ? <CircularProgress size={22} sx={{ color: '#fff' }} />
                   : 'Accept Load'}
               </Button>
-              {loadState.allowCarrierBidding && (
+              {loadState.allowCarrierBidding && !isTender && (
                 <Button
                   variant="outlined"
                   size="large"

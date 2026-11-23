@@ -15,6 +15,8 @@ import Home from './pages/Home';
 import About from './pages/About';
 import Features from './pages/Features';
 import Contact from './pages/Contact';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Signup from './pages/Signup';
@@ -64,6 +66,7 @@ const CarrierFactoring = lazy(() => import('./pages/carrier/CarrierFactoring'));
 const CarrierTax = lazy(() => import('./pages/carrier/CarrierTax'));
 const CarrierExpenses = lazy(() => import('./pages/carrier/CarrierExpenses'));
 const ShipperEDI = lazy(() => import('./pages/shipper/ShipperEDI'));
+const ShipperCarrierNetwork = lazy(() => import('./pages/shipper/ShipperCarrierNetwork'));
 const ShipperTax = lazy(() => import('./pages/shipper/ShipperTax'));
 const ShipperVerification = lazy(() => import('./pages/shipper/ShipperVerification'));
 const ShipperTeam = lazy(() => import('./pages/shipper/ShipperTeam'));
@@ -122,6 +125,8 @@ function App() {
           <Route path="/about" element={<About />} />
           <Route path="/features" element={<Features />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/terms-of-service" element={<Terms />} />
+          <Route path="/privacy-policy" element={<Privacy />} />
 
           {/* Auth Pages */}
           <Route path="/login" element={<Login />} />
@@ -143,6 +148,7 @@ function App() {
             <Route path="documents" element={<ShipperDocuments />} />
             <Route path="analytics" element={<ShipperAnalytics />} />
             <Route path="payments" element={<ShipperPayments />} />
+            <Route path="network" element={<ShipperCarrierNetwork />} />
             <Route path="contracts" element={<ShipperContracts />} />
             <Route path="appointments" element={<ShipperAppointments />} />
             <Route path="tax" element={<ShipperTax />} />

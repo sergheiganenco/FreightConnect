@@ -1,84 +1,121 @@
-import React from 'react';
-import { Box, Container, Paper, Typography, Button, Grid, TextField } from '@mui/material';
-import { MapPin, Phone, Mail } from 'lucide-react';
-import { gradient, text, glassCard, buttonVariants, darkFieldSx } from '../theme/tokens';
+import React, { useState } from 'react';
+import { Box, Paper, Button, TextField, Typography, Alert } from '@mui/material';
+import PublicPage from '../components/PublicPage';
+import api from '../services/api';
+import { glassCard, buttonVariants, darkFieldSx, radius } from '../theme/tokens';
+
+const MAX_MSG = 2000;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const fieldSx = {
+  ...darkFieldSx,
+  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.75)' },
+  '& .MuiFormHelperText-root': { color: 'rgba(255,255,255,0.7)' },
+  '& .MuiFormHelperText-root.Mui-error': { color: '#fca5a5' },
+};
+
+function validate({ name, email, message }) {
+  const e = {};
+  if (!name.trim()) e.name = 'Please enter your name.';
+  if (!EMAIL_RE.test(email.trim()) || email.length > 200) e.email = 'Please enter a valid email address.';
+  if (message.trim().length < 10) e.message = 'Please write at least 10 characters.';
+  return e;
+}
 
 export default function Contact() {
+  const [form, setForm] = useState({ name: '', email: '', message: '', website: '' });
+  const [errors, setErrors] = useState({});
+  const [status, setStatus] = useState('idle'); // idle | sending | sent | error
+  const [serverError, setServerError] = useState('');
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const errs = validate(form);
+    setErrors(errs);
+    if (Object.keys(errs).length) return;
+    setStatus('sending');
+    setServerError('');
+    try {
+      await api.post('/contact', {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        message: form.message.trim(),
+        website: form.website,
+      });
+      setStatus('sent');
+      setForm({ name: '', email: '', message: '', website: '' });
+    } catch (err) {
+      setServerError(
+        err.response?.status === 429
+          ? 'Too many messages — please try again later.'
+          : err.response?.data?.error || 'Something went wrong sending your message. Please try again.'
+      );
+      setStatus('error');
+    }
+  };
+
   return (
-    <Box sx={{ minHeight: '100vh', background: gradient.dashboardBg, backgroundAttachment: 'fixed', color: text.primary, pt: 12, pb: 8 }}>
-      <Container maxWidth="lg" sx={{ px: { xs: 2, md: 4 } }}>
-        <Paper sx={{ ...glassCard.elevated, p: { xs: 3, md: 5 } }}>
-          {/* Header */}
-          <Typography variant="h3" fontWeight={700} gutterBottom>Contact Us</Typography>
-          <Typography variant="body1" sx={{ color: text.secondary, mb: 4 }}>
-            Have questions or need support? Reach out to us via phone, email, or send us a message below.
-          </Typography>
+    <PublicPage
+      maxWidth="md"
+      title="Contact us"
+      intro="Questions, feedback, or a request about your data? Send us a message and we will reply by email."
+    >
+      <Paper elevation={0} sx={{ ...glassCard.elevated, borderRadius: `${radius.lg}px`, p: { xs: 3, md: 4 }, maxWidth: 640 }}>
+        {status === 'sent' ? (
+          <Alert severity="success" role="status">
+            Thanks — we got your message and will reply by email.
+          </Alert>
+        ) : (
+          <Box component="form" onSubmit={submit} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+            {status === 'error' && <Alert severity="error" role="alert">{serverError}</Alert>}
 
-          <Grid container spacing={4}>
-            {/* Left Column: Contact Info */}
-            <Grid item xs={12} md={5}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Phone size={24} />
-                  <Typography>+1 (555) 123-4567</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Mail size={24} />
-                  <Typography>support@freightconnect.com</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <MapPin size={24} />
-                  <Typography>123 Logistics Ave, Suite 100, Chicago, IL</Typography>
-                </Box>
-              </Box>
-            </Grid>
-
-            {/* Right Column: Form */}
-            <Grid item xs={12} md={7}>
-              <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField
-                  name="name"
-                  label="Your Name"
-                  required
-                  fullWidth
-                  sx={{ ...darkFieldSx }}
-                />
-                <TextField
-                  name="email"
-                  label="Your Email"
-                  type="email"
-                  required
-                  fullWidth
-                  sx={{ ...darkFieldSx }}
-                />
-                <TextField
-                  name="message"
-                  label="Your Message"
-                  multiline
-                  rows={5}
-                  required
-                  fullWidth
-                  sx={{ ...darkFieldSx }}
-                />
-                <Button type="submit" variant="contained" sx={{ ...buttonVariants.gradient, px: 4, py: 1.5, alignSelf: 'flex-start' }}>
-                  Send Message
-                </Button>
-              </Box>
-            </Grid>
-          </Grid>
-
-          {/* Embedded Map (optional) */}
-          <Box sx={{ mt: 4, borderRadius: 2, overflow: 'hidden' }}>
-            <iframe
-              title="Office Location"
-              src="https://www.google.com/maps/embed?..."
-              allowFullScreen
-              loading="lazy"
-              style={{ width: '100%', height: 300, border: 0 }}
+            <TextField
+              id="contact-name" name="name" label="Your name" required fullWidth autoComplete="name"
+              value={form.name} onChange={set('name')} inputProps={{ maxLength: 100 }}
+              error={!!errors.name} helperText={errors.name} sx={fieldSx}
             />
+            <TextField
+              id="contact-email" name="email" label="Your email" type="email" required fullWidth autoComplete="email"
+              value={form.email} onChange={set('email')} inputProps={{ maxLength: 200 }}
+              error={!!errors.email} helperText={errors.email} sx={fieldSx}
+            />
+            <TextField
+              id="contact-message" name="message" label="Your message" required fullWidth multiline minRows={5}
+              value={form.message} onChange={set('message')} inputProps={{ maxLength: MAX_MSG }}
+              error={!!errors.message}
+              helperText={errors.message || `${form.message.length} / ${MAX_MSG}`}
+              sx={fieldSx}
+            />
+
+            {/* Honeypot: hidden from people, bots tend to fill it in. */}
+            <Box aria-hidden="true" sx={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
+              <label htmlFor="contact-website">Leave this field empty</label>
+              <input
+                id="contact-website" name="website" type="text" tabIndex={-1} autoComplete="off"
+                value={form.website} onChange={set('website')}
+              />
+            </Box>
+
+            <Button
+              type="submit"
+              disabled={status === 'sending'}
+              sx={{
+                ...buttonVariants.gradient, alignSelf: 'flex-start', minHeight: 48, px: 4,
+                borderRadius: `${radius.md}px`, textTransform: 'none', fontWeight: 700,
+                '&:focus-visible': { outline: '2px solid #818cf8', outlineOffset: '2px' },
+                '&.Mui-disabled': { color: 'rgba(255,255,255,0.7)', opacity: 0.7 },
+              }}
+            >
+              {status === 'sending' ? 'Sending…' : 'Send message'}
+            </Button>
           </Box>
-        </Paper>
-      </Container>
-    </Box>
+        )}
+      </Paper>
+      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.75)', mt: 2, maxWidth: 640 }}>
+        We use your details only to reply to you.
+      </Typography>
+    </PublicPage>
   );
 }
