@@ -93,9 +93,9 @@ export const surface = {
 // ── Text ────────────────────────────────────────────────────────
 export const text = {
   primary:   '#ffffff',
-  secondary: 'rgba(255,255,255,0.5)',
-  muted:     'rgba(255,255,255,0.4)',
-  hint:      'rgba(255,255,255,0.3)',
+  secondary: 'rgba(255,255,255,0.72)',
+  muted:     'rgba(255,255,255,0.62)',
+  hint:      'rgba(255,255,255,0.55)',
   strong:    'rgba(255,255,255,0.7)',     // <strong> tag override
   navInactive: '#d1d5db',                // nav label text (not selected)
   chartLabel: '#eaeaf6',                 // chart axis labels

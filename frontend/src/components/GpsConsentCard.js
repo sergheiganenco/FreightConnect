@@ -42,7 +42,7 @@ export default function GpsConsentCard() {
 
   return (
     <Paper sx={{ p: 3, borderRadius: 3, mb: 3 }}>
-      <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+      <Stack direction="row" alignItems="center" spacing={1} mb={1} flexWrap="wrap" useFlexGap>
         <LocationOnIcon color="primary" />
         <Typography variant="h6" fontWeight={800}>GPS Tracking Consent</Typography>
         {!loading && (

@@ -11,7 +11,7 @@ export default function ChatPage() {
     <Box
       sx={{
         display: 'flex',
-        height: 'calc(100vh - 120px)',
+        height: { xs: 'calc(100dvh - 104px)', md: 'calc(100vh - 120px)' },
         borderRadius: 3,
         overflow: 'hidden',
         border: '1px solid rgba(255,255,255,0.08)',
@@ -19,8 +19,11 @@ export default function ChatPage() {
         backdropFilter: 'blur(20px)',
       }}
     >
-      <ChatSidebar />
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      {/* Phones show one pane at a time: the list, or the open conversation (with a back button). */}
+      <Box sx={{ display: { xs: activeChannelId ? 'none' : 'flex', md: 'flex' }, width: { xs: '100%', md: 280 }, flexShrink: 0 }}>
+        <ChatSidebar />
+      </Box>
+      <Box sx={{ flex: 1, minWidth: 0, display: { xs: activeChannelId ? 'flex' : 'none', md: 'flex' }, flexDirection: 'column' }}>
         <ChatWindow channelId={activeChannelId} />
       </Box>
     </Box>

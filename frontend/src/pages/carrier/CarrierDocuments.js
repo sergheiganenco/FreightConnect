@@ -161,7 +161,7 @@ export default function CarrierDocuments() {
               key={load._id}
               elevation={10}
               sx={{
-                background: "linear-gradient(135deg,#7c3aed 55%,#312e81 100%)",
+                background: "linear-gradient(135deg, rgba(124,58,237,0.30), rgba(49,46,129,0.38))",
                 borderRadius: 6,
                 px: { xs: 1, sm: 5 },
                 py: { xs: 2, sm: 2.5 },

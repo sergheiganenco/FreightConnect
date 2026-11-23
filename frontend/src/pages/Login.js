@@ -45,6 +45,8 @@ export default function Login() {
 
       localStorage.setItem('token', token);
       localStorage.setItem('role', user.role);
+      // Messages, claims, contracts and the carrier network compare records against this id.
+      localStorage.setItem('userId', String(user.id || user._id || ''));
       // Company sub-account role drives nav gating (owner-only tabs are hidden
       // from dispatcher/driver logins). Defaults to owner for solo accounts.
       localStorage.setItem('companyRole', user.companyRole || 'owner');

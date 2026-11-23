@@ -3,13 +3,14 @@ import {
   Box, Typography, TextField, IconButton, CircularProgress, Divider,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import MessageBubble from './MessageBubble';
 import { useChatContext } from './ChatProvider';
 import { surface, text as T, gradient, semantic } from '../../theme/tokens';
 
 export default function ChatWindow({ channelId }) {
   const {
-    channels, messages, typingUsers, sendMessage, emitTyping, fetchMessages,
+    channels, messages, typingUsers, sendMessage, emitTyping, fetchMessages, closeChannel,
   } = useChatContext();
 
   const userId = localStorage.getItem('userId');
@@ -79,8 +80,12 @@ export default function ChatWindow({ channelId }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
-      <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${surface.glassBorder}` }}>
-        <Typography variant="subtitle1" fontWeight={700}>
+      <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${surface.glassBorder}`, display: 'flex', alignItems: 'center', gap: 1 }}>
+        <IconButton aria-label="Back to conversations" onClick={closeChannel} size="small" sx={{ display: { md: 'none' }, ml: -1 }}>
+          <ArrowBackIcon />
+        </IconButton>
+        <Box sx={{ minWidth: 0 }}>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>
           {title}
         </Typography>
         {channel.channelType === 'load_thread' && channel.loadId && (
@@ -93,6 +98,7 @@ export default function ChatWindow({ channelId }) {
             This chat is locked
           </Typography>
         )}
+        </Box>
       </Box>
 
       {/* Messages */}

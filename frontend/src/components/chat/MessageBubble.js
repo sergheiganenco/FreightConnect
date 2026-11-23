@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Typography, Tooltip } from '@mui/material';
-import { surface, text as T, gradient } from '../../theme/tokens';
+import { surface, text as T } from '../../theme/tokens';
 
 function formatTime(dateStr) {
   if (!dateStr) return '';
@@ -33,7 +33,7 @@ export default function MessageBubble({ message, isOwn }) {
         px: 1,
       }}
     >
-      <Box sx={{ maxWidth: '70%' }}>
+      <Box sx={{ maxWidth: { xs: '86%', md: '70%' }, minWidth: 0 }}>
         {!isOwn && (
           <Typography
             variant="caption"
@@ -48,12 +48,10 @@ export default function MessageBubble({ message, isOwn }) {
               px: 2,
               py: 1,
               borderRadius: isOwn ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-              background: isOwn
-                ? gradient.primary
-                : surface.glassBorder,
+              background: isOwn ? '#5b2bc4' : surface.glassBorder, // own messages: one calm brand purple, on the right
               backdropFilter: 'blur(8px)',
               border: `1px solid ${surface.glassBorder}`,
-              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
             }}
           >
             <Typography variant="body2" sx={{ color: T.primary, lineHeight: 1.5 }}>

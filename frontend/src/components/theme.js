@@ -44,6 +44,7 @@ let theme = createTheme({
     text: {
       primary:   T.primary,
       secondary: T.secondary,
+      disabled:  'rgba(255,255,255,0.55)', // MUI's default is black at 38%, invisible here
     },
     /* Icons, dropdown arrows and icon buttons take these: MUI's defaults are black, invisible on our dark background. */
     action: {
@@ -102,6 +103,8 @@ let theme = createTheme({
         outlinedPrimary: { color: '#c4b5fd', borderColor: 'rgba(196,181,253,0.5)', '&:hover': { borderColor: '#c4b5fd' } },
       },
     },
+    /* Menus, dropdown lists and pop-up panels are solid, so the page never shows through their text. */
+    MuiPopover: { styleOverrides: { paper: { background: '#1b1648', backdropFilter: 'none', border: '1px solid rgba(255,255,255,0.1)' } } },
     MuiLink: { styleOverrides: { root: { color: '#c4b5fd' } } },
     MuiIconButton: {
       styleOverrides: {

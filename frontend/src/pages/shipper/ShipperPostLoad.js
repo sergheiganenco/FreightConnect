@@ -685,12 +685,12 @@ export default function ShipperPostLoad() {
         p: { xs: 2, md: 4 },
         borderRadius: 5,
         boxShadow: "0 8px 32px #32159e55",
-        background: "linear-gradient(120deg,#1f2dff 0%,#6a1fcf 40%,#e1129a 100%)",
+        background: "rgba(27,22,72,0.72)", // dark glass like every other card (was a full blue-to-pink gradient)
         color: "#fff",
         backdropFilter: "blur(18px)",
         maxWidth: 880,
         mx: "auto",
-        border: "2.2px solid rgba(255,255,255,0.10)",
+        border: "1px solid rgba(255,255,255,0.10)",
         "& .MuiInputBase-root": {
           bgcolor: "rgba(255,255,255,0.11)",
           color: "#fff",

@@ -101,7 +101,7 @@ export default function AdminOverview() {
   ];
 
   return (
-    <Box sx={{ width: "100%", maxWidth: 1100, mx: "auto", py: 4 }}>
+    <Box sx={{ width: "100%", maxWidth: 1100, mx: "auto", py: { xs: 1, md: 3 } }}>
       <Stack direction="row" alignItems="center" spacing={2} mb={2}>
         <Typography
           variant="h5"

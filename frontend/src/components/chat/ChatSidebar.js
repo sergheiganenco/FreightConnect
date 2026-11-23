@@ -58,7 +58,7 @@ export default function ChatSidebar() {
   return (
     <Box
       sx={{
-        width: 280,
+        width: '100%',
         borderRight: `1px solid ${surface.glassBorder}`,
         display: 'flex',
         flexDirection: 'column',

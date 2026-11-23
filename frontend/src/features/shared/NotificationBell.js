@@ -44,6 +44,9 @@ const TYPE_META = {
   'insurance:lapsed':     { color: semantic.error, label: 'Insurance Lapsed' },
 };
 
+// Long titles and bodies wrap to two lines instead of being cut off mid-word.
+const twoLines = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' };
+
 function NotificationItem({ notification, onRead, onDelete }) {
   const navigate = useNavigate();
   const meta = TYPE_META[notification.type] || { color: semantic.muted, label: 'Notification' };
@@ -80,13 +83,12 @@ function NotificationItem({ notification, onRead, onDelete }) {
               <Typography
                 variant="body2"
                 fontWeight={isUnread ? 700 : 400}
-                sx={{ color: isUnread ? T.dark : 'text.secondary', lineHeight: 1.3 }}
-                noWrap
+                sx={{ color: isUnread ? T.primary : 'text.secondary', lineHeight: 1.3, ...twoLines }}
               >
                 {notification.title}
               </Typography>
               {notification.body && (
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }} noWrap>
+                <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.25, ...twoLines }}>
                   {notification.body}
                 </Typography>
               )}
@@ -221,8 +223,9 @@ export default function NotificationBell({ iconSx = {} }) {
         PaperProps={{
           elevation: 12,
           sx: {
-            width: 360,
+            width: 'min(360px, calc(100vw - 24px))',
             maxHeight: 520,
+            background: '#1b1648', // solid: the page must not show through the list
             borderRadius: 3,
             overflow: 'hidden',
             display: 'flex',
@@ -236,7 +239,7 @@ export default function NotificationBell({ iconSx = {} }) {
           direction="row"
           alignItems="center"
           justifyContent="space-between"
-          sx={{ px: 2, py: 1.5, bgcolor: surface.indigoTintLight, borderBottom: '1px solid rgba(0,0,0,0.06)' }}
+          sx={{ px: 2, py: 1.5, bgcolor: surface.indigoTintLight, borderBottom: '1px solid rgba(255,255,255,0.08)' }}
         >
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="subtitle1" fontWeight={700}>Notifications</Typography>
@@ -250,7 +253,7 @@ export default function NotificationBell({ iconSx = {} }) {
           </Stack>
           {unreadCount > 0 && (
             <Tooltip title="Mark all as read">
-              <IconButton size="small" onClick={handleReadAll} sx={{ color: brand.indigo }}>
+              <IconButton size="small" onClick={handleReadAll} sx={{ color: '#c4b5fd' }}>
                 <DoneAllIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Tooltip>
@@ -283,7 +286,7 @@ export default function NotificationBell({ iconSx = {} }) {
                   <Button
                     size="small" variant="text"
                     onClick={() => fetchNotifications(page + 1, true)}
-                    sx={{ color: brand.indigo, fontSize: '0.78rem' }}
+                    sx={{ color: '#c4b5fd', fontSize: '0.78rem' }}
                   >
                     Load more
                   </Button>

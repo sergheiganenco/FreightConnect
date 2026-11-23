@@ -265,7 +265,7 @@ export default function Profile() {
         </Typography>
 
         {/* Role chip + Trust Score Badge */}
-        <Stack direction="row" justifyContent="center" alignItems="center" spacing={2} mb={2}>
+        <Stack direction="row" justifyContent="center" alignItems="center" spacing={1.5} mb={2} flexWrap="wrap" useFlexGap>
           <Chip
             label={user?.role?.toUpperCase() || "USER"}
             color={user?.role === "shipper" ? "primary" : "secondary"}

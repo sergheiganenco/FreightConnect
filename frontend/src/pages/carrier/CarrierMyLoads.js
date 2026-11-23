@@ -293,7 +293,7 @@ export default function CarrierMyLoads({ embedded = false }) {
                     justifyContent="space-between"
                     alignItems="center"
                     flexWrap="wrap"
-                    gap={1}
+                    gap={1.5}
                     mb={1}
                   >
                     <Typography fontWeight={600} sx={{ minWidth: 0, flex: '1 1 160px' }}>

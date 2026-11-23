@@ -46,6 +46,7 @@ export default function Navbar() {
     disconnectSocket();
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    localStorage.removeItem('userId');
     localStorage.removeItem('companyRole');
     localStorage.removeItem('mustChangePassword');
     navigate('/home');

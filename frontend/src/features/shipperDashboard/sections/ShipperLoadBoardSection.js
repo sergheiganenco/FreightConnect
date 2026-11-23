@@ -67,7 +67,7 @@ export default function ShipperLoadBoardSection() {
   return (
     <Box sx={{ width: "100%" }}>
       {/* Filters + Sort */}
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center" mb={3}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "stretch", sm: "center" }} mb={3}>
         <Typography variant="h4" fontWeight={800} sx={{ color: T.primary, mr: "auto" }}>
           Loads
         </Typography>

@@ -243,6 +243,7 @@ export default function ChatProvider({ children }) {
     loadingChannels,
     totalUnread,
     openChannel,
+    closeChannel: () => setActiveChannelId(null), // phone layout: back to the conversation list
     sendMessage,
     emitTyping,
     fetchChannels,
