@@ -1,3 +1,4 @@
+import { API_BASE } from "../../services/api";
 // CarrierAnalytics.js
 
 import React, { useEffect, useState } from "react";
@@ -51,7 +52,6 @@ function CarrierPDF({ rows }) {
   );
 }
 
-const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
 export default function CarrierAnalytics() {
   // Filters

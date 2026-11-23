@@ -1,3 +1,4 @@
+import { API_ROOT } from "../../services/api";
 /**
  * CarrierELD — Hours of Service / Electronic Logging Dashboard
  *
@@ -49,7 +50,7 @@ import { semantic, brand, surface } from '../../theme/tokens';
 
 // Normalize to origin so `${API}/api/...` never doubles `/api`
 // (REACT_APP_API_URL is conventionally http://host/api).
-const API = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/api\/?$/, '');
+const API = API_ROOT;
 
 const STATUSES = [
   { key: 'OFF_DUTY',            label: 'Off Duty',          short: 'OFF',  color: semantic.muted, icon: <HotelIcon /> },

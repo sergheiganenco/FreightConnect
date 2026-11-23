@@ -41,7 +41,7 @@ describe('load creation paths share the posting bar', () => {
   beforeEach(async () => {
     fetch.mockReset();
     axios.get.mockReset();
-    delete process.env.REQUIRE_SHIPPER_PAYMENT_METHOD;
+    process.env.REQUIRE_SHIPPER_PAYMENT_METHOD = 'true'; // as when payments are switched on
     process.env.ORS_API_KEY = 'test-key';
     shipper = await createTestUser({ role: 'shipper', shipperVerification: VERIFIED });
   });

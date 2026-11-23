@@ -36,8 +36,8 @@ router.post(
   '/carrier/start',
   auth,
   [
-    body('mcNumber').optional().custom((v) => !!fmcsaService.normalizeMc(v)).withMessage('mcNumber must be 1-8 digits, optionally prefixed with MC'),
-    body('dotNumber').optional().custom((v) => !!fmcsaService.normalizeDot(v)).withMessage('dotNumber must be 1-8 digits'),
+    body('mcNumber').optional({ values: 'falsy' }).custom((v) => !!fmcsaService.normalizeMc(v)).withMessage('mcNumber must be 1-8 digits, optionally prefixed with MC'),
+    body('dotNumber').optional({ values: 'falsy' }).custom((v) => !!fmcsaService.normalizeDot(v)).withMessage('dotNumber must be 1-8 digits'),
   ],
   validate,
   async (req, res) => {
@@ -204,6 +204,7 @@ router.get('/shipper/status', auth, async (req, res) => {
     const assessment = shipperVerifService.assessVerificationLevel(user);
     res.json({
       ...assessment,
+      paymentMethodRequired: shipperVerifService.paymentMethodRequired(),
       shipperVerification: {
         status: user.shipperVerification?.status || 'unverified',
         emailDomain: user.shipperVerification?.emailDomain,
@@ -247,7 +248,7 @@ router.post(
     body('ein').trim().notEmpty().withMessage('EIN is required'),
     body('businessName').optional().trim(),
     body('stateOfIncorporation').optional().trim(),
-    body('businessType').optional().isIn(['llc', 'corporation', 'sole_proprietor', 'partnership', 'other']),
+    body('businessType').optional({ values: 'falsy' }).isIn(['llc', 'corporation', 'sole_proprietor', 'partnership', 'other']),
   ],
   validate,
   async (req, res) => {

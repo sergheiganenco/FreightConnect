@@ -103,10 +103,11 @@ export default function ShipperVerification() {
   const level = status?.level || 0;
   const steps = status?.steps || {};
   const permissions = status?.permissions || {};
+  const paymentsOff = status?.paymentMethodRequired === false;
 
   const activeStep = steps.adminApproved ? 4
     : steps.businessIdentity ? 3
-    : steps.paymentMethod ? 2
+    : (steps.paymentMethod || (paymentsOff && steps.emailVerified)) ? 2
     : steps.emailVerified ? 1
     : 0;
 
@@ -142,7 +143,7 @@ export default function ShipperVerification() {
               <Typography variant="caption" color="rgba(255,255,255,0.6)">
                 {permissions.canPostLoads
                   ? `You can post up to ${permissions.maxActiveLoads} active loads.${permissions.escrowRequired ? ' Escrow required.' : ''}`
-                  : 'Complete Steps 1-2 to start posting loads.'
+                  : 'Complete the steps below to start posting loads.'
                 }
               </Typography>
             </Box>
@@ -188,15 +189,17 @@ export default function ShipperVerification() {
         </Step>
 
         {/* Step 2: Payment Method */}
-        <Step completed={steps.paymentMethod}>
+        <Step completed={steps.paymentMethod || paymentsOff}>
           <StepLabel icon={<PaymentIcon sx={{ color: steps.paymentMethod ? '#34d399' : '#6366f1' }} />}>
             Payment Method on File
           </StepLabel>
           <StepContent>
             <Typography variant="body2" color="rgba(255,255,255,0.6)" mb={2}>
-              Add a credit card or bank account. Required before you can post loads — ensures carriers get paid.
+              {paymentsOff
+                ? 'Payments are not switched on during early access. You can post loads now. We will ask for a payment method when payments go live.'
+                : 'Add a credit card or bank account. Required before you can post loads — ensures carriers get paid.'}
             </Typography>
-            {sv.paymentMethodVerified ? (
+            {paymentsOff ? null : sv.paymentMethodVerified ? (
               <Stack direction="row" spacing={1} alignItems="center">
                 <CheckCircleIcon sx={{ color: '#34d399', fontSize: 18 }} />
                 <Typography color="#34d399" fontWeight={600}>

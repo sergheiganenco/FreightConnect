@@ -1,3 +1,4 @@
+import { API_BASE } from "../../services/api";
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Stack, Alert,
@@ -12,7 +13,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { surface, chart, gradient } from '../../theme/tokens';
 import { payMessage } from '../../utils/payMessage';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API = API_BASE;
 const token = () => localStorage.getItem('token');
 
 const STATUS_CONFIG = {
@@ -45,6 +46,7 @@ export default function CarrierPayments() {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [paymentsOff, setPaymentsOff] = useState(false);
 
   const [stripeStatus, setStripeStatus] = useState(null);
   const [stripeLoading, setStripeLoading] = useState(false);
@@ -56,6 +58,7 @@ export default function CarrierPayments() {
       const res = await fetch(`${API}/payments/my?page=${p}&limit=15`, {
         headers: { Authorization: `Bearer ${token()}` },
       });
+      if (res.status === 503) { setPaymentsOff(true); return; }
       const data = await res.json();
       setPayments(data.payments || []);
       setTotal(data.total || 0);
@@ -73,7 +76,8 @@ export default function CarrierPayments() {
       const res = await fetch(`${API}/payments/connect/status`, {
         headers: { Authorization: `Bearer ${token()}` },
       });
-      if (res.ok) setStripeStatus(await res.json());
+      if (res.status === 503) setPaymentsOff(true);
+      else if (res.ok) setStripeStatus(await res.json());
     } catch { /* ignore */ } finally {
       setStripeLoading(false);
     }
@@ -128,7 +132,8 @@ export default function CarrierPayments() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {/* ── Stripe Connect Status ────────────────────────────────────── */}
-      <Card sx={{ mb: 3, background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
+      {paymentsOff && <Alert severity="info" sx={{ mb: 2 }}>Payments are not available yet during early access. Loads can still be posted, booked and delivered; payment between shipper and carrier is arranged directly for now.</Alert>}
+      {!paymentsOff && <Card sx={{ mb: 3, background: surface.cardBg, borderRadius: 3, border: `1px solid ${surface.glassBorder}` }}>
         <CardContent>
           <Typography variant="subtitle1" fontWeight={700} mb={1.5}>Payout Account</Typography>
           {stripeLoading ? (
@@ -186,7 +191,7 @@ export default function CarrierPayments() {
             </Stack>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
       {/* ── Summary Cards ───────────────────────────────────────────── */}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={3} flexWrap="wrap">

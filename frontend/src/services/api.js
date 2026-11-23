@@ -7,6 +7,10 @@ const baseURL =
   process.env.REACT_APP_API_URL ||
   (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:5000/api"); // Don't end with slash
 
+// For the few screens that call fetch() directly: the same address, with and without the "/api" suffix.
+export const API_BASE = baseURL;
+export const API_ROOT = baseURL.replace(/\/api\/?$/, "");
+
 const api = axios.create({
   baseURL, // e.g., "http://localhost:5000/api"
   headers: {

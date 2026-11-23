@@ -72,6 +72,16 @@ function validateEIN(ein) {
  * Assess shipper verification level based on what's been completed.
  * Returns a level 0-4 and what's missing for the next level.
  */
+/**
+ * Is a payment method needed before posting? Only once payments are switched on (a Stripe key is set):
+ * until then nobody could add one. REQUIRE_SHIPPER_PAYMENT_METHOD=true|false overrides.
+ */
+function paymentMethodRequired() {
+  const flag = process.env.REQUIRE_SHIPPER_PAYMENT_METHOD;
+  if (flag === 'true' || flag === 'false') return flag === 'true';
+  return !!process.env.STRIPE_SECRET_KEY;
+}
+
 function assessVerificationLevel(user) {
   const sv = user.shipperVerification || {};
   const steps = {
@@ -89,16 +99,17 @@ function assessVerificationLevel(user) {
 
   const missing = [];
   if (!steps.emailVerified) missing.push('Email domain check');
-  if (!steps.paymentMethod) missing.push('Add a payment method (credit card or bank account)');
+  const needPayment = paymentMethodRequired();
+  if (!steps.paymentMethod && needPayment) missing.push('Add a payment method (credit card or bank account)');
   if (!steps.businessIdentity) missing.push('Verify business identity (EIN or business license)');
   if (!steps.adminApproved && level >= 3) missing.push('Awaiting admin review for full verification');
 
   // Determine what the shipper can do at this level
   const permissions = {
     canBrowseLoads: true,
-    canPostLoads: level >= 2,  // Need payment method
+    canPostLoads: level >= 2 || !needPayment,  // payment method, once payments are on
     escrowRequired: level < 3 || sv.firstLoadEscrowRequired,
-    maxActiveLoads: level >= 4 ? 999 : level >= 3 ? 50 : level >= 2 ? 10 : 0,
+    maxActiveLoads: level >= 4 ? 999 : level >= 3 ? 50 : level >= 2 || !needPayment ? 10 : 0,
     canUsePreferredCarriers: level >= 3,
     canUseContracts: level >= 4,
   };
@@ -181,6 +192,7 @@ async function recordPaymentMethod(userId, stripeCustomerId, last4, type) {
 }
 
 module.exports = {
+  paymentMethodRequired,
   checkEmailDomain,
   validateEIN,
   assessVerificationLevel,

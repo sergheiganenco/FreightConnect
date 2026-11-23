@@ -65,8 +65,18 @@ if (process.env.NODE_ENV === 'production') {
   require('./config/production')(app);
 }
 
-// Security headers
-app.use(helmet());
+// Security headers. The page may load only from itself plus the few outside services it really uses:
+// map tiles and traffic tiles, the truck marker image, city lookup, web fonts and Stripe (for when payments go on).
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      'script-src': ["'self'", "'wasm-unsafe-eval'", 'https://js.stripe.com'],
+      'img-src': ["'self'", 'data:', 'blob:', 'https://*.tile.openstreetmap.org', 'https://api.tomtom.com', 'https://cdn-icons-png.flaticon.com'],
+      'connect-src': ["'self'", 'https://nominatim.openstreetmap.org', 'https://api.stripe.com'],
+      'frame-src': ["'self'", 'https://js.stripe.com', 'https://hooks.stripe.com'],
+    },
+  },
+}));
 
 // CORS — single configuration driven by environment variable
 const allowedOrigins = process.env.ALLOWED_ORIGINS

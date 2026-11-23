@@ -1,3 +1,4 @@
+import { API_ROOT } from "../../services/api";
 /**
  * ShipperEDI — Electronic Data Interchange Center
  *
@@ -29,7 +30,7 @@ import AddIcon from '@mui/icons-material/Add';
 
 // Normalize to origin so `${API}/api/...` never doubles `/api`
 // (REACT_APP_API_URL is conventionally http://host/api).
-const API = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/api\/?$/, '');
+const API = API_ROOT;
 
 const STATUS_META = {
   received:     { label: 'Received',      color: '#9ca3af', icon: <HourglassEmptyIcon sx={{ fontSize: 14 }} /> },

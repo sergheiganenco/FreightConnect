@@ -376,26 +376,10 @@ export default function OnboardingWizard({ role, onComplete }) {
   const renderPaymentStep = () => (
     <Box sx={{ textAlign: 'center', py: 4 }}>
       <Typography variant="h6" sx={{ color: text.primary, mb: 2 }}>
-        {role === 'carrier' ? 'Set Up Stripe Connect' : 'Set Up Payment Method'}
+        Payments come later
       </Typography>
       <Typography sx={{ color: text.secondary, mb: 3, maxWidth: 500, mx: 'auto' }}>
-        {role === 'carrier'
-          ? 'Connect your Stripe account to receive payments directly. You can also set this up later from your profile.'
-          : 'Add a payment method to escrow funds for your shipments. You can also set this up later from your payments page.'}
-      </Typography>
-      <Button variant="contained"
-        sx={{
-          background: gradient.primary, color: text.primary,
-          px: 4, py: 1.5, borderRadius: 3, fontWeight: 600
-        }}
-        onClick={() => {
-          // Redirect to Stripe setup - handled in profile/payments pages
-          handleNext();
-        }}>
-        Set Up Now
-      </Button>
-      <Typography variant="body2" sx={{ color: text.muted, mt: 2 }}>
-        You can skip this step and set it up later.
+        Payments are not available yet during early access. Loads can still be posted, booked and delivered; payment between shipper and carrier is arranged directly for now. When payments go live, you can set them up from the Payments page.
       </Typography>
     </Box>
   );

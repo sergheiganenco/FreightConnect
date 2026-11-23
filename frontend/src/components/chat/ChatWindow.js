@@ -61,7 +61,11 @@ export default function ChatWindow({ channelId }) {
   if (!channel) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-        <Typography sx={{ color: T.hint }}>Select a conversation</Typography>
+        <Typography sx={{ color: T.hint, textAlign: 'center', maxWidth: 420, px: 2 }}>
+          {channels.length === 0
+            ? 'No conversations yet. A conversation starts automatically when a load is booked, so shipper and carrier can talk about that load.'
+            : 'Select a conversation'}
+        </Typography>
       </Box>
     );
   }

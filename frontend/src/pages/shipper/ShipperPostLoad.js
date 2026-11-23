@@ -233,6 +233,7 @@ export default function ShipperPostLoad() {
     return [k, Array.isArray(v) ? (Array.isArray(x) ? x : v) : (x == null ? v : x)];
   })));
   const [stepSummary, setStepSummary] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [openSnackbar, setOpenSnackbar] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -486,6 +487,7 @@ export default function ShipperPostLoad() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submittingRef.current) return;
+    setSubmitError('');
     if (tenderBlocked || (wantsTender && network === null)) {
       setError('Add carriers to My Carriers first, or choose a different visibility.');
       setOpenSnackbar(true);
@@ -577,6 +579,7 @@ export default function ShipperPostLoad() {
         setActiveStep(1);
       }
       setError(msg);
+      setSubmitError(msg);
       setOpenSnackbar(true);
     } finally {
       submittingRef.current = false;
@@ -1733,7 +1736,7 @@ export default function ShipperPostLoad() {
             <Switch
               checked={newLoad.termsAccepted}
               onChange={e => handleChange("termsAccepted", e.target.checked)}
-              required
+              inputProps={{ 'aria-invalid': !!fieldErrors.termsAccepted }}
               color="primary"
             />
           }
@@ -1742,7 +1745,7 @@ export default function ShipperPostLoad() {
         />
         )}
         {!isEdit && fieldErrors.termsAccepted && (
-          <Typography color="error" fontSize="0.9em">You must accept Terms & Conditions</Typography>
+          <Typography color="error" fontSize="0.9em">Accept the Terms & Conditions to post this load.</Typography>
         )}
         </Box>
         )}
@@ -1753,6 +1756,11 @@ export default function ShipperPostLoad() {
         {stepSummary && (
           <Alert severity="error" sx={{ mt: 3, bgcolor: 'rgba(127,29,29,0.55)', color: '#fecaca', '& .MuiAlert-icon': { color: '#fecaca' } }}>
             {stepSummary}
+          </Alert>
+        )}
+        {submitError && (
+          <Alert severity="error" onClose={() => setSubmitError('')} sx={{ mt: 3, bgcolor: 'rgba(127,29,29,0.55)', color: '#fecaca', '& .MuiAlert-icon': { color: '#fecaca' } }}>
+            {submitError}
           </Alert>
         )}
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 4 }}>

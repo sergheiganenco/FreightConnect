@@ -1,3 +1,4 @@
+import { API_BASE } from "../../services/api";
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Stack, Alert,
@@ -11,7 +12,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { surface, chart } from '../../theme/tokens';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API = API_BASE;
 const token = () => localStorage.getItem('token');
 
 const STATUS_CONFIG = {
@@ -225,6 +226,7 @@ export default function ShipperPayments() {
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [paymentsOff, setPaymentsOff] = useState(false);
 
   const fetchPayments = useCallback(async (p = 1) => {
     setLoading(true);
@@ -232,6 +234,7 @@ export default function ShipperPayments() {
       const res = await fetch(`${API}/payments/my?page=${p}&limit=15`, {
         headers: { Authorization: `Bearer ${token()}` },
       });
+      if (res.status === 503) { setPaymentsOff(true); return; }
       const data = await res.json();
       setPayments(data.payments || []);
       setTotal(data.total || 0);
@@ -257,6 +260,7 @@ export default function ShipperPayments() {
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {paymentsOff && <Alert severity="info" sx={{ mb: 2 }}>Payments are not available yet during early access. Loads can still be posted, booked and delivered; payment between shipper and carrier is arranged directly for now.</Alert>}
 
       {/* ── Summary Cards ───────────────────────────────────────────── */}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={3} flexWrap="wrap">

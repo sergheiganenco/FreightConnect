@@ -1,3 +1,4 @@
+import { API_ROOT } from "../../services/api";
 /**
  * CarrierFactoring — Invoice Factoring Dashboard
  *
@@ -48,7 +49,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 // Normalize to origin so `${API}/api/...` never doubles `/api`
 // (REACT_APP_API_URL is conventionally http://host/api).
-const API = (process.env.REACT_APP_API_URL || 'http://localhost:5000').replace(/\/api\/?$/, '');
+const API = API_ROOT;
 
 const ADVANCE_PCT = 95; // standard advance rate
 

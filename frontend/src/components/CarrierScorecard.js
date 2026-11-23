@@ -127,13 +127,15 @@ function ChartTooltip({ active, payload, label }) {
  * @param {string} carrierId - the carrier user ID to display
  * @param {boolean} compact - if true, shows a smaller version
  */
-export default function CarrierScorecard({ carrierId, compact = false }) {
+export default function CarrierScorecard({ carrierId: carrierIdProp, compact = false }) {
+  // The dashboard route renders this with no props: default to the signed-in carrier.
+  const carrierId = carrierIdProp || localStorage.getItem('userId');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    if (!carrierId) return;
+    if (!carrierId) { setLoading(false); return; }
     setLoading(true);
     setError('');
 
@@ -197,7 +199,20 @@ export default function CarrierScorecard({ carrierId, compact = false }) {
     );
   }
 
-  if (!data) return null;
+  if (!data && compact) return null;
+
+  if (!compact && (!data || (!data.totalRatings && !data.trustScore))) {
+    return (
+      <Paper sx={glassCard}>
+        <Typography variant="h6" sx={{ color: text.primary, fontWeight: 700, mb: 1 }}>
+          Carrier Trust Scorecard
+        </Typography>
+        <Typography variant="body2" sx={{ color: text.secondary }}>
+          Your scorecard appears after your first delivered load. It shows on-time pickup and delivery, and how shippers rated you.
+        </Typography>
+      </Paper>
+    );
+  }
 
   const level = getTrustLevel(data.trustScore);
   const LevelIcon = level.icon;

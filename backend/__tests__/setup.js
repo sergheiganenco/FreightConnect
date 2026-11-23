@@ -7,6 +7,8 @@ beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
   process.env.JWT_SECRET = 'test-secret-key-for-testing';
   process.env.NODE_ENV = 'test';
+  // Tests run as if payments were switched on, so the payment-method rule is exercised.
+  if (process.env.REQUIRE_SHIPPER_PAYMENT_METHOD === undefined) process.env.REQUIRE_SHIPPER_PAYMENT_METHOD = 'true';
   await mongoose.connect(mongoServer.getUri());
 });
 

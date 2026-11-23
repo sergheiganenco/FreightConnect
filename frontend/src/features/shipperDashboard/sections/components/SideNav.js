@@ -176,7 +176,7 @@ export default function SideNav({ current, collapsed, onSelect }) {
                 <div
                   tabIndex={0}
                   role="button"
-                  aria-label={moreOpen ? "Show less" : "Show more"}
+                  aria-label={moreOpen ? "Less" : "More"}
                   aria-expanded={moreOpen}
                   onClick={() => setMoreOpen((v) => !v)}
                   onKeyDown={e => {

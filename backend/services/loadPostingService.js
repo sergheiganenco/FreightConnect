@@ -33,11 +33,11 @@ async function shipperPostingGate(shipperCompanyId, { requirePaymentMethod = tru
   if (sv?.status === 'suspended') {
     return { status: 403, error: 'Your shipper account is suspended. Contact support.', extra: { verificationStatus: 'suspended' } };
   }
-  // Pilot switch: the payment-method requirement depends on Stripe being wired. A suspended account is always blocked.
-  if (requirePaymentMethod && process.env.REQUIRE_SHIPPER_PAYMENT_METHOD !== 'false' && !sv?.paymentMethodVerified) {
+  // Asked for only once payments are switched on (see paymentMethodRequired). A suspended account is always blocked.
+  if (requirePaymentMethod && require('./shipperVerificationService').paymentMethodRequired() && !sv?.paymentMethodVerified) {
     return {
       status: 403,
-      error: 'Add a payment method before posting loads. Go to Settings → Verification to add a card or bank account.',
+      error: 'Add a payment method before posting loads. Open Verification from your dashboard to add a card or bank account.',
       extra: { verificationStatus: sv?.status || 'unverified', missingStep: 'payment_method' },
     };
   }

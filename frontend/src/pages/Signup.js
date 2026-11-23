@@ -251,8 +251,9 @@ export default function Signup() {
                   }}
                 >
                   <Info size={16} style={{ marginRight: 5, flexShrink: 0 }} />
-                  If your company is already in our system, enter the same name
-                  to join. If not, a new company will be created.
+                  Your company's legal or trading name. To join a company that is
+                  already on FreightConnect, ask its owner to add you from their
+                  Team page.
                 </Box>
               </>
             )}

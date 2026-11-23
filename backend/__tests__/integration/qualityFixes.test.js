@@ -97,6 +97,26 @@ describe('delivery needs proof', () => {
   });
 });
 
+describe('payment method before posting', () => {
+  const { paymentMethodRequired, assessVerificationLevel } = require('../../services/shipperVerificationService');
+  const env = { ...process.env };
+  afterEach(() => { process.env = { ...env }; });
+  test('asked for only once payments are switched on', async () => {
+    delete process.env.REQUIRE_SHIPPER_PAYMENT_METHOD; delete process.env.STRIPE_SECRET_KEY;
+    expect(paymentMethodRequired()).toBe(false);
+    expect(assessVerificationLevel({ shipperVerification: {} }).permissions.canPostLoads).toBe(true);
+    fetch.mockResolvedValue({ ok: true, json: async () => [{ lat: '41.8', lon: '-87.6' }] });
+    const shipper = await createTestUser({ role: 'shipper' }); // no payment method on file
+    const body = { title: 'T', origin: 'Chicago, IL', destination: 'Dallas, TX', rate: 1000, equipmentType: 'Dry Van' };
+    expect((await as('post', '/api/loads', shipper).send(body)).status).toBe(201);
+    process.env.STRIPE_SECRET_KEY = 'sk_test_x';
+    expect(paymentMethodRequired()).toBe(true);
+    expect((await as('post', '/api/loads', shipper).send(body)).status).toBe(403);
+    process.env.REQUIRE_SHIPPER_PAYMENT_METHOD = 'false';
+    expect(paymentMethodRequired()).toBe(false);
+  });
+});
+
 describe('dates that cannot be right', () => {
   const day = 86400000;
   const iso = (ms) => new Date(Date.now() + ms).toISOString();

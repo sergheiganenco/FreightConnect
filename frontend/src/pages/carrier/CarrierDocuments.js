@@ -115,7 +115,9 @@ export default function CarrierDocuments() {
       <Box>
         {paged.length === 0 && (
           <Typography color="text.secondary" textAlign="center" mt={4}>
-            No loads match this filter.
+            {filter !== "all" && loads.length > 0
+              ? "No loads match this filter."
+              : "No documents yet. Bills of lading, rate confirmations and proofs of delivery appear here once you book a load."}
           </Typography>
         )}
         {paged.map(load => {

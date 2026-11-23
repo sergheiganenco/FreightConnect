@@ -54,13 +54,16 @@ export default function CarrierVerification({ onComplete }) {
     setLookupMsg('');
     setResult(null);
     try {
-      const { data } = await api.post('/verification/carrier/start', { mcNumber, dotNumber });
+      const body = {};
+      if (mcNumber.trim()) body.mcNumber = mcNumber.trim();
+      if (dotNumber.trim()) body.dotNumber = dotNumber.trim();
+      const { data } = await api.post('/verification/carrier/start', body);
       setLookupStatus('success');
       setLookupMsg(data.message);
       pollStatus();
     } catch (err) {
       setLookupStatus('error');
-      setLookupMsg(err.response?.data?.error || 'Verification failed. Please try again.');
+      setLookupMsg(err.response?.data?.error || err.response?.data?.errors?.[0]?.msg || 'We could not start verification. Check the number and try again.');
     }
   };
 
