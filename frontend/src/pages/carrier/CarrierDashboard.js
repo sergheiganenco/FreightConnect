@@ -25,7 +25,7 @@ import LogisticsAssistant from '../../components/LogisticsAssistant';
 import { DashboardProvider } from '../../features/carrierDashboard/sections/context/DashboardContext';
 import NotificationBell from '../../features/shared/NotificationBell';
 import { disconnectSocket } from '../../services/socket';
-import { surface } from '../../theme/tokens';
+import { surface, gradient } from '../../theme/tokens';
 import VerificationBanner from '../../components/VerificationBanner';
 import OnboardingWizard from '../../components/OnboardingWizard';
 import api from '../../services/api';
@@ -124,7 +124,7 @@ export default function CarrierDashboard() {
 
   return (
     <DashboardProvider>
-      <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: theme.palette.dashboardBg }}>
+      <Box sx={{ display: 'flex', minHeight: '100vh', background: gradient.dashboardBg, backgroundAttachment: 'fixed' }}>
         {/* Top AppBar */}
         <AppBar
           elevation={0}

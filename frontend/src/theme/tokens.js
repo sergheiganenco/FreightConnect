@@ -129,8 +129,9 @@ export const chart = {
 export const gradient = {
   primary: 'linear-gradient(90deg, #6a1fcf, #e1129a)',
   background: 'linear-gradient(135deg, #0d0d35 0%, #1a0a3e 50%, #2d1059 100%)',
-  dashboardBg: 'linear-gradient(135deg, #1f2dff 0%, #6a1fcf 40%, #e1129a 100%)',
-  analyticsBg: 'linear-gradient(135deg, #48228b 0%, #8e42ec 60%, #f357a8 100%)',
+  // Same scheme as the public pages: dark navy with a soft glow at the top (was a full-screen blue-to-pink gradient).
+  dashboardBg: 'radial-gradient(ellipse 90% 640px at 50% 0, rgba(106,31,207,0.55) 0%, rgba(31,45,255,0.22) 45%, rgba(13,13,53,0) 100%) no-repeat top, #0d0d35',
+  analyticsBg: 'transparent', // analytics pages sit on the dashboard background
 };
 
 // ── Dark-theme field styles (for TextFields/Selects on dark bg) ─

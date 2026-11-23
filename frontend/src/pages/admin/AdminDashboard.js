@@ -22,7 +22,7 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SideNav from '../../features/adminDashboard/section/components/SideNav';
 import NotificationBell from '../../features/shared/NotificationBell';
 import { disconnectSocket } from '../../services/socket';
-import { brand, surface } from '../../theme/tokens';
+import { brand, surface, gradient } from '../../theme/tokens';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -96,7 +96,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", width: "100%" }}>
+    <Box sx={{ display: "flex", minHeight: "100vh", width: "100%", background: gradient.dashboardBg, backgroundAttachment: "fixed" }}>
       {/* Top AppBar */}
       <AppBar
         elevation={0}
