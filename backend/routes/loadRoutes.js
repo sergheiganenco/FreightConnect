@@ -760,6 +760,14 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
         if (loadToCheck.status === 'open' && seenVersion !== (loadToCheck.termsVersion || 1)) return res.status(409).json(TERMS_CHANGED);
       }
 
+      // Optional: the company truck this booking is planned for (Autopilot). It only links the load to the truck so the
+      // next plan starts after it; the truck's own status is not touched.
+      let planTruckId = null;
+      if (req.body?.truckId != null) {
+        planTruckId = typeof req.body.truckId === 'string' ? req.body.truckId : '';
+        if (!(carrier?.fleet || []).some((t) => t.truckId === planTruckId)) return res.status(400).json({ error: 'Truck not found in your fleet' });
+      }
+
       // Coordinates are required for routing/rate-con/tracking. Check BEFORE booking
       // so a geocode-less load can't be half-booked (accepted in the DB but returning
       // an error with no rate confirmation, chat thread, or status history).
@@ -821,6 +829,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       if (fraudResult.riskFlags && fraudResult.riskFlags.length > 0) {
         acceptUpdate.riskFlags = fraudResult.riskFlags;
       }
+      if (planTruckId) acceptUpdate.assignedTruckId = planTruckId;
       const acceptFilter = { _id: req.params.id, status: "open", acceptedBy: null };
       // Always conditional on the terms this request was checked against: the version the carrier saw, else the one just read.
       const gatedVersion = seenVersion ?? (loadToCheck.termsVersion || 1);

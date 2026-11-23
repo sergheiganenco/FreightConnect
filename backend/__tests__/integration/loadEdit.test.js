@@ -306,6 +306,13 @@ describe('accept honours the terms the carrier saw', () => {
     expect((await Load.findById(load._id)).status).toBe('accepted');
   });
 
+  test('a booking can name the company truck it is planned for; an unknown truck is refused', async () => {
+    expect((await as('put', `/api/loads/${load._id}/accept`, cTok).send({ truckId: 'NOT-MINE' })).status).toBe(400);
+    expect((await Load.findById(load._id)).status).toBe('open');
+    expect((await as('put', `/api/loads/${load._id}/accept`, cTok).send({ truckId: 'TRK-1' })).status).toBe(200);
+    expect((await Load.findById(load._id)).assignedTruckId).toBe('TRK-1');
+  });
+
   test('no version sent still books (older clients)', async () => {
     expect((await as('put', `/api/loads/${load._id}/accept`, cTok).send({})).status).toBe(200);
   });

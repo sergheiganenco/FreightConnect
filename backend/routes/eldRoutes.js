@@ -17,6 +17,7 @@ const {
   computeTotals,
   computeShiftStatus,
   checkCycleViolation,
+  sumOnDutyMinutes,
   mergeViolations,
 } = require('../services/hosRules');
 
@@ -63,11 +64,7 @@ async function cycleOnDutyMinutesExcludingToday(carrierId, today) {
     carrier: carrierId,
     date: { $gte: fromStr, $ne: today },
   }).select('totals').lean();
-  let mins = 0;
-  for (const l of logs) {
-    mins += (l.totals?.drivingMinutes || 0) + (l.totals?.onDutyNotDrivingMinutes || 0);
-  }
-  return mins;
+  return sumOnDutyMinutes(logs);
 }
 
 // ── POST /status — log a duty status change ───────────────────────────────────

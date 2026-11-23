@@ -166,6 +166,14 @@ const UserSchema = new mongoose.Schema({
       longitude: Number,
     },
     autoDispatch: { type: Boolean, default: false }, // shipper opt-in for AI auto-dispatch
+    // Truck Autopilot defaults (all optional; a request can override per call)
+    autopilot: {
+      minRatePerMileCents: { type: Number, default: null, min: 0, max: 5000 }, // all-in: pay / (empty + loaded miles)
+      maxDeadheadMiles:    { type: Number, default: null, min: 1, max: 500 },  // per leg
+      maxWeightLbs:        { type: Number, default: null, min: 1, max: 200000 },
+      allowHazmat:         { type: Boolean, default: false },
+      homeBy:              { type: Date, default: null },
+    },
   },
 
   // ── AI Risk Scoring (populated by CarrierRiskAgent) ─────────────

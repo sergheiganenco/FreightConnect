@@ -472,6 +472,9 @@ app.use('/api/reputation', reputationRoutes);
 const returnLoadRoutes = require('./routes/returnLoadRoutes');
 app.use('/api/return-loads', returnLoadRoutes);
 
+// Truck Autopilot (read-only chain planner; booking uses PUT /api/loads/:id/accept)
+app.use('/api/autopilot', require('./routes/autopilotRoutes'));
+
 // Public Tracking Portal Routes
 const trackingPortalRoutes = require('./routes/trackingPortalRoutes');
 app.use('/api/tracking-portal', trackingPortalRoutes);

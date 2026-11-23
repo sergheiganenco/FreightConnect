@@ -102,6 +102,7 @@ export default function CarrierDashboard() {
   else if (path.includes('/contracts')) currentSection = 'contracts';
   else if (path.includes('/appointments')) currentSection = 'appointments';
   else if (path.includes('/trips')) currentSection = 'trips';
+  else if (path.includes('/autopilot')) currentSection = 'autopilot';
   else if (path.includes('/eld')) currentSection = 'eld';
   else if (path.includes('/expenses')) currentSection = 'expenses';
   else if (path.includes('/factoring')) currentSection = 'factoring';
@@ -218,6 +219,7 @@ export default function CarrierDashboard() {
               else if (key === "contracts") navigate("/dashboard/carrier/contracts");
               else if (key === "appointments") navigate("/dashboard/carrier/appointments");
               else if (key === "trips") navigate("/dashboard/carrier/trips");
+              else if (key === "autopilot") navigate("/dashboard/carrier/autopilot");
               else if (key === "eld") navigate("/dashboard/carrier/eld");
               else if (key === "expenses") navigate("/dashboard/carrier/expenses");
               else if (key === "factoring") navigate("/dashboard/carrier/factoring");

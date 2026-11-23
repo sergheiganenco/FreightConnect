@@ -192,6 +192,13 @@ function computeShiftStatus(events, now = new Date()) {
   };
 }
 
+/** On-duty minutes (driving + on-duty-not-driving) summed from ELDLog day totals. Shared by the ELD routes and Autopilot. */
+function sumOnDutyMinutes(logs) {
+  let mins = 0;
+  for (const l of logs || []) mins += (l.totals?.drivingMinutes || 0) + (l.totals?.onDutyNotDrivingMinutes || 0);
+  return mins;
+}
+
 function checkCycleViolation(cycleOnDutyMinutes) {
   if (cycleOnDutyMinutes >= LIMITS.CYCLE_MIN) {
     return { type: '70_HOUR', message: '70-hour/8-day on-duty cycle limit reached', severity: 'violation' };
@@ -231,5 +238,6 @@ module.exports = {
   checkViolations,
   computeShiftStatus,
   checkCycleViolation,
+  sumOnDutyMinutes,
   mergeViolations,
 };

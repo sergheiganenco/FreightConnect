@@ -14,6 +14,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import RouteIcon from '@mui/icons-material/Route';
+import AutoModeIcon from '@mui/icons-material/AutoMode';
 import TimerIcon from '@mui/icons-material/Timer';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import PsychologyIcon from '@mui/icons-material/Psychology';
@@ -62,6 +63,7 @@ const moreItems = [
   { key: "drivers",      label: "Drivers",       icon: <BadgeIcon />,           access: 'manager' },
   { key: "fleetHos",     label: "Fleet HOS",     icon: <MonitorHeartIcon />,    access: 'manager' },
   { key: "fleetMap",     label: "Fleet Map",     icon: <MapIcon /> },
+  { key: "autopilot",    label: "Autopilot",     icon: <AutoModeIcon /> },
   { key: "trips",        label: "Trip Planning", icon: <RouteIcon /> },
   { key: "eld",          label: "HOS Advisor",   icon: <TimerIcon /> },
   { key: "appointments", label: "Appointments",  icon: <CalendarMonthIcon /> },

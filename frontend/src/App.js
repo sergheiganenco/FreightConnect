@@ -57,6 +57,7 @@ const CarrierContracts = lazy(() => import('./pages/carrier/CarrierContracts'));
 const ShipperAppointments = lazy(() => import('./pages/shipper/ShipperAppointments'));
 const CarrierAppointments = lazy(() => import('./pages/carrier/CarrierAppointments'));
 const CarrierTripPlanning = lazy(() => import('./pages/carrier/CarrierTripPlanning'));
+const CarrierAutopilot = lazy(() => import('./pages/carrier/CarrierAutopilot'));
 const CarrierELD = lazy(() => import('./pages/carrier/CarrierELD'));
 const CarrierFactoring = lazy(() => import('./pages/carrier/CarrierFactoring'));
 const CarrierTax = lazy(() => import('./pages/carrier/CarrierTax'));
@@ -171,6 +172,7 @@ function App() {
             <Route path="contracts" element={<CarrierContracts />} />
             <Route path="appointments" element={<CarrierAppointments />} />
             <Route path="trips" element={<CarrierTripPlanning />} />
+            <Route path="autopilot" element={<CarrierAutopilot />} />
             <Route path="eld" element={<CarrierELD />} />
             <Route path="expenses" element={<CarrierExpenses />} />
             <Route path="factoring" element={<CarrierFactoring />} />
