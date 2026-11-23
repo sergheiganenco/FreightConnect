@@ -57,6 +57,12 @@ describe('needs_attention reasons', () => {
     expect(row(truck(), [load({ pickupRisk: { level: 'late_certain', detail: { minutesLateAtLeast: 20 } } })]).reasons[0]).toMatch(/at least 20 min/);
     expect(row(truck(), [load({ pickupRisk: { level: 'no_show' } })]).reasons[0]).toMatch(/Pickup missed/);
   });
+  test('a booked load past its pickup deadline is attention even without a risk verdict', () => {
+    const r = row(truck(), [load({ pickupTimeWindow: { start: ago(300), end: ago(240) } })]);
+    expect(r.state).toBe('needs_attention');
+    expect(r.reasons.join(' ')).toMatch(/Pickup deadline passed/);
+  });
+
   test('on_track pickup risk is not attention', () => {
     expect(row(truck(), [load({ pickupRisk: { level: 'on_track' } })]).state).toBe('booked');
   });

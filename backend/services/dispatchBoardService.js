@@ -84,6 +84,12 @@ function deriveTruckRow({ truck, driver, loads, now }) {
 
   for (const l of sorted) {
     if (l.status === 'accepted' && l.pickupRisk && RISKY_LEVELS.includes(l.pickupRisk.level)) reasons.push(pickupReason(l));
+    else if (l.status === 'accepted') {
+      // Independent of the risk monitor: a booked load still not picked up after its agreed latest pickup time.
+      const w = (l.bookedWindow && l.bookedWindow.start ? l.bookedWindow : l.pickupTimeWindow) || {};
+      const latest = ms(w.end) ?? ms(w.start);
+      if (latest != null && latest < nowMs) reasons.push(`Pickup deadline passed ${ageText(Math.round((nowMs - latest) / MIN))} ago and the load is not picked up`);
+    }
     const ask = l.checkCallState && l.checkCallState.ask;
     const askedAt = ms(ask && ask.askedAt);
     if (askedAt != null && nowMs - askedAt <= CHECK.PICKUP_LOOKBACK_MS && !(ms(ask.answeredAt) >= askedAt)) {
