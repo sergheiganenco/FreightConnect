@@ -226,7 +226,7 @@ export default function AdminOverview() {
                       color: "#fff",
                       display: "flex",
                       alignItems: "center",
-                      gap: 1.5,
+                      gap: 1.5, flexWrap: "wrap",
                     }}
                   >
                     <ErrorOutlineIcon sx={{ color: "#f04ca7" }} />

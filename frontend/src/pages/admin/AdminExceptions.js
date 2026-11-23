@@ -383,7 +383,7 @@ export default function AdminExceptions() {
             {total} exception{total !== 1 ? 's' : ''} filed across the platform
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5}>
+        <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap">
           <FormControl size="small" sx={{ minWidth: 140 }}>
             <InputLabel sx={{ color: T.primary }}>Status</InputLabel>
             <Select

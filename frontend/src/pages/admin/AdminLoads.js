@@ -145,7 +145,7 @@ export default function AdminLoads() {
           borderRadius: 4,
           background: "linear-gradient(90deg, #392a7cbb 0%, #b833eb55 100%)",
           display: "flex",
-          flexWrap: { xs: "wrap", md: "nowrap" },
+          flexWrap: "wrap",
           gap: 2,
           p: 2,
           alignItems: "center"

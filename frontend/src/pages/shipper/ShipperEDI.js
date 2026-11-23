@@ -460,7 +460,7 @@ export default function ShipperEDI() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', mb: 3, gap: 2 }}>
         <CodeIcon sx={{ color: '#6366f1', fontSize: 32 }} />
         <Box>
           <Typography variant="h5" fontWeight={700} sx={{ color: '#fff' }}>EDI Integration</Typography>

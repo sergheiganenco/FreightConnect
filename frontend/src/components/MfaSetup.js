@@ -110,7 +110,7 @@ export default function MfaSetup() {
 
   return (
     <Paper elevation={0} sx={cardSx}>
-      <Stack direction="row" alignItems="center" spacing={1.5} mb={1.5}>
+      <Stack direction="row" alignItems="center" spacing={1.5} useFlexGap flexWrap="wrap" mb={1.5}>
         <ShieldIcon sx={{ color: brand.indigoLight }} />
         <Typography variant="h6" fontWeight={900} sx={{ color: T.primary, flex: 1 }}>
           Two-Factor Authentication (MFA)

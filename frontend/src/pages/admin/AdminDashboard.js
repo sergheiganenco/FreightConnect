@@ -96,7 +96,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", width: "100vw" }}>
+    <Box sx={{ display: "flex", minHeight: "100vh", width: "100%" }}>
       {/* Top AppBar */}
       <AppBar
         elevation={0}
@@ -106,7 +106,7 @@ export default function AdminDashboard() {
           zIndex: theme.zIndex.drawer + 1,
         }}
       >
-        <Toolbar>
+        <Toolbar sx={{ px: { xs: 1.5, sm: 2 } }}>
           {!mdUp && (
             <IconButton
               onClick={() => setDrawerOpen((o) => !o)}
@@ -118,7 +118,7 @@ export default function AdminDashboard() {
             </IconButton>
           )}
 
-          <Typography variant="h6" fontWeight={700} mr={2} letterSpacing={1}>
+          <Typography variant="h6" fontWeight={700} letterSpacing={1} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, mr: { xs: 1, sm: 2 }, '@media (max-width:379.95px)': { mr: 'auto' } }} noWrap>
             FreightConnect
           </Typography>
 
@@ -126,7 +126,7 @@ export default function AdminDashboard() {
             size="small"
             label="ADMIN"
             sx={{
-              mr: "auto",
+              mr: 'auto', '@media (max-width:379.95px)': { display: 'none' },
               bgcolor: brand.pink,
               color: "#fff",
               fontWeight: 700,
@@ -221,7 +221,7 @@ export default function AdminDashboard() {
           px: { xs: 2, md: 4 },
         }}
       >
-        <Outlet />
+        <Box sx={{ maxWidth: 1680, mx: 'auto' }}><Outlet /></Box>
       </Box>
     </Box>
   );

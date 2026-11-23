@@ -272,7 +272,7 @@ export default function CarrierAnalytics() {
       {/* Filters */}
       <Stack
         direction={isXs ? "column" : "row"}
-        spacing={2}
+        spacing={2} useFlexGap flexWrap="wrap"
         sx={{ mb: 3, alignItems: isXs ? "stretch" : "center" }}
       >
         <Select value={status} onChange={e => setStatus(e.target.value)} size="small"

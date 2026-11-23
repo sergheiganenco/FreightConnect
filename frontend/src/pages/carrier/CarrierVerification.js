@@ -106,7 +106,7 @@ export default function CarrierVerification({ onComplete }) {
 
   return (
     <Box sx={{ maxWidth: 600, mx: 'auto', mt: 2 }}>
-      <Stepper activeStep={step} sx={{ mb: 4 }}>
+      <Stepper activeStep={step} sx={{ mb: 4, overflowX: 'auto' }}>
         {STEPS.map((label) => (
           <Step key={label}>
             <StepLabel

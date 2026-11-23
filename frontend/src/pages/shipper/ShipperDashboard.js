@@ -127,14 +127,14 @@ export default function ShipperDashboard() {
           borderBottom: `1.5px solid ${surface.glassBorder}`,
         }}
       >
-        <Toolbar>
+        <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
           {!mdUp && (
             <IconButton onClick={() => setDrawerOpen((o) => !o)} aria-label="Toggle navigation" sx={{ mr: 1 }}>
               <MenuIcon />
             </IconButton>
           )}
 
-          <Typography variant="h6" fontWeight={700} mr={2}>
+          <Typography variant="h6" fontWeight={700} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, mr: { xs: 1, sm: 2 }, '@media (max-width:379.95px)': { mr: 'auto' } }} noWrap>
             FreightConnect
           </Typography>
 
@@ -142,7 +142,7 @@ export default function ShipperDashboard() {
             size="small"
             label="SHIPPER"
             sx={{
-              mr: 'auto',
+              mr: 'auto', '@media (max-width:379.95px)': { display: 'none' },
               bgcolor: `${brand.indigo}e0`,
               color: '#fff',
               fontWeight: 700,
@@ -240,7 +240,7 @@ export default function ShipperDashboard() {
         }}
       >
         <VerificationBanner role="shipper" />
-        <Outlet />
+        <Box sx={{ maxWidth: 1680, mx: 'auto' }}><Outlet /></Box>
       </Box>
 
       {/* First-run onboarding wizard (skippable, persisted server-side) */}

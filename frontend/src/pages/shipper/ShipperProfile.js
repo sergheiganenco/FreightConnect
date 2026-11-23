@@ -265,7 +265,7 @@ export default function ShipperProfile() {
               <Box
                 key={doc.key}
                 sx={{
-                  display: "flex", alignItems: "center", gap: 2,
+                  display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2,
                   bgcolor: "rgba(255,255,255,0.05)", borderRadius: 3, px: 2, py: 2
                 }}
               >

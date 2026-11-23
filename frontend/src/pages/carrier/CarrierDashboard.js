@@ -134,14 +134,14 @@ export default function CarrierDashboard() {
             zIndex: theme.zIndex.drawer + 1,
           }}
         >
-          <Toolbar>
+          <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
             {!mdUp && (
               <IconButton onClick={() => setDrawerOpen((o) => !o)} aria-label="Toggle navigation" sx={{ mr: 1 }}>
                 <MenuIcon />
               </IconButton>
             )}
 
-            <Typography variant="h6" fontWeight={700} mr={2}>
+            <Typography variant="h6" fontWeight={700} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, mr: { xs: 1, sm: 2 }, '@media (max-width:379.95px)': { mr: 'auto' } }} noWrap>
               FreightConnect
             </Typography>
 
@@ -150,7 +150,7 @@ export default function CarrierDashboard() {
                 size="small"
                 label={role.toUpperCase()}
                 sx={{
-                  mr: 'auto',
+                  mr: 'auto', '@media (max-width:379.95px)': { display: 'none' },
                   bgcolor: surface.glassBadge,
                   color: '#fff',
                   fontWeight: 600,
@@ -255,7 +255,7 @@ export default function CarrierDashboard() {
           }}
         >
           <VerificationBanner role="carrier" />
-          <Outlet />
+          <Box sx={{ maxWidth: 1680, mx: 'auto' }}><Outlet /></Box>
         </Box>
 
         <LogisticsAssistant />
