@@ -24,7 +24,8 @@ module.exports = (io) => {
   const { refreshLoad, messages: pickupRiskMessages, noShowSnapshot, fileNoShowReview } = require('../jobs/pickupRiskMonitor');
   const { estimateEconomics } = require('../utils/loadEconomics');
   const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
-  const { createPostedLoad, updatePostedLoad } = require('../services/loadPostingService');
+  const { createPostedLoad, updatePostedLoad, voidBidsAfterChange } = require('../services/loadPostingService');
+  const { versionIs } = require('../services/bookingGuard');
 
   const TERMS_CHANGED = { error: 'This load was changed by the shipper. Review the new details before accepting.', code: 'TERMS_CHANGED' };
 
@@ -476,15 +477,7 @@ const createLoadValidation = [
   body("requireDeliveryPhotos").optional().isBoolean().withMessage("requireDeliveryPhotos must be a boolean"),
 ];
 
-// The posting form can send multipart FormData. Nothing parsed multipart on this route, so req.body was empty and the post
-// failed with a misleading "Title must be text". Text fields are parsed now (JSON-string fields are handled below); files
-// are not stored by this endpoint, so a file part is refused outright instead of being silently dropped.
-const multipartText = (req, res, next) => require('multer')({ storage: require('multer').memoryStorage() }).none()(req, res, (err) => {
-  if (!err) return next();
-  res.status(400).json({ error: err.code === 'LIMIT_UNEXPECTED_FILE' ? 'File attachments are not supported when posting a load.' : 'The form data could not be read.' });
-});
-
-router.post('/', auth, multipartText, createLoadValidation, validate, async (req, res) => {
+router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   try {
     // Verification lives on the company owner, so a shipper sub-account is checked against the company.
     const companyId = req.user.companyOwnerId || req.user.userId;
@@ -829,13 +822,15 @@ router.post('/', auth, multipartText, createLoadValidation, validate, async (req
         acceptUpdate.riskFlags = fraudResult.riskFlags;
       }
       const acceptFilter = { _id: req.params.id, status: "open", acceptedBy: null };
-      if (seenVersion != null) acceptFilter.termsVersion = seenVersion === 1 ? { $in: [1, null] } : seenVersion;
+      // Always conditional on the terms this request was checked against: the version the carrier saw, else the one just read.
+      const gatedVersion = seenVersion ?? (loadToCheck.termsVersion || 1);
+      acceptFilter.termsVersion = versionIs(gatedVersion);
       const load = await Load.findOneAndUpdate(acceptFilter, { $set: acceptUpdate }, { new: true });
 
       if (!load) {
         const exists = await Load.findById(req.params.id);
         if (!exists) return res.status(404).json({ error: "Load not found" });
-        if (seenVersion != null && exists.status === 'open' && !exists.acceptedBy && seenVersion !== (exists.termsVersion || 1)) {
+        if (exists.status === 'open' && !exists.acceptedBy && gatedVersion !== (exists.termsVersion || 1)) {
           return res.status(409).json(TERMS_CHANGED);
         }
         return res.status(409).json({ error: "Load is no longer available — already accepted by another carrier" });
@@ -1262,7 +1257,7 @@ const isoWindowDate = (f) => body(f).isISO8601({ strict: true, strictSeparator: 
 const boundMs = (d) => { const t = d == null || d === '' ? NaN : new Date(d).getTime(); return Number.isFinite(t) ? t : NaN; };
 // The state a window edit was validated against: the write only lands if the load is still exactly that
 // (a pickup, cancel or re-booking in between must not let an edit through).
-const loadStateGuard = (load) => ({ _id: load._id, status: load.status, acceptedBy: load.acceptedBy || null, bookedAt: load.bookedAt || null });
+const loadStateGuard = (load) => ({ _id: load._id, status: load.status, acceptedBy: load.acceptedBy || null, bookedAt: load.bookedAt || null, termsVersion: versionIs(load.termsVersion || 1) });
 const WINDOW_CHANGED = { error: 'The load changed — reload and try again' };
 
 // Only the load's shipper company or an admin may change its time windows —
@@ -1334,8 +1329,12 @@ router.put('/:id/pickup-window', auth, isoWindowDate('start'), isoWindowDate('en
     // monitor re-evaluates on its next run and announces afresh).
     const rebook = moved && booked;
     if (rebook) upd.$unset.pickupRisk = 1;
+    // On an OPEN load a new window is a change of terms: same rule as PUT /:id (new version, open bids withdrawn).
+    const openEdit = load.status === 'open' && moved;
+    if (openEdit) set.termsVersion = (load.termsVersion || 1) + 1;
     const w = await Load.updateOne(loadStateGuard(load), upd);
     if (!w.matchedCount) return res.status(409).json(WINDOW_CHANGED);
+    if (openEdit) await voidBidsAfterChange({ _id: load._id, title: load.title, termsVersion: set.termsVersion });
 
     if (rebook) {
       await notifyUserSafe(load.acceptedBy, {
@@ -1379,8 +1378,13 @@ router.put('/:id/delivery-window', auth, isoWindowDate('start'), isoWindowDate('
       }
     }
 
-    const w = await Load.updateOne(loadStateGuard(load), { $set: { 'deliveryTimeWindow.start': new Date(ns), 'deliveryTimeWindow.end': new Date(ne) } });
+    const dset = { 'deliveryTimeWindow.start': new Date(ns), 'deliveryTimeWindow.end': new Date(ne) };
+    const od = load.deliveryTimeWindow || {};
+    const openEdit = load.status === 'open' && (boundMs(od.start) !== ns || boundMs(od.end) !== ne); // change of terms, as in PUT /:id
+    if (openEdit) dset.termsVersion = (load.termsVersion || 1) + 1;
+    const w = await Load.updateOne(loadStateGuard(load), { $set: dset });
     if (!w.matchedCount) return res.status(409).json(WINDOW_CHANGED);
+    if (openEdit) await voidBidsAfterChange({ _id: load._id, title: load.title, termsVersion: dset.termsVersion });
 
     res.json(await Load.findById(load._id));
   } catch (err) {
@@ -1463,10 +1467,16 @@ router.put('/:id/stops', auth, async (req, res) => {
 
     load.stops = enriched;
     // Stored O->D road miles would silently exclude stops.
-    if (enriched.length) { load.distanceMiles = null; load.distanceSource = null; }
-    else Object.assign(load, await loadDistanceFields(load));
-    await load.save();
-    res.json({ stops: load.stops });
+    const dist = enriched.length ? { distanceMiles: null, distanceSource: null } : await loadDistanceFields(load);
+    // Conditional write (still open, still the terms we read); new stops are new terms: version bump + open bids withdrawn.
+    const saved = await Load.findOneAndUpdate(
+      { _id: load._id, postedBy: load.postedBy, status: 'open', termsVersion: versionIs(load.termsVersion || 1) },
+      { $set: { stops: enriched, ...dist, termsVersion: (load.termsVersion || 1) + 1 } },
+      { new: true, runValidators: true }
+    );
+    if (!saved) return res.status(409).json({ error: 'This load was just changed or booked. Reload it and try again.' });
+    await voidBidsAfterChange(saved);
+    res.json({ stops: saved.stops });
   } catch (err) {
     console.error('Error updating stops:', err);
     res.status(500).json({ error: 'Server error updating stops' });

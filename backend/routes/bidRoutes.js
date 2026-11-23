@@ -108,7 +108,7 @@ router.post('/', auth, async (req, res) => {
     const bid = await Bid.findOneAndUpdate(
       { loadId, carrierId: (req.user.companyOwnerId || req.user.userId) },
       {
-        $set: { amount: Number(amount), message, status: 'pending', counterAmount: null },
+        $set: { amount: Number(amount), message, status: 'pending', counterAmount: null, termsVersion: load.termsVersion || 1 },
         $push: {
           history: {
             actor: 'carrier',
@@ -209,6 +209,11 @@ router.put('/:id/accept', auth, async (req, res) => {
     // ── Booking gate: same enforcement as the direct accept path ──────────
     // Blocks unverified identity, lapsed/expired insurance, and missing
     // endorsements BEFORE any state changes (bid stays pending/countered).
+    // A bid books only the terms it was placed on (and the booking below is conditional on that version).
+    const loadVersion = bid.loadId.termsVersion || 1;
+    if (bid.termsVersion != null && bid.termsVersion !== loadVersion) {
+      return res.status(409).json({ error: 'The load was changed after this bid was placed. A new bid is needed.', code: 'TERMS_CHANGED' });
+    }
     const gate = await evaluateBookingGate({ load: bid.loadId, carrierId: bid.carrierId, req });
     if (!gate.allowed) {
       return res.status(403).json({
@@ -224,6 +229,7 @@ router.put('/:id/accept', auth, async (req, res) => {
       loadId: bid.loadId._id,
       carrierId: bid.carrierId,
       gate,
+      termsVersion: loadVersion,
       // Sync rateCents too — findOneAndUpdate does NOT fire the pre('save') hook
       // that keeps rate/rateCents in step, so escrow would otherwise hold the
       // originally-posted amount instead of the negotiated bid.
@@ -399,6 +405,11 @@ router.put('/:id/accept-counter', auth, async (req, res) => {
     if (bid.status !== 'countered') return res.status(409).json({ error: 'Bid has not been countered' });
 
     // ── Booking gate: same enforcement as the direct accept path ──────────
+    // A bid books only the terms it was placed on (and the booking below is conditional on that version).
+    const loadVersion = bid.loadId.termsVersion || 1;
+    if (bid.termsVersion != null && bid.termsVersion !== loadVersion) {
+      return res.status(409).json({ error: 'The load was changed after this bid was placed. A new bid is needed.', code: 'TERMS_CHANGED' });
+    }
     const gate = await evaluateBookingGate({ load: bid.loadId, carrierId: bid.carrierId, req });
     if (!gate.allowed) {
       return res.status(403).json({
@@ -413,6 +424,7 @@ router.put('/:id/accept-counter', auth, async (req, res) => {
       loadId: bid.loadId._id,
       carrierId: bid.carrierId,
       gate,
+      termsVersion: loadVersion,
       // Keep rateCents in step with the accepted counter (see note above).
       extra: { rate: bid.counterAmount, rateCents: Math.round(Number(bid.counterAmount) * 100) },
     });

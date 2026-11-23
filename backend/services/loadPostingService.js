@@ -346,11 +346,12 @@ const EDIT_EXCLUDED = ['source', 'contractId', 'isContractLoad', 'externalRef'];
 const EDITABLE_FIELDS = POSTABLE_FIELDS.filter((k) => !EDIT_EXCLUDED.includes(k));
 const WINDOW_FIELDS = ['pickupTimeWindow', 'deliveryTimeWindow'];
 const BOOLEAN_FIELDS = ['hazardousMaterial', 'allowCarrierBidding', 'overweightAcknowledged'];
-// A change to any of these alters what a carrier priced or planned the load on: it bumps termsVersion and voids open bids.
-const MATERIAL_FIELDS = [
-  'origin', 'destination', 'rate', 'equipmentType', 'loadWeight', 'loadDimensions',
-  'hazardousMaterial', 'hazmatClass', 'hazmatPackingGroup', 'dangerousGoodsUN',
-  'pickupTimeWindow', 'deliveryTimeWindow', 'stops', 'reefer', 'commodityType',
+// Everything a shipper can edit is MATERIAL (bumps termsVersion, voids open bids) unless it is listed here:
+// labels and contacts that do not change what a carrier priced or planned the load on.
+const COSMETIC_FIELDS = [
+  'title', 'notes', 'poNumber', 'shipperReferenceNumber', 'consigneeReference',
+  'pickupFacilityName', 'pickupContactName', 'pickupContactPhone',
+  'deliveryFacilityName', 'deliveryContactName', 'deliveryContactPhone',
 ];
 const REQUIRED_FIELDS = ['title', 'origin', 'destination', 'rate', 'equipmentType'];
 const NOT_EDITABLE = { status: 409, error: 'This load can no longer be edited' };
@@ -358,7 +359,7 @@ const sidesOf = [
   { key: 'origin', label: 'pickup', lat: 'originLat', lng: 'originLng' },
   { key: 'destination', label: 'delivery', lat: 'destinationLat', lng: 'destinationLng' },
 ];
-const versionIs = (v) => (v === 1 ? { $in: [1, null] } : v); // a load from before the field existed counts as version 1
+const { versionIs } = require('./bookingGuard');
 
 // Stable form of a value for "did it change": dates by time, empty/undefined dropped, stop bookkeeping ignored.
 function canon(v) {
@@ -369,11 +370,11 @@ function canon(v) {
     for (const k of Object.keys(v).sort()) {
       if (['_id', 'status', 'arrivedAt', 'departedAt', 'lat', 'lng', 'sequence'].includes(k) && 'address' in v) continue; // stop bookkeeping
       const c = canon(v[k]);
-      if (c !== undefined && c !== null && c !== '') o[k] = c;
+      if (c !== undefined && c !== null && c !== '') o[k] = c; // (false is already canon'd to undefined: false == absent)
     }
     return o;
   }
-  return v === '' ? undefined : v;
+  return v === '' || v === false ? undefined : v;
 }
 const sameValue = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
@@ -436,8 +437,12 @@ async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
     if (set.rate !== undefined) set.rateCents = Math.round(set.rate * 100);
 
     const before = cur.toObject();
-    const changed = (k) => (k in set ? !sameValue(before[k], set[k]) : k in unset ? !sameValue(before[k], undefined) : false);
-    const materialChange = MATERIAL_FIELDS.some(changed);
+    const was = (k) => k.split('.').reduce((o, p) => (o == null ? undefined : o[p]), before);
+    // Write only real differences: a value a stale client merely echoes back must never overwrite a newer edit.
+    for (const k of Object.keys(set)) if (sameValue(was(k), set[k])) delete set[k];
+    for (const k of Object.keys(unset)) if (sameValue(was(k), undefined)) delete unset[k];
+    const changed = (k) => k in set || k in unset;
+    const materialChange = [...Object.keys(set), ...Object.keys(unset)].some((k) => !COSMETIC_FIELDS.includes(k));
 
     // Location: a side is re-resolved when its text changed, coordinates were supplied (as posting accepts them), or it
     // was flagged as not found. Not found / outage leaves the side unlocated for the locator job, and hides the load.
@@ -445,12 +450,15 @@ async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
     const finalC = {};
     let geoDirty = changed('stops');
     for (const s of sidesOf) {
-      const supplied = fields[s.lat] && fields[s.lng];
+      // Supplied coordinates are taken only together with a new place name (a material change) or to fill a side that
+      // has none: never to silently move an unchanged, already-located place.
+      const supplied = fields[s.lat] != null && fields[s.lng] != null && (changed(s.key) || !hasCoords({ lat: cur[s.lat], lng: cur[s.lng] }));
       const dirty = changed(s.key) || supplied || cur.locationProblem?.field === s.key;
       finalC[s.key] = { lat: cur[s.lat], lng: cur[s.lng] };
       if (!dirty) continue;
       geoDirty = true;
       const c = supplied ? { lat: Number(fields[s.lat]), lng: Number(fields[s.lng]) } : (await geocode(set[s.key] ?? cur[s.key], budget)) || {};
+      if (supplied && !(Math.abs(c.lat) <= 90 && Math.abs(c.lng) <= 180)) return { status: 400, error: `The ${s.label} coordinates are out of range.` };
       if (hasCoords(c)) { set[s.lat] = c.lat; set[s.lng] = c.lng; finalC[s.key] = c; } else { unset[s.lat] = 1; unset[s.lng] = 1; finalC[s.key] = {}; }
       Object.assign(set, { locationAttempts: 0, locationNextAttemptAt: null });
       unset.locationProblem = 1;
@@ -477,10 +485,9 @@ async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
     if (Object.keys(unset).length) upd.$unset = unset;
     if (!Object.keys(set).length && !upd.$unset) return { load: cur, needsLocation: !locatedBefore, materialChange: false, voidedBids: 0 };
 
-    // ONE conditional write: still ours, still open (a concurrent accept makes this match nothing), and for a version bump
-    // still on the version we read (two concurrent edits cannot both claim the same next version).
-    const filter = { _id: cur._id, postedBy: shipperCompanyId, status: 'open' };
-    if (materialChange) filter.termsVersion = versionIs(cur.termsVersion || 1);
+    // ONE conditional write: still ours, still open (a concurrent accept makes this match nothing) and still on the
+    // version we read (no edit is ever applied on top of terms it did not see).
+    const filter = { _id: cur._id, postedBy: shipperCompanyId, status: 'open', termsVersion: versionIs(cur.termsVersion || 1) };
     const updated = await Load.findOneAndUpdate(filter, upd, { new: true });
     if (!updated) {
       const again = await Load.findOne({ _id: cur._id, postedBy: shipperCompanyId }).select('status');
@@ -526,4 +533,4 @@ async function voidBidsAfterChange(load) {
   }
 }
 
-module.exports = { createPostedLoad, updatePostedLoad, shipperPostingGate, makeGeocodeBudget, geocode, POSTABLE_FIELDS, MAX_UNLOCATED_PER_COMPANY, _spacing: spacing };
+module.exports = { createPostedLoad, updatePostedLoad, voidBidsAfterChange, shipperPostingGate, makeGeocodeBudget, geocode, POSTABLE_FIELDS, MAX_UNLOCATED_PER_COMPANY, _spacing: spacing };

@@ -18,6 +18,7 @@ const mockIo = { to: () => ({ emit: () => {} }), emit: () => {} };
 const app = express();
 app.use(express.json());
 app.use('/api/loads', require('../../routes/loadRoutes')(mockIo));
+app.use('/api/bids', require('../../routes/bidRoutes'));
 
 const hit = (lat, lon) => ({ ok: true, json: async () => [{ lat: String(lat), lon: String(lon) }] });
 const miss = { ok: true, json: async () => [] };
@@ -115,7 +116,7 @@ describe('edit an open load', () => {
     expect(saved.status).toBe('open');
     expect(saved.acceptedBy == null).toBe(true);
     expect(String(saved.postedBy)).toBe(String(shipper._id));
-    expect(saved.termsVersion).toBe(1);
+    expect(saved.termsVersion).toBe(2); // the requirement flags are material; termsVersion: 99 from the body is ignored
     expect(saved.rateCents).toBe(250000);
     expect(saved.source).not.toBe('edi');
     expect(saved.contractId == null).toBe(true);
@@ -225,6 +226,45 @@ describe('edit an open load', () => {
     expect(notes[0].body).toMatch(/bid again/i);
   });
 
+  test('every non-cosmetic field is material; coordinates alone cannot move a located place', async () => {
+    const r = await edit({ specialInstructions: 'Tarp required' });
+    expect(r.body.materialChange).toBe(true);
+    expect((await Load.findById(load._id)).termsVersion).toBe(2);
+
+    const moved = await edit({ originLat: 10, originLng: 10 }); // same place name, already located: ignored
+    expect(moved.status).toBe(200);
+    const saved = await Load.findById(load._id);
+    expect(saved.originLat).toBe(41.8781);
+    expect(saved.termsVersion).toBe(2);
+
+    expect((await edit({ origin: 'Elsewhere, TX', originLat: 95, originLng: 10 })).status).toBe(400);
+  });
+
+  test('the window and stops endpoints on an open load are a change of terms too', async () => {
+    const c = await verifiedCarrier();
+    const bid = await Bid.create({ loadId: load._id, carrierId: c._id, amount: 2000, status: 'pending', termsVersion: 1 });
+    const start = new Date(Date.now() + 3 * 86400000), end = new Date(start.getTime() + 2 * 3600000);
+    const w = await as('put', `/api/loads/${load._id}/pickup-window`, sTok).send({ start: start.toISOString(), end: end.toISOString() });
+    expect(w.status).toBe(200);
+    expect((await Load.findById(load._id)).termsVersion).toBe(2);
+    expect((await Bid.findById(bid._id)).status).toBe('rejected');
+
+    fetch.mockResolvedValue(hit(35.2, -101.8));
+    const st = await as('put', `/api/loads/${load._id}/stops`, sTok).send({ stops: [{ type: 'delivery', address: '1 Main St, Amarillo, TX' }] });
+    expect(st.status).toBe(200);
+    expect((await Load.findById(load._id)).termsVersion).toBe(3);
+  });
+
+  test('a bid placed on old terms cannot book the load, even if it was never voided', async () => {
+    const c = await verifiedCarrier();
+    const bid = await Bid.create({ loadId: load._id, carrierId: c._id, amount: 2000, status: 'pending', termsVersion: 1 });
+    await Load.updateOne({ _id: load._id }, { $set: { termsVersion: 2 } }); // edited; voiding failed or raced
+    const res = await as('put', `/api/bids/${bid._id}/accept`, sTok).send({});
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('TERMS_CHANGED');
+    expect((await Load.findById(load._id)).status).toBe('open');
+  });
+
   test('a suspended shipper cannot edit', async () => {
     await shipper.updateOne({ $set: { 'shipperVerification.status': 'suspended' } });
     const res = await edit({ notes: 'x' });
@@ -283,32 +323,5 @@ describe('accept honours the terms the carrier saw', () => {
   test('GET returns termsVersion to the carrier and the shipper', async () => {
     expect((await as('get', `/api/loads/${load._id}`, cTok)).body.termsVersion).toBe(1);
     expect((await as('get', `/api/loads/${load._id}`, sTok)).body.termsVersion).toBe(1);
-  });
-});
-
-describe('multipart posting', () => {
-  test('stops sent as a JSON string in FormData are parsed and validated; bad JSON is 400', async () => {
-    fetch.mockReset();
-    const shipper = await verifiedShipper();
-    const tok = generateToken(shipper);
-    fetch.mockResolvedValueOnce(hit(30.2672, -97.7431)).mockResolvedValueOnce(hit(39.7392, -104.9903));
-    const form = (stops) => request(app).post('/api/loads').set('Authorization', `Bearer ${tok}`)
-      .field('title', 'Multipart').field('origin', 'Austin, TX').field('destination', 'Denver, CO')
-      .field('rate', '1800').field('equipmentType', 'Dry Van').field('specialHandling', '["Fragile"]').field('stops', stops);
-
-    const res = await form(JSON.stringify([{ type: 'delivery', address: '1 Main St, Amarillo, TX', sequence: 1 }]));
-    expect(res.status).toBe(201);
-    const saved = await Load.findById(res.body._id);
-    expect(saved.stops).toHaveLength(1);
-    expect(saved.stops[0].address).toBe('1 Main St, Amarillo, TX');
-    expect(saved.specialHandling).toEqual(['Fragile']);
-
-    expect((await form('[{"type":"delivery"')).status).toBe(400);
-    expect((await form(JSON.stringify([{ type: 'bogus', address: 'x' }]))).status).toBe(400);
-    const withFile = await request(app).post('/api/loads').set('Authorization', `Bearer ${tok}`)
-      .field('title', 'T').field('origin', 'A, TX').field('destination', 'B, TX').field('rate', '1').field('equipmentType', 'Dry Van')
-      .attach('cargoPhotos', Buffer.from('x'), 'a.png');
-    expect(withFile.status).toBe(400);
-    expect(withFile.body.error).toMatch(/attachments are not supported/i);
   });
 });

@@ -913,6 +913,7 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
       loadId,
       carrierId: user._id,
       gate,
+      termsVersion: load.termsVersion || 1, // the terms the gate just evaluated
       extra: { assignedTruckId: truckId },
     });
     if (!booked) {

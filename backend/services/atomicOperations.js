@@ -80,7 +80,7 @@ async function atomicAcceptLoad(loadId, carrierId) {
 async function atomicPlaceBid(loadId, carrierId, bidData) {
   try {
     // Verify the load exists and is open
-    const load = await Load.findById(loadId).select('status allowCarrierBidding').lean();
+    const load = await Load.findById(loadId).select('status allowCarrierBidding termsVersion').lean();
     if (!load) {
       return { success: false, error: 'Load not found' };
     }
@@ -97,6 +97,7 @@ async function atomicPlaceBid(loadId, carrierId, bidData) {
       amount: bidData.amount,
       message: bidData.message || '',
       status: 'pending',
+      termsVersion: load.termsVersion || 1,
       history: [{
         actor: 'carrier',
         action: 'placed',

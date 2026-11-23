@@ -51,7 +51,12 @@ async function evaluateBookingGate({ load, carrierId, req = null, carrier = null
  * Atomically assign an open load to a carrier (prevents double-booking and
  * clobbering cancelled loads). Returns the booked load or null if no longer open.
  */
-async function atomicBookLoad({ loadId, carrierId, gate, extra = {} }) {
+// Filter value for "the load is still on terms version v" (loads from before the field existed count as 1).
+const versionIs = (v) => (v === 1 ? { $in: [1, null] } : v);
+
+// termsVersion: the version of the load the caller's gate/bid was evaluated against. When given, a load the shipper
+// has materially edited since is NOT booked (returns null like any other lost race).
+async function atomicBookLoad({ loadId, carrierId, gate, extra = {}, termsVersion }) {
   const update = {
     status: 'accepted',
     acceptedBy: carrierId,
@@ -60,7 +65,7 @@ async function atomicBookLoad({ loadId, carrierId, gate, extra = {} }) {
   };
   if (gate.riskFlags && gate.riskFlags.length > 0) update.riskFlags = gate.riskFlags;
   const booked = await Load.findOneAndUpdate(
-    { _id: loadId, status: 'open', acceptedBy: null },
+    { _id: loadId, status: 'open', acceptedBy: null, ...(termsVersion != null ? { termsVersion: versionIs(termsVersion) } : {}) },
     { $set: update },
     { new: true }
   );
@@ -68,4 +73,4 @@ async function atomicBookLoad({ loadId, carrierId, gate, extra = {} }) {
   return booked;
 }
 
-module.exports = { evaluateBookingGate, atomicBookLoad };
+module.exports = { evaluateBookingGate, atomicBookLoad, versionIs };

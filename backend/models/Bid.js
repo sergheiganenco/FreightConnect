@@ -30,6 +30,9 @@ const BidSchema = new mongoose.Schema({
     optedOut: { type: Boolean, default: undefined },
   },
 
+  // Load.termsVersion when the bid was placed: a bid can only book the load on the terms it was made for.
+  termsVersion: { type: Number, default: undefined },
+
   // Full audit trail
   history: [BidHistorySchema],
 }, { timestamps: true });
