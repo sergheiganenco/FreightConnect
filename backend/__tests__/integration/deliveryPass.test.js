@@ -48,6 +48,7 @@ test('the receiver sees the delivery, never the rate; bad, foreign and pickup li
   expect((await request(app).get(`/api${path.slice(0, -1)}${path.slice(-1) === 'a' ? 'b' : 'a'}`)).status).toBe(404);
   // a pickup (dock) link for the same load is not a delivery link
   expect((await request(app).get(`/api/receive/${signDockToken(String(load._id)).token}`)).status).toBe(404);
+  expect((await request(app).get(`/api/receive/${signDockToken(String(load._id), 'receive').token}`)).status).toBe(404); // not bound to the booking
 
   const pdf = await request(app).get(`/api${path}/bol`);
   expect(pdf.status).toBe(200);
@@ -83,4 +84,32 @@ test('signing: once, in transit only, with a name and a real signature; both par
   const r2 = await request(app).post(`/api${p2}/sign`).send({ signerName: 'Jo Dock', dataUrl: PNG });
   expect(r2.status).toBe(409);
   expect(r2.body.reason).toBe('not_in_transit');
+});
+
+test('a link dies when the load is rebooked; a later upload cannot replace the receiver’s signature or note', async () => {
+  const { carrier, load } = await scene();
+  const { path } = (await as('post', `/api/loads/${load._id}/delivery-pass`, carrier)).body;
+  await request(app).post(`/api${path}/sign`).send({ signerName: 'Jo Dock', dataUrl: PNG, note: 'crushed corner' });
+
+  // the driver uploads a proof-of-delivery with its own signature afterwards
+  const docs = express();
+  docs.use(express.json({ limit: '1mb' }));
+  docs.use('/api/documents', require('../../routes/documentRoutes'));
+  const up = await request(docs).post(`/api/documents/pod/${load._id}`).set('Authorization', `Bearer ${generateToken(carrier)}`)
+    .field('signerName', 'Driver Typed').field('signatureData', PNG).attach('file', Buffer.from('%PDF-1.4 x'), 'pod.pdf');
+  expect(up.status).toBe(200);
+  const saved = await Load.findById(load._id);
+  expect(saved.documents.pod).toBeTruthy();
+  expect(saved.deliverySignature.signedByRole).toBe('receiver');
+  expect(saved.deliverySignature.signerName).toBe('Jo Dock');
+  expect(saved.deliverySignature.note).toBe('crushed corner');
+  expect(saved.documents.podSignerName).toBe('Jo Dock');
+
+  // rebooked to another carrier: the old link no longer opens anything
+  const other = await createTestUser({ role: 'carrier' });
+  await Load.updateOne({ _id: load._id }, { $set: { acceptedBy: other._id } });
+  expect((await request(app).get(`/api${path}`)).status).toBe(404);
+  expect((await request(app).get(`/api${path}/bol`)).status).toBe(404);
+  await Load.updateOne({ _id: load._id }, { $set: { acceptedBy: null, status: 'open' } });
+  expect((await request(app).get(`/api${path}`)).status).toBe(404);
 });

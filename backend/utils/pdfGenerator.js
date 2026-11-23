@@ -130,9 +130,7 @@ exports.generateBOL = (load, carrier, shipper) => {
     // Parties
     y = sectionTitle(doc, 'PARTIES', y);
     y = infoRow(doc, 'Shipper (Company)', (shipper && (shipper.companyName || shipper.name)) || 'N/A', y);
-    y = infoRow(doc, 'Shipper Email', (shipper && shipper.email) || 'N/A', y);
     y = infoRow(doc, 'Carrier (Company)', carrierDocIdentity(carrier).name, y);
-    y = infoRow(doc, 'Carrier Email', (carrier && carrier.email) || 'N/A', y);
     y = infoRow(doc, 'MC Number', carrierDocIdentity(carrier).mcNumber, y);
     y = infoRow(doc, 'DOT Number', carrierDocIdentity(carrier).dotNumber, y);
     y += 8; drawHRule(doc, y); y += 12;

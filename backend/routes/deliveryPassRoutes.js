@@ -26,7 +26,10 @@ const StatusHistory = require('../models/StatusHistory');
 const { notifyUserSafe } = require('../utils/notifyUser');
 const { signDockToken, parseDockToken, carrierIdentity } = require('../services/pickupVerificationService');
 
-const PURPOSE = 'receive';
+// The link is bound to the booking: the carrier is part of what is signed, so if the load is unbooked or rebooked to
+// another carrier, every link made for the earlier booking stops working.
+const purposeFor = (carrierId) => `receive:${carrierId}`;
+const LINK_TTL_MS = 5 * 24 * 60 * 60 * 1000;
 const UPLOADS_DIR = path.join(__dirname, '..', 'public', 'documents', 'uploads');
 const limiter = (max, prefix) => makeLimiter({
   windowMs: 15 * 60 * 1000, max, standardHeaders: true, legacyHeaders: false,
@@ -49,7 +52,7 @@ router.post('/loads/:id/delivery-pass', auth, param('id').isMongoId().withMessag
     if (!load.acceptedBy || !['accepted', 'in-transit', 'delivered'].includes(load.status)) {
       return res.status(409).json({ error: 'Delivery documents are available once a carrier has booked the load.' });
     }
-    const { token, expiresAt } = signDockToken(String(load._id), PURPOSE);
+    const { token, expiresAt } = signDockToken(String(load._id), purposeFor(load.acceptedBy), LINK_TTL_MS);
     const linkPath = `/receive/${token}`;
     // The address in the QR code is ours: the configured site, or the caller's origin only when it is on the allowed list.
     const allowed = (process.env.ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
@@ -65,8 +68,10 @@ router.post('/loads/:id/delivery-pass', auth, param('id').isMongoId().withMessag
 });
 
 // ── Public (receiver) ────────────────────────────────────────────────────────
-function tokenLoadId(req, res) {
-  const parsed = parseDockToken(req.params.token, PURPOSE);
+async function tokenLoadId(req, res) {
+  const id = String(req.params.token || '').split('.')[0];
+  const booking = /^[a-f0-9]{24}$/.test(id) ? await Load.findById(id).select('acceptedBy').lean() : null;
+  const parsed = booking && booking.acceptedBy ? parseDockToken(req.params.token, purposeFor(booking.acceptedBy)) : { error: 'invalid' };
   if (parsed.error === 'expired') { res.status(410).json({ error: 'This delivery link has expired. Ask the driver to show a new one.' }); return null; }
   if (parsed.error) { res.status(404).json({ error: 'Delivery link not found' }); return null; }
   return parsed.loadId;
@@ -104,7 +109,7 @@ async function receiveInfo(loadId) {
 
 router.get('/receive/:token', infoLimiter, async (req, res) => {
   try {
-    const loadId = tokenLoadId(req, res);
+    const loadId = await tokenLoadId(req, res);
     if (!loadId) return;
     const info = await receiveInfo(loadId);
     if (!info) return res.status(404).json({ error: 'Delivery link not found' });
@@ -117,7 +122,7 @@ router.get('/receive/:token', infoLimiter, async (req, res) => {
 
 router.get('/receive/:token/bol', infoLimiter, async (req, res) => {
   try {
-    const loadId = tokenLoadId(req, res);
+    const loadId = await tokenLoadId(req, res);
     if (!loadId) return;
     const load = await Load.findById(loadId).select('acceptedBy status').lean();
     if (!load || !load.acceptedBy || !['accepted', 'in-transit', 'delivered'].includes(load.status)) return res.status(404).json({ error: 'Document not available' });
@@ -140,7 +145,7 @@ router.post('/receive/:token/sign', signLimiter,
   validate,
   async (req, res) => {
     try {
-      const loadId = tokenLoadId(req, res);
+      const loadId = await tokenLoadId(req, res);
       if (!loadId) return;
       const { parseSignatureDataUrl, regenerateBol } = require('./documentRoutes').helpers;
       const dataUrl = parseSignatureDataUrl(req.body.dataUrl);

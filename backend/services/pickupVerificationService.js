@@ -27,8 +27,8 @@ function getSecret() {
 function sign(loadId, exp, purpose = 'dock') {
   return crypto.createHmac('sha256', getSecret()).update(`${purpose}:${loadId}.${exp}`).digest('hex').slice(0, 32);
 }
-function signDockToken(loadId, purpose = 'dock') {
-  const exp = Math.floor((Date.now() + DOCK_TOKEN_TTL_MS) / 1000).toString(36);
+function signDockToken(loadId, purpose = 'dock', ttlMs = DOCK_TOKEN_TTL_MS) {
+  const exp = Math.floor((Date.now() + ttlMs) / 1000).toString(36);
   return { token: `${loadId}.${exp}.${sign(loadId, exp, purpose)}`, expiresAt: new Date(parseInt(exp, 36) * 1000) };
 }
 /** @returns {{loadId}|{error:'invalid'|'expired'}} — never throws (secret missing → invalid). */

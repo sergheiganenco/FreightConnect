@@ -363,12 +363,17 @@ router.post('/pod/:loadId', auth, upload.single('file'), async (req, res) => {
     const podPath = '/documents/uploads/' + newFileName;
     const update = { 'documents.pod': podPath };
     // Capture the consignee signer name if the driver collected one at the dock.
-    if (req.body.signerName) update['documents.podSignerName'] = String(req.body.signerName).slice(0, 120);
-    // Persist the delivery e-signature (mobile posts it as `signatureData`) — it
-    // was previously discarded. It is embedded into the BOL as the consignee sig.
-    const sigDataUrl = parseSignatureDataUrl(req.body.signatureData || req.body.dataUrl);
-    if (sigDataUrl) update.deliverySignature = buildSignature(sigDataUrl, req.body.signerName, req);
     await Load.findByIdAndUpdate(load._id, update);
+    // Persist the delivery e-signature (mobile posts it as `signatureData`), embedded into the BOL as the consignee sig.
+    // A signature the receiver gave on its own device (delivery pass), with its damage note, is never replaced from
+    // here: the filter decides, so an upload racing the receiver cannot win either.
+    const sigDataUrl = parseSignatureDataUrl(req.body.signatureData || req.body.dataUrl);
+    const signer = {};
+    if (req.body.signerName) signer['documents.podSignerName'] = String(req.body.signerName).slice(0, 120);
+    if (sigDataUrl) signer.deliverySignature = buildSignature(sigDataUrl, req.body.signerName, req);
+    if (Object.keys(signer).length) {
+      await Load.updateOne({ _id: load._id, 'deliverySignature.signedByRole': { $ne: 'receiver' } }, { $set: signer });
+    }
 
     // Regenerate the BOL so the delivery signature is embedded (non-blocking).
     if (sigDataUrl) regenerateBol(load._id).catch(() => {});
