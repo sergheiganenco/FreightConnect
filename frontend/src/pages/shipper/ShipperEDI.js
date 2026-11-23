@@ -520,7 +520,7 @@ export default function ShipperEDI() {
             : filtered.length === 0
               ? (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <CodeIcon sx={{ fontSize: 48, color: '#374151', mb: 2 }} />
+                  <CodeIcon sx={{ fontSize: 48, color: 'rgba(255,255,255,0.35)', mb: 2 }} />
                   <Typography sx={{ color: '#6b7280' }}>No EDI documents yet</Typography>
                   <Button variant="contained" startIcon={<UploadFileIcon />}
                     onClick={() => setUploadOpen(true)}

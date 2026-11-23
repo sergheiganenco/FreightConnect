@@ -277,7 +277,7 @@ export default function ShipperProfile() {
                   label={docInfo.uploaded ? "Uploaded" : "Missing"}
                   sx={{
                     bgcolor: docInfo.uploaded ? "#34D399" : "#F87171",
-                    color: "#fff", fontWeight: 700, px: 2, fontSize: "1.03em"
+                    color: "#0f172a", fontWeight: 700, px: 2, fontSize: "1.03em"
                   }}
                 />
                 {docInfo.uploaded && docInfo.url && (

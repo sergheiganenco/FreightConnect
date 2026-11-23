@@ -320,7 +320,7 @@ export default function CarrierFleet() {
                     label={truck.status}
                     color={statusColors[truck.status] || "default"}
                     size="small"
-                    sx={{ fontWeight: 700, mb: 1, color: "#fff" }}
+                    sx={{ fontWeight: 700, mb: 1, color: ["In Transit", "Maintenance"].includes(truck.status) ? "#fff" : "#0f172a" }}
                   />
 
                   {/* Assigned load info - always shows chip if assignedLoad or assignedLoadId exists */}

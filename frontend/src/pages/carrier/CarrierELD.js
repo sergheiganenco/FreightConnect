@@ -54,7 +54,7 @@ const API = API_ROOT;
 
 const STATUSES = [
   { key: 'OFF_DUTY',            label: 'Off Duty',          short: 'OFF',  color: semantic.muted, icon: <HotelIcon /> },
-  { key: 'SLEEPER_BERTH',       label: 'Sleeper Berth',     short: 'SB',   color: brand.primary, icon: <NightShelterIcon /> },
+  { key: 'SLEEPER_BERTH',       label: 'Sleeper Berth',     short: 'SB',   color: '#a78bfa', icon: <NightShelterIcon /> },
   { key: 'DRIVING',             label: 'Driving',           short: 'D',    color: semantic.success, icon: <DirectionsCarIcon /> },
   { key: 'ON_DUTY_NOT_DRIVING', label: 'On Duty (Not Drv)', short: 'ON',   color: semantic.warning, icon: <WorkIcon /> },
 ];
@@ -142,10 +142,10 @@ function StatusButton({ meta, active, onClick, disabled }) {
       disabled={disabled}
       sx={{
         borderColor: meta.color,
-        color:       active ? '#fff' : meta.color,
+        color:       active ? '#0f172a' : meta.color,
         bgcolor:     active ? meta.color : 'transparent',
         fontWeight:  active ? 700 : 500,
-        '&:hover':   { bgcolor: meta.color, color: '#fff', opacity: 0.9 },
+        '&:hover':   { bgcolor: meta.color, color: '#0f172a', opacity: 0.9 },
         minWidth: 140,
       }}
     >
@@ -370,7 +370,7 @@ export default function CarrierELD() {
             <Chip
               icon={currentMeta.icon}
               label={currentMeta.label}
-              sx={{ bgcolor: currentMeta.color, color: '#fff', fontWeight: 700, fontSize: '0.9rem', px: 1 }}
+              sx={{ bgcolor: currentMeta.color, color: '#0f172a', fontWeight: 700, fontSize: '0.9rem', px: 1 }}
             />
             {today?.liveActiveMinutes > 0 && (
               <Typography variant="caption" sx={{ color: semantic.muted }}>
@@ -432,7 +432,7 @@ export default function CarrierELD() {
             {[
               { label: 'Driving', mins: today?.totals?.drivingMinutes || 0, color: semantic.success },
               { label: 'On-Duty (not drv)', mins: today?.totals?.onDutyNotDrivingMinutes || 0, color: semantic.warning },
-              { label: 'Sleeper', mins: today?.totals?.sleeperMinutes || 0, color: brand.primary },
+              { label: 'Sleeper', mins: today?.totals?.sleeperMinutes || 0, color: '#a78bfa' },
               { label: 'Off Duty', mins: today?.totals?.offDutyMinutes || 0, color: semantic.muted },
             ].map(row => (
               <Grid item xs={6} sm={3} key={row.label}>
@@ -461,7 +461,7 @@ export default function CarrierELD() {
             </Grid>
             <Grid item xs={6} sm={3}>
               <Typography variant="caption" sx={{ color: semantic.muted }}>Cycle Remaining</Typography>
-              <Typography variant="body1" sx={{ color: brand.indigo, fontWeight: 700 }}>
+              <Typography variant="body1" sx={{ color: '#818cf8', fontWeight: 700 }}>
                 {summary ? `${summary.remainingCycleHours}h` : '--'}
               </Typography>
             </Grid>
@@ -684,7 +684,7 @@ export default function CarrierELD() {
                 value={pct(summary.usedOnDutyHours * 60, 4200)}
                 sx={{ flex: 1, height: 10, borderRadius: 5, bgcolor: surface.glassBorder, '& .MuiLinearProgress-bar': { bgcolor: brand.indigo } }}
               />
-              <Typography variant="body2" sx={{ color: brand.indigo, fontWeight: 700, minWidth: 60 }}>
+              <Typography variant="body2" sx={{ color: '#818cf8', fontWeight: 700, minWidth: 60 }}>
                 {summary.usedOnDutyHours}h / 70h
               </Typography>
             </Box>
@@ -746,7 +746,7 @@ export default function CarrierELD() {
             variant="contained"
             onClick={submitStatus}
             disabled={statusLoading}
-            sx={{ bgcolor: statusMeta(pendingStatus).color, '&:hover': { bgcolor: statusMeta(pendingStatus).color, opacity: 0.85 } }}
+            sx={{ bgcolor: statusMeta(pendingStatus).color, color: '#0f172a', '&:hover': { bgcolor: statusMeta(pendingStatus).color, opacity: 0.85 } }}
           >
             {statusLoading ? <CircularProgress size={20} /> : 'Confirm'}
           </Button>

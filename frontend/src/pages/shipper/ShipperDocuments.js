@@ -144,13 +144,13 @@ export default function ShipperDocuments() {
                   </Typography>
                   <Chip
                     label={`$${load.rate?.toLocaleString()}`}
-                    sx={{ bgcolor: "#a78bfa", color: "#fff", fontWeight: 800, fontSize: "1.1em" }}
+                    sx={{ bgcolor: "#a78bfa", color: "#0f172a", fontWeight: 800, fontSize: "1.1em" }}
                   />
                 </Box>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Chip
                     label={load.status}
-                    sx={{ bgcolor: "#818CF8", color: "#fff", fontWeight: 700, px: 2, fontSize: "1em" }}
+                    sx={{ bgcolor: "#818CF8", color: "#0f172a", fontWeight: 700, px: 2, fontSize: "1em" }}
                   />
                   <IconButton size="small" onClick={() => fetchDocs(load._id)} title="Refresh">
                     <RefreshIcon sx={{ color: "#fff", fontSize: 18 }} />

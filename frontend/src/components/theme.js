@@ -45,6 +45,14 @@ let theme = createTheme({
       primary:   T.primary,
       secondary: T.secondary,
     },
+    /* Icons, dropdown arrows and icon buttons take these: MUI's defaults are black, invisible on our dark background. */
+    action: {
+      active: 'rgba(255,255,255,0.8)',
+      hover: 'rgba(255,255,255,0.08)',
+      selected: 'rgba(255,255,255,0.14)',
+      disabled: 'rgba(255,255,255,0.4)',
+      disabledBackground: 'rgba(255,255,255,0.12)',
+    },
   },
 
   typography: {
@@ -89,13 +97,19 @@ let theme = createTheme({
         outlined: {
           '&.Mui-disabled': { borderColor: 'rgba(255,255,255,0.2)' },
         },
+        // The brand purple is too dark to read as text on the dark background: text-style buttons use its light tint.
+        textPrimary: { color: '#c4b5fd' },
+        outlinedPrimary: { color: '#c4b5fd', borderColor: 'rgba(196,181,253,0.5)', '&:hover': { borderColor: '#c4b5fd' } },
       },
     },
+    MuiLink: { styleOverrides: { root: { color: '#c4b5fd' } } },
     MuiIconButton: {
       styleOverrides: {
         root: { '&.Mui-disabled': { color: 'rgba(255,255,255,0.35)' } },
+        colorPrimary: { color: '#c4b5fd' }, // brand purple is unreadable as an icon on dark
       },
     },
+    MuiSvgIcon: { styleOverrides: { colorPrimary: { color: '#c4b5fd' } } },
     /* Dividers visible on dark backgrounds */
     MuiDivider: {
       styleOverrides: {
@@ -167,11 +181,29 @@ let theme = createTheme({
       },
     },
     /* ── Alert — glass alert ── */
+    /* ── Alert: the app is dark everywhere, so notices are dark tints with light text (MUI's defaults are pale
+       boxes, on which our white text disappeared). ── */
     MuiAlert: {
       styleOverrides: {
-        root: {
-          backdropFilter: 'blur(12px)',
-          borderRadius: 12,
+        root: ({ ownerState }) => {
+          const tone = {
+            info: ['rgba(34,211,238,0.14)', '#a5f3fc'],
+            success: ['rgba(52,211,153,0.14)', '#a7f3d0'],
+            warning: ['rgba(251,191,36,0.14)', '#fde68a'],
+            error: ['rgba(248,113,113,0.16)', '#fecaca'],
+          }[ownerState.severity || 'success'];
+          return {
+            backdropFilter: 'blur(12px)',
+            borderRadius: 12,
+            ...(ownerState.variant !== 'filled' && tone && {
+              backgroundColor: tone[0],
+              border: `1px solid ${tone[1]}40`,
+              color: '#f1f5f9',
+              '& .MuiAlert-icon': { color: tone[1] },
+              '& .MuiAlertTitle-root': { color: tone[1], fontWeight: 700 },
+              '& .MuiAlert-action .MuiButton-root, & .MuiAlert-action .MuiIconButton-root': { color: tone[1] },
+            }),
+          };
         },
       },
     },

@@ -101,7 +101,7 @@ export default function SideNav({ current, collapsed, onSelect }) {
               padding: collapsed ? "0 8px" : "0 22px 0 18px",
               borderRadius: "14px",
               cursor: "pointer",
-              color: isActive ? brand.primary : brand.lavender,
+              color: isActive ? "#c4b5fd" : brand.lavender,
               background: isActive ? surface.glassActive : surface.glassLight,
               borderLeft: isActive
                 ? `4px solid ${brand.primary}`
@@ -124,7 +124,7 @@ export default function SideNav({ current, collapsed, onSelect }) {
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "center",
-                color: isActive ? brand.primary : brand.softIndigo,
+                color: isActive ? "#c4b5fd" : brand.softIndigo,
                 transition: "color 0.18s",
               }}
             >

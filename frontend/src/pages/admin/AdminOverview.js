@@ -191,7 +191,7 @@ export default function AdminOverview() {
               size="large"
               sx={{
                 bgcolor: "#a88ff8",
-                color: "#fff",
+                color: "#0f172a",
                 fontWeight: 800,
                 borderRadius: 99,
                 fontSize: "1.13em",

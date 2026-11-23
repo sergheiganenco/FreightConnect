@@ -254,7 +254,7 @@ function SubmitDialog({ open, onClose, onSuccess }) {
           variant="contained"
           onClick={submit}
           disabled={loading || selected.length === 0}
-          sx={{ bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' } }}
+          sx={{ bgcolor: '#10b981', color: '#0f172a', '&:hover': { bgcolor: '#059669' } }}
         >
           {loading ? <CircularProgress size={20} /> : 'Record request'}
         </Button>
@@ -414,7 +414,7 @@ export default function CarrierFactoring() {
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => setSubmitOpen(true)}
-            sx={{ bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' } }}
+            sx={{ bgcolor: '#10b981', color: '#0f172a', '&:hover': { bgcolor: '#059669' } }}
           >
             New Request
           </Button>
@@ -452,13 +452,13 @@ export default function CarrierFactoring() {
             : requests.length === 0
               ? (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <MonetizationOnIcon sx={{ fontSize: 48, color: '#374151', mb: 2 }} />
+                  <MonetizationOnIcon sx={{ fontSize: 48, color: 'rgba(255,255,255,0.35)', mb: 2 }} />
                   <Typography sx={{ color: '#6b7280' }}>No factoring requests yet</Typography>
                   <Button
                     variant="contained"
                     startIcon={<AddIcon />}
                     onClick={() => setSubmitOpen(true)}
-                    sx={{ mt: 2, bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' } }}
+                    sx={{ mt: 2, bgcolor: '#10b981', color: '#0f172a', '&:hover': { bgcolor: '#059669' } }}
                   >
                     Submit Your First Request
                   </Button>

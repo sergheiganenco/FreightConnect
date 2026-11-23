@@ -318,7 +318,7 @@ export default function CarrierAutopilot() {
             sx={{ bgcolor: '#6a1fcf', fontWeight: 800, borderRadius: 99, '&:hover': { bgcolor: '#5518a8' } }}>
             Plan my next loads
           </Button>
-          <Button variant="outlined" onClick={saveDefaults}>Save as default</Button>
+          <Button variant="outlined" sx={{ color: "#c4b5fd" }} onClick={saveDefaults}>Save as default</Button>
         </Stack>
       </Paper>
 

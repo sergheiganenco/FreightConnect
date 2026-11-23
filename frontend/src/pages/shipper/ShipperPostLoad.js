@@ -700,6 +700,8 @@ export default function ShipperPostLoad() {
         },
         "& .MuiFormLabel-root": { color: "#e4e2f7" },
         "& .MuiInputLabel-root": { color: "#e4e2f7" },
+        "& .MuiTextField-root .MuiInputLabel-root, & .MuiFormControl-root .MuiInputLabel-root": { color: "rgba(255,255,255,0.75)" },
+        "& .MuiTextField-root .MuiInputLabel-root.Mui-focused, & .MuiFormControl-root .MuiInputLabel-root.Mui-focused": { color: "#c4b5fd" },
         "& .MuiOutlinedInput-notchedOutline": {
           borderColor: "rgba(255,255,255,0.17)"
         },
@@ -1777,7 +1779,7 @@ export default function ShipperPostLoad() {
               color: "#fff",
               borderColor: "rgba(255,255,255,0.4)",
               "&:hover": { borderColor: "#fff", bgcolor: "rgba(255,255,255,0.08)" },
-              "&.Mui-disabled": { color: "rgba(255,255,255,0.3)", borderColor: "rgba(255,255,255,0.12)" },
+              "&.Mui-disabled": { color: "rgba(255,255,255,0.6)", borderColor: "rgba(255,255,255,0.12)" },
             }}
           >
             Back

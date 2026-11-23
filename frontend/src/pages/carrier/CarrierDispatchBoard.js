@@ -82,7 +82,7 @@ function TruckRow({ row, onOpen, onPlan }) {
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-          {row.currentLoad && <Button size="small" variant="outlined" onClick={() => onOpen(row.currentLoad._id)}>Open load</Button>}
+          {row.currentLoad && <Button size="small" variant="outlined" sx={{ color: "#c4b5fd" }} onClick={() => onOpen(row.currentLoad._id)}>Open load</Button>}
           {row.state === 'idle' && <Button size="small" variant="contained" onClick={() => onPlan(row.truckId)}>Plan loads</Button>}
         </Stack>
       </Stack>
@@ -199,7 +199,7 @@ export default function CarrierDispatchBoard() {
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <LoadLine load={l} />
                 </Box>
-                <Button size="small" variant="outlined" onClick={() => openLoad(l._id)}>Open load</Button>
+                <Button size="small" variant="outlined" sx={{ color: "#c4b5fd" }} onClick={() => openLoad(l._id)}>Open load</Button>
               </Stack>
             ))}
           </Stack>

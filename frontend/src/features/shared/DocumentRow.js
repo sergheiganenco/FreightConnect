@@ -4,7 +4,8 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import { brand, semantic, status as ST, surface, text as T } from '../../theme/tokens';
 
 const STATUS_COLOR = { Uploaded: brand.indigoLight, Signed: semantic.success, Missing: ST.accepted, Expired: ST.disputed };
-const BUTTON_BG = { Uploaded: brand.indigo, Signed: semantic.success, Missing: brand.indigoLight, Expired: ST.disputed };
+const BUTTON_BG = { Uploaded: "#4f46e5", Signed: semantic.success, Missing: brand.indigoLight, Expired: ST.disputed };
+const BUTTON_FG = { Uploaded: "#fff", Signed: "#0f172a", Missing: "#0f172a", Expired: "#0f172a" };
 
 /**
  * Props:
@@ -75,7 +76,7 @@ export default function DocumentRow({
           label={status}
           sx={{
             bgcolor: STATUS_COLOR[status] || "#ccc",
-            color: T.primary,
+            color: "#0f172a",
             fontWeight: 700,
             fontSize: "1.07em",
             px: 2,
@@ -95,14 +96,15 @@ export default function DocumentRow({
               fontWeight: 800,
               minWidth: 108,
               background: BUTTON_BG[status],
-              color: T.primary,
+              color: BUTTON_FG[status] || "#0f172a",
               fontSize: "1.01em",
               boxShadow: "0 2px 8px #6366F160",
               px: 2,
               transition: "background 0.2s, box-shadow 0.2s",
               "&:hover": {
+                color: "#fff",
                 background: BUTTON_BG[status] === "#34D399"
-                  ? "#059669"
+                  ? "#047857"
                   : BUTTON_BG[status] === "#F87171"
                   ? "#dc2626"
                   : "#4338ca",
@@ -130,14 +132,15 @@ export default function DocumentRow({
               fontWeight: 800,
               minWidth: 108,
               background: BUTTON_BG[status],
-              color: T.primary,
+              color: BUTTON_FG[status] || "#0f172a",
               fontSize: "1.01em",
               boxShadow: "0 2px 8px #6366F160",
               px: 2,
               transition: "background 0.2s, box-shadow 0.2s",
               "&:hover": {
+                color: "#fff",
                 background: BUTTON_BG[status] === "#34D399"
-                  ? "#059669"
+                  ? "#047857"
                   : BUTTON_BG[status] === "#F87171"
                   ? "#dc2626"
                   : "#4338ca",
@@ -160,12 +163,13 @@ export default function DocumentRow({
               fontWeight: 800,
               minWidth: 108,
               background: BUTTON_BG[status],
-              color: T.primary,
+              color: BUTTON_FG[status] || "#0f172a",
               fontSize: "1.01em",
               boxShadow: "0 2px 8px #6366F160",
               px: 2,
               transition: "background 0.2s, box-shadow 0.2s",
               "&:hover": {
+                color: "#fff",
                 background: "#4338ca",
                 boxShadow: "0 6px 18px #6366F130"
               }

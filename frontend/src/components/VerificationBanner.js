@@ -208,10 +208,10 @@ export default function VerificationBanner({ role }) {
             sx={{ bgcolor: sv.paymentMethodVerified ? 'rgba(52,211,153,0.15)' : 'rgba(239,68,68,0.15)', color: sv.paymentMethodVerified ? '#34d399' : '#ef4444', fontWeight: 600, fontSize: '0.72rem' }} />}
           <Chip size="small" label="EIN Verified"
             icon={sv.einVerified ? <CheckCircleIcon sx={{ fontSize: 14 }} /> : undefined}
-            sx={{ bgcolor: sv.einVerified ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.08)', color: sv.einVerified ? '#34d399' : 'rgba(255,255,255,0.4)', fontWeight: 600, fontSize: '0.72rem' }} />
+            sx={{ bgcolor: sv.einVerified ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.08)', color: sv.einVerified ? '#34d399' : 'rgba(255,255,255,0.75)', fontWeight: 600, fontSize: '0.72rem' }} />
           <Chip size="small" label="Email Check"
             icon={sv.emailDomain ? <CheckCircleIcon sx={{ fontSize: 14 }} /> : undefined}
-            sx={{ bgcolor: sv.emailDomain ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.08)', color: sv.emailDomain ? '#34d399' : 'rgba(255,255,255,0.4)', fontWeight: 600, fontSize: '0.72rem' }} />
+            sx={{ bgcolor: sv.emailDomain ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.08)', color: sv.emailDomain ? '#34d399' : 'rgba(255,255,255,0.75)', fontWeight: 600, fontSize: '0.72rem' }} />
         </Stack>
       </Alert>
     );
