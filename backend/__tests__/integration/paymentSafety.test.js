@@ -11,6 +11,7 @@ const mockStripe = {
     create: jest.fn(async (args, opts) => ({ id: `pi_${mockStripe.paymentIntents.create.mock.calls.length}`, client_secret: 'secret', args, opts })),
     cancel: jest.fn(async () => ({ status: 'canceled' })),
   },
+  transfers: { create: jest.fn(async () => ({ id: 'tr_tonu' })) },
 };
 jest.mock('stripe', () => () => mockStripe);
 
@@ -98,4 +99,73 @@ test('a captured payment whose payout has not gone out is the most urgent case o
   expect(first.kind).toBe('payout');
   expect(first.severity).toBe('critical');
   expect(first.title).toMatch(/\$980\.00/);
+});
+
+describe('cancelled-truck fee', () => {
+  const express = require('express');
+  const request = require('supertest');
+  const User = require('../../models/User');
+  const { generateToken } = require('../helpers');
+  const app = express();
+  app.use(express.json());
+  app.use('/api/loads', require('../../routes/loadRoutes')({ to: () => ({ emit: () => {} }), emit: () => {} }));
+  const cancel = (load, user) => request(app).put(`/api/loads/${load._id}/cancel`).set('Authorization', `Bearer ${generateToken(user)}`).send({ reason: 'plans changed' });
+  const tonuOf = async (load) => (await Load.findById(load._id)).accessorialCharges.find((c) => c.type === 'tonu');
+  const withCard = (shipper) => User.updateOne({ _id: shipper._id }, { $set: { stripe: { customerId: 'cus_1', defaultPaymentMethodId: 'pm_1', accessorialMandate: { acceptedAt: new Date() } } } });
+  afterEach(() => { delete process.env.ENABLE_TONU_COLLECTION; });
+
+  test('always recorded on the load; with the switch off nothing is charged or paid', async () => {
+    const { shipper, load } = await scene('cancelled');
+    await withCard(shipper);
+    const before = mockStripe.paymentIntents.create.mock.calls.length;
+    const r = await cancel(load, shipper);
+    expect(r.status).toBe(200);
+    expect(r.body.tonuFeeCents).toBe(25000);
+    const c = await tonuOf(load);
+    expect(c).toMatchObject({ amountCents: 25000, status: 'pending', source: 'system_tonu' });
+    expect(mockStripe.paymentIntents.create.mock.calls.length).toBe(before);
+    expect(mockStripe.transfers.create).not.toHaveBeenCalled();
+  });
+
+  test('switch on: collected from the shipper, then paid to the carrier; never paid when the card fails or there is no payout account', async () => {
+    process.env.ENABLE_TONU_COLLECTION = 'true';
+    // card declined: stays pending, carrier not paid
+    const declined = await scene('cancelled');
+    await withCard(declined.shipper);
+    mockStripe.paymentIntents.create.mockRejectedValueOnce(Object.assign(new Error('Your card was declined.'), { code: 'card_declined' }));
+    await cancel(declined.load, declined.shipper);
+    expect((await tonuOf(declined.load)).status).toBe('pending');
+    expect(mockStripe.transfers.create).not.toHaveBeenCalled();
+
+    // collected, but the carrier has no payout account: approved, NOT paid
+    const noAccount = await scene('cancelled');
+    await withCard(noAccount.shipper);
+    mockStripe.paymentIntents.create.mockResolvedValueOnce({ id: 'pi_tonu_1', status: 'succeeded' });
+    await cancel(noAccount.load, noAccount.shipper);
+    expect(await tonuOf(noAccount.load)).toMatchObject({ status: 'approved', shipperPaymentStatus: 'collected' });
+    expect(mockStripe.transfers.create).not.toHaveBeenCalled();
+    expect((await desk.collectCases({})).some((c) => c.kind === 'payout' && /Collected fee not paid/.test(c.title))).toBe(true); // visible, not silent
+
+    // collected and paid
+    const ok = await scene('cancelled');
+    await withCard(ok.shipper);
+    await User.updateOne({ _id: ok.carrier._id }, { $set: { 'stripe.connectAccountId': 'acct_1' } });
+    mockStripe.paymentIntents.create.mockResolvedValueOnce({ id: 'pi_tonu_2', status: 'succeeded' });
+    await cancel(ok.load, ok.shipper);
+    expect(await tonuOf(ok.load)).toMatchObject({ status: 'paid', shipperPaymentStatus: 'collected' });
+    expect(mockStripe.transfers.create).toHaveBeenCalledTimes(1);
+    expect(mockStripe.transfers.create.mock.calls[0][0]).toMatchObject({ amount: 25000, destination: 'acct_1' });
+    const [args] = mockStripe.paymentIntents.create.mock.calls.at(-1);
+    expect(args).toMatchObject({ amount: 25000, off_session: true, customer: 'cus_1' });
+  });
+
+  test('no fee when the carrier cancels, or when the load was never booked', async () => {
+    const a = await scene('cancelled');
+    await cancel(a.load, a.carrier);
+    expect(await tonuOf(a.load)).toBeUndefined();
+    const b = await scene('cancelled');
+    await Load.updateOne({ _id: b.load._id }, { $set: { status: 'open', acceptedBy: null } });
+    await cancel(b.load, b.shipper);
+    expect(await tonuOf(b.load)).toBeUndefined();
+  });
 });

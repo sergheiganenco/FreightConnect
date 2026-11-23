@@ -1670,6 +1670,13 @@ router.post('/voice-command', auth, async (req, res) => {
         }
         tonuFeeCents = tonuRate;
 
+        // Write the fee onto the load as a charge (and collect it when ENABLE_TONU_COLLECTION is on). Never blocks the cancel.
+        try {
+          await require('../services/tonuService').recordAndCollectTonu({ loadId: load._id, amountCents: tonuRate, cancelledBy: userId });
+        } catch (tonuErr) {
+          console.error('[cancel] TONU charge not recorded:', tonuErr.message);
+        }
+
         // Notify carrier about cancellation + TONU
         const { notifyUserSafe } = require('../utils/notifyUser');
         notifyUserSafe(load.acceptedBy, {

@@ -95,7 +95,7 @@ async function autoResolve() {
 // ── Step 2: the queue ────────────────────────────────────────────────────────
 async function collectCases({ adminId, env = process.env } = {}) {
   const open = { $in: ['open', 'investigating'] };
-  const [claims, exceptions, reviews, frauds, carriers, shippers, contacts, stuckPayouts] = await Promise.all([
+  const [claims, exceptions, reviews, frauds, carriers, shippers, contacts, stuckPayouts, unpaidFees] = await Promise.all([
     Claim.find({ status: open }).sort({ createdAt: 1 }).limit(200).lean(),
     Exception.find({ status: open }).sort({ createdAt: 1 }).limit(200).lean(),
     ReviewQueue.find({ status: 'pending' }).sort({ createdAt: 1 }).limit(200).populate('subjectUser', 'companyName name').lean(),
@@ -105,6 +105,8 @@ async function collectCases({ adminId, env = process.env } = {}) {
     adminId ? Notification.find({ userId: adminId, type: 'contact:message', read: false }).sort({ createdAt: 1 }).limit(100).lean() : [],
     // Money taken from the shipper but not yet sent on: every hour it sits is a carrier waiting to be paid.
     Payment.find({ status: 'captured', updatedAt: { $lt: new Date(Date.now() - HOUR) } }).sort({ updatedAt: 1 }).limit(100).lean(),
+    // A fee (detention, cancelled truck) already collected from the shipper but not yet passed on to the carrier.
+    Load.find({ accessorialCharges: { $elemMatch: { status: 'approved', shipperPaymentStatus: 'collected' } } }).select('title accessorialCharges').limit(100).lean(),
   ]);
   const loadIds = [...claims, ...exceptions].map((c) => c.loadId);
   const loads = loadIds.length
@@ -116,6 +118,11 @@ async function collectCases({ adminId, env = process.env } = {}) {
   const age = (d) => Math.max(0, Math.round((now - new Date(d || now).getTime()) / HOUR));
 
   const cases = [
+    ...unpaidFees.flatMap((l) => l.accessorialCharges.filter((c) => c.status === 'approved' && c.shipperPaymentStatus === 'collected').map((c) => ({
+      kind: 'payout', id: c._id, title: `Collected fee not paid to the carrier: ${c.type}, ${money(c.amountCents)}`, detail: l.title,
+      severity: 'critical', ageHours: age(c.approvedAt), link: '/dashboard/admin/ledger',
+      proposal: review('The shipper has paid this fee, but it has not been sent to the carrier (often because the carrier has not finished payout setup, or a factoring notice is on file).'),
+    }))),
     ...stuckPayouts.map((p) => ({
       kind: 'payout', id: p._id, title: `Carrier payout not sent: ${money(p.carrierPayoutCents ?? p.amountCents)}`, detail: `Load ${p.loadId}`,
       severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger',

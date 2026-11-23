@@ -621,6 +621,12 @@ async function settleAccessorialCharge(loadId, chargeId) {
         });
         transferId = transfer.id;
       }
+      // Payments are on but nothing was sent (the carrier has no payout account yet): the charge is NOT paid.
+      // Release the once-only claim so it can be settled when the carrier finishes payout setup.
+      if (!transferId) {
+        try { await ledgerService.unmarkProcessed('accessorial_' + chargeId); } catch (_) { /* retried later */ }
+        return { ok: false, error: 'The carrier has no payout account yet, so nothing was sent.' };
+      }
     }
     charge.status = 'paid';
     charge.paidAt = new Date();

@@ -284,7 +284,7 @@ const LoadSchema = new mongoose.Schema({
     // `source` distinguishes carrier-requested accessorials from server-authored
     // detention charges. Detention charges are NEVER carrier-creatable: their
     // amount comes only from the DwellEvent's server-computed fee (provenance lock).
-    source:       { type: String, enum: ['carrier','system_detention'], default: 'carrier' },
+    source:       { type: String, enum: ['carrier','system_detention','system_tonu'], default: 'carrier' },
     dwellEventId: { type: mongoose.Schema.Types.ObjectId, ref: 'DwellEvent', default: null },
     // false = the dwell's arrival or departure position was not authenticated (link-token fix or manual check-in).
     // Such a charge still goes to the shipper for approval but is NEVER auto-collected off-session.
