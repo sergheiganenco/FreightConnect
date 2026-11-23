@@ -266,6 +266,9 @@ io.on('connection', (socket) => {
         return;
       }
     } catch (_) { /* fail open */ }
+    // Every handler below destructures its payload: anything that is not a plain object (null, a string, an array)
+    // would throw inside the handler, so it is replaced with an empty object here, once, for all events.
+    if (packet[1] === null || typeof packet[1] !== 'object' || Array.isArray(packet[1])) packet[1] = {};
     next();
   });
 
