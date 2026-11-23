@@ -829,7 +829,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       if (fraudResult.riskFlags && fraudResult.riskFlags.length > 0) {
         acceptUpdate.riskFlags = fraudResult.riskFlags;
       }
-      if (planTruckId) acceptUpdate.assignedTruckId = planTruckId;
+      acceptUpdate.assignedTruckId = planTruckId; // null when none: a link from an earlier booking never survives
       const acceptFilter = { _id: req.params.id, status: "open", acceptedBy: null };
       // Always conditional on the terms this request was checked against: the version the carrier saw, else the one just read.
       const gatedVersion = seenVersion ?? (loadToCheck.termsVersion || 1);
@@ -1783,6 +1783,79 @@ router.post('/voice-command', auth, async (req, res) => {
       res.json({ success: true, pickupRisk: fresh?.pickupRisk || null });
     } catch (err) {
       console.error('[pickup-confirm] failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ========================================================================
+  //  AUTOMATIC CHECK CALLS — jobs/checkCallMonitor writes the system's own updates; here the booked carrier
+  //  company answers a prompt in one tap, and the parties read the timeline. A driver's answer is stored as the
+  //  DRIVER'S statement: it never upgrades positionConfirmed and never changes a computed ETA. No penalties.
+  // ========================================================================
+  const { announce: announceCheckCall } = require('../jobs/checkCallMonitor');
+  const { makeLimiter } = require('../middlewares/rateLimiter');
+  const { CONSTANTS: { ASK_WINDOW_MS } } = require('../services/checkCallService');
+  const CHECK_REASONS = { traffic: 'traffic', weather: 'weather', breakdown: 'a breakdown', facility_delay: 'a facility delay', hos_rest: 'a required rest break', other: 'another reason' };
+  const CHECK_STATUS_TEXT = { on_schedule: 'on schedule', at_facility: 'at the facility', stopped: 'stopped' };
+  // Per company + load, so one carrier cannot spam one shipper (a fleet office shares an IP; keyed after auth).
+  const checkCallLimiter = makeLimiter({
+    windowMs: 60 * 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false,
+    keyGenerator: (req) => `${req.user?.companyOwnerId || req.user?.userId || 'anon'}:${req.params.id}`,
+    message: { error: 'Too many check-call answers for this load, please try again later' },
+  }, 'rl:checkcall:');
+  const cleanNote = (v) => String(v).replace(/<[^>]*>/g, ' ').replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // POST /api/loads/:id/check-call  { status, delayMinutes?, reason?, note? } — booked carrier company only (owner/dispatcher/driver)
+  router.post('/:id/check-call', auth, param('id').isMongoId(),
+    body('status').isIn(['on_schedule', 'delayed', 'at_facility', 'stopped']),
+    body('delayMinutes').if(body('status').equals('delayed')).isInt({ min: 5, max: 2880 }).toInt(),
+    body('reason').optional().isIn(Object.keys(CHECK_REASONS)),
+    body('note').optional().isString().isLength({ max: 300 }).customSanitizer(cleanNote),
+    validate, checkCallLimiter, async (req, res) => { // limiter after validation: only well-formed answers use the hourly budget
+      try {
+        if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Only the booked carrier can answer a check call' });
+        const load = await Load.findById(req.params.id).select('title status acceptedBy postedBy bookedAt checkCallState.ask').lean();
+        if (!load || String(load.acceptedBy) !== companyOf(req)) return res.status(404).json({ error: 'Load not found' });
+        if (!['accepted', 'in-transit'].includes(load.status)) return res.status(409).json({ error: 'Check calls are only possible while the load is booked or in transit' });
+
+        const { status, delayMinutes, reason, note } = req.body;
+        const text = status === 'delayed'
+          ? `Driver reports: delayed about ${delayMinutes} min${reason ? ` because of ${CHECK_REASONS[reason]}` : ''}.`
+          : `Driver reports: ${CHECK_STATUS_TEXT[status]}.`;
+        const now = new Date();
+        const entry = {
+          type: 'driver_update', at: now, message: note ? `${text} Note: ${note}` : text, etaAt: null, distanceRemainingMiles: null,
+          positionAgeMinutes: null, positionConfirmed: false, source: 'driver', driverStatus: status, by: req.user.userId,
+          ...(note ? { driverNote: note } : {}),
+        };
+        const ask = load.checkCallState?.ask;
+        const update = { $push: { checkCalls: { $each: [entry], $slice: -50 } } };
+        const guard = { _id: load._id, status: load.status, acceptedBy: load.acceptedBy, bookedAt: load.bookedAt || null, 'checkCallState.ask.askedAt': ask?.askedAt || null };
+        if (ask?.askedAt) update.$set = { 'checkCallState.ask.answeredAt': now };
+        const w = await Load.updateOne(guard, update);
+        if (!w.matchedCount) return res.status(409).json({ error: 'The load changed while you were answering. Please try again.' });
+        await announceCheckCall(load, entry);
+        res.json({ success: true, checkCall: { ...entry, by: undefined } });
+      } catch (err) {
+        console.error('[check-call] failed:', err.message);
+        res.status(500).json({ error: 'Server error' });
+      }
+    });
+
+  // GET /api/loads/:id/check-calls — posting shipper company, the CURRENT booked carrier company, admin. Anyone else (incl. a
+  // former carrier) gets 404, so the load's existence is not revealed. Newest first.
+  router.get('/:id/check-calls', auth, param('id').isMongoId(), validate, async (req, res) => {
+    try {
+      const load = await Load.findById(req.params.id).select('postedBy acceptedBy status checkCalls checkCallState.ask').lean();
+      if (!load || !isLoadParty(load, req)) return res.status(404).json({ error: 'Load not found' });
+      const ask = load.checkCallState?.ask;
+      const askedMs = ask?.askedAt ? new Date(ask.askedAt).getTime() : null;
+      const pendingAsk = ['accepted', 'in-transit'].includes(load.status) && askedMs != null
+        && !(ask.answeredAt && new Date(ask.answeredAt).getTime() >= askedMs) && Date.now() - askedMs < ASK_WINDOW_MS;
+      const checkCalls = (load.checkCalls || []).map(({ by, ...c }) => c).sort((a, b) => new Date(b.at) - new Date(a.at));
+      res.json({ checkCalls, pendingAsk });
+    } catch (err) {
+      console.error('[check-calls] failed:', err.message);
       res.status(500).json({ error: 'Server error' });
     }
   });

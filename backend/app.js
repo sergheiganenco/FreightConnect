@@ -566,6 +566,7 @@ server.listen(PORT, () => {
     require('./jobs/fmcsaMonitor').start();
     require('./jobs/overdueLoadMonitor').start();
     require('./jobs/pickupRiskMonitor').start();
+    require('./jobs/checkCallMonitor').start();
     require('./jobs/escrowExpiryMonitor').start();
     require('./jobs/contractAutoPost').start();
     require('./jobs/contractMonitor').start();

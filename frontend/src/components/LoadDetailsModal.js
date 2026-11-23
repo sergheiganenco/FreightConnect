@@ -27,6 +27,7 @@ import StatusChip from '../features/carrierDashboard/sections/components/StatusC
 import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
 import PickupHandshakePanel from '../features/shared/PickupHandshakePanel';
 import PickupRiskPanel from '../features/shared/PickupRiskPanel';
+import CheckCallPanel from '../features/shared/CheckCallPanel';
 import PickupWindowPanel from '../features/shared/PickupWindowPanel';
 import LoadEvidencePanel from '../features/shared/LoadEvidencePanel';
 import ReputationBadges from './ReputationBadges';
@@ -1536,6 +1537,9 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         {['carrier', 'shipper', 'admin'].includes(userRole) && (
           <PickupRiskPanel load={loadState} userRole={userRole} onChanged={(l, note) => { setLoadState((prev) => ({ ...prev, ...l, ...(l.status === 'open' ? { acceptedBy: null } : {}) })); if (note) setReleaseNote(note); if (l.status && l.status !== loadState.status) onLoadAccepted?.(loadState._id); }} />
         )}
+
+        {/* ── Automatic check calls (booked / in transit / delivered) ── */}
+        {['carrier', 'shipper', 'admin'].includes(userRole) && <CheckCallPanel load={loadState} userRole={userRole} />}
 
         {/* The server omits a cleared proposal, so it is reset explicitly on refresh. */}
         {/* ── Change pickup / delivery time (shipper) and respond to a proposed pickup time (carrier) ── */}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator,
+  Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -23,6 +23,7 @@ export default function LoadDetailScreen({ route, navigation }) {
   const [tracking, setTracking] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [pickup, setPickup] = useState(null); // { code } | { verifiedAt } — pickup handshake
+  const [pendingAsk, setPendingAsk] = useState(false); // the system is asking for a check-call answer
 
   // Photo evidence (pickup / delivery). Server stores who/when/where + a fingerprint; photos are immutable.
   const addPhoto = (stage) => {
@@ -91,6 +92,29 @@ export default function LoadDetailScreen({ route, navigation }) {
       const { data } = await api.get(`/loads/${load._id}`);
       setLoad(data);
     } catch { /* ignore */ }
+  };
+
+  // Automatic check calls: the server asks when it cannot see a position; one tap tells the shipper how it is going.
+  const booked = ['accepted', 'in-transit'].includes(load.status);
+  useEffect(() => {
+    if (!booked) return;
+    api.get(`/loads/${load._id}/check-calls`).then(({ data }) => setPendingAsk(!!data.pendingAsk)).catch(() => {});
+  }, [load._id, booked]);
+  const sendCheckCall = async (body) => {
+    setActionLoading(true);
+    try {
+      await api.post(`/loads/${load._id}/check-call`, body);
+      setPendingAsk(false);
+      Alert.alert('Sent', 'The shipper can see your update.');
+    } catch (err) {
+      Alert.alert('Error', err.response?.data?.error || 'Could not send your update');
+    }
+    setActionLoading(false);
+  };
+  const askDelay = () => {
+    const opts = [['30 min', 30], ['1 hour', 60], ['2 hours', 120]].map(([text, m]) => ({ text, onPress: () => sendCheckCall({ status: 'delayed', delayMinutes: m }) }));
+    if (Platform.OS === 'ios') opts.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert('How long is the delay?', undefined, opts, { cancelable: true });
   };
 
   // Pickup no-show prediction: the server flags at_risk/late_certain; the driver answers here.
@@ -279,6 +303,20 @@ export default function LoadDetailScreen({ route, navigation }) {
           </View>
         );
       })()}
+
+      {/* Check call — one-tap status for the shipper; highlighted when the system is asking */}
+      {booked && (
+        <View style={[styles.card, pendingAsk && { borderColor: COLORS.warning }]}>
+          <Text style={styles.sectionTitle}>{pendingAsk ? 'The shipper is waiting for a status update' : 'Give the shipper a quick status'}</Text>
+          {pendingAsk && <Text style={styles.facilityAddr}>We cannot see a current position for this load.</Text>}
+          <View style={{ marginTop: 10 }}>
+            <ActionButton label="On schedule" color={COLORS.success} onPress={() => sendCheckCall({ status: 'on_schedule' })} disabled={actionLoading} />
+            <ActionButton label="Delayed…" color={COLORS.warning} onPress={askDelay} disabled={actionLoading} />
+            <ActionButton label="At facility" color={COLORS.info} onPress={() => sendCheckCall({ status: 'at_facility' })} disabled={actionLoading} />
+            <ActionButton label="Stopped" color={COLORS.textMuted} onPress={() => sendCheckCall({ status: 'stopped' })} disabled={actionLoading} />
+          </View>
+        </View>
+      )}
 
       {/* Pickup risk — shown only when the server predicts a missed pickup and the driver has not answered */}
       {load.status === 'accepted' && ['at_risk', 'late_certain'].includes(load.pickupRisk?.level) && !load.pickupRisk?.carrierConfirmation?.status && (

@@ -20,6 +20,12 @@ function haversineMiles(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+// Travel time for `miles` at the GPS speed when moving (km/h > 5), else a 50 mph average. Pure; shared with checkCallService.
+const travelMs = (miles, speedKmh = null) => {
+  const mph = (speedKmh != null && speedKmh > 5) ? speedKmh * 0.621371 : 50;
+  return (miles / mph) * 3600 * 1000;
+};
+
 /**
  * @param {{loadId, latitude, longitude, speed?, now?}} args  speed in km/h
  * @returns {Promise<{alerted:boolean, minutesLate?:number, projectedArrival?:Date, reason?:string}>}
@@ -38,8 +44,7 @@ async function checkPredictedDelay({ loadId, latitude, longitude, speed = null, 
   if (latitude == null || longitude == null) return { alerted: false, reason: 'no_position' };
 
   const miles = haversineMiles(latitude, longitude, load.destinationLat, load.destinationLng);
-  const mph = (speed != null && speed > 5) ? speed * 0.621371 : 50; // moving? use GPS speed, else 50mph avg
-  const projectedArrival = new Date(now.getTime() + (miles / mph) * 3600 * 1000);
+  const projectedArrival = new Date(now.getTime() + travelMs(miles, speed));
   const due = new Date(dueAt);
   if (projectedArrival <= due) return { alerted: false, reason: 'on_time' };
 
@@ -71,4 +76,4 @@ async function checkPredictedDelay({ loadId, latitude, longitude, speed = null, 
   return { alerted: true, minutesLate, projectedArrival };
 }
 
-module.exports = { checkPredictedDelay, haversineMiles };
+module.exports = { checkPredictedDelay, haversineMiles, travelMs };

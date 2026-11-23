@@ -393,6 +393,35 @@ const LoadSchema = new mongoose.Schema({
       by:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     },
   },
+
+  // ── Automatic check calls (written ONLY by jobs/checkCallMonitor + POST /:id/check-call) ──
+  // Belongs to the CURRENT booking: wiped on booking and un-booking (never shown to the next carrier).
+  // Writers cap it to the latest 50 ($push + $slice -50).
+  checkCalls: {
+    type: [{
+      type: { type: String, enum: ['en_route_to_pickup', 'at_pickup', 'departed_pickup', 'at_delivery', 'halfway', 'one_hour_out',
+        'position_update', 'ask_driver', 'no_response', 'driver_update'], required: true },
+      at: { type: Date, required: true },
+      message: { type: String, maxlength: 600 },
+      etaAt: { type: Date, default: null },
+      distanceRemainingMiles: { type: Number, default: null },
+      positionAgeMinutes: { type: Number, default: null },
+      positionConfirmed: { type: Boolean, default: false },
+      source: { type: String, enum: ['auto', 'driver'], default: 'auto' },
+      driverStatus: { type: String, enum: ['on_schedule', 'delayed', 'at_facility', 'stopped'] },
+      driverNote: { type: String, maxlength: 300 },
+      by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      _id: false,
+    }],
+    default: undefined,
+  },
+  // Idempotency for the monitor: milestones already announced, last periodic update, the pending driver ask.
+  checkCallState: {
+    milestones: { type: [String], default: undefined },
+    lastPeriodicAt: Date,
+    evaluatedAt: Date,   // oldest-evaluated-first ordering for the job
+    ask: { askedAt: Date, answeredAt: Date, noResponseSentAt: Date },
+  },
 }, { timestamps: true });
 
 // Keep rateCents in sync with rate (so existing code that sets `rate` still works)
@@ -428,6 +457,7 @@ function pickupLifecycle(update, win) {
   set[`${PV}.failedAttempts`] = 0;
   // Risk state and the last GPS fix belong to ONE booking; never carry them to the next carrier.
   u.$unset.pickupRisk = 1;
+  u.$unset.checkCalls = 1; u.$unset.checkCallState = 1; // one booking's check calls never reach the next carrier
   u.$unset.carrierLocation = 1;
   for (const f of ['verifiedAt', 'verifiedBy', 'lockedAt']) u.$unset[`${PV}.${f}`] = 1;
   u.$unset.pickupWindowChange = 1;
@@ -435,7 +465,7 @@ function pickupLifecycle(update, win) {
     set[`${PV}.code`] = String(crypto.randomInt(0, 1000000)).padStart(6, '0'); set.bookedAt = new Date();
     set.trackingNonce = crypto.randomBytes(16).toString('hex');
     if (win && win.start) set.bookedWindow = { start: win.start, end: win.end }; else u.$unset.bookedWindow = 1;
-  } else { u.$unset[`${PV}.code`] = 1; u.$unset.trackingNonce = 1; u.$unset.bookedWindow = 1; }
+  } else { u.$unset[`${PV}.code`] = 1; u.$unset.trackingNonce = 1; u.$unset.bookedWindow = 1; set.assignedTruckId = null; } // the truck link belongs to the booking
   return u;
 }
 
@@ -494,9 +524,12 @@ LoadSchema.pre('save', function (next) {
   if (!this.isNew && this.isModified('acceptedBy') && !this.acceptedBy) {
     this.pickupRisk = undefined;
     this.carrierLocation = undefined;
+    this.checkCalls = undefined;
+    this.checkCallState = undefined;
     this.bookedWindow = undefined;
     this.pickupWindowChange = undefined;
     this.trackingNonce = undefined;
+    this.assignedTruckId = null;
   }
   next();
 });
@@ -514,6 +547,8 @@ LoadSchema.index({ 'pickupTimeWindow.start': 1 });
 // pickupRiskMonitor: accepted loads whose pickup start falls in a time range.
 LoadSchema.index({ status: 1, 'pickupTimeWindow.start': 1 });
 LoadSchema.index({ status: 1, 'bookedWindow.start': 1 });
+// checkCallMonitor: booked/in-transit loads, oldest-evaluated first.
+LoadSchema.index({ status: 1, 'checkCallState.evaluatedAt': 1, _id: 1 });
 LoadSchema.index({ originLat: 1, originLng: 1 });
 LoadSchema.index({ destinationLat: 1, destinationLng: 1 });
 // Dedup partner/EDI/email-ingested loads per poster+external id (sparse: app loads have none).
