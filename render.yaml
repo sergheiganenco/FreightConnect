@@ -57,5 +57,6 @@ services:
     # all persist across deploys (a narrower mount silently loses the others).
     disk:
       name: documents
-      mountPath: /app/backend/public/documents
+      # Render's Node runtime checks the repo out at /opt/render/project/src (NOT /app, which is the Dockerfile's path).
+      mountPath: /opt/render/project/src/backend/public/documents
       sizeGB: 1

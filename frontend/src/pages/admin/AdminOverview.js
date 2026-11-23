@@ -24,6 +24,7 @@ import HistoryIcon from "@mui/icons-material/History";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import api from "../../services/api";
 import { useNavigate } from "react-router-dom";
+import SystemStatusCard from "../../features/adminDashboard/section/components/SystemStatusCard";
 
 const CARD_COLORS = [
   "linear-gradient(135deg,#4732f5 0%,#e1129a 100%)",
@@ -116,6 +117,7 @@ export default function AdminOverview() {
         </IconButton>
       </Stack>
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+      <SystemStatusCard />
       {loading ? (
         <Box py={10} display="flex" justifyContent="center">
           <CircularProgress size={38} />

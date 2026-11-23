@@ -18,6 +18,16 @@ const ADMIN_ONLY = (req, res, next) => {
 // Escape user input before using it as a $regex to prevent ReDoS / regex injection.
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// ── GET /api/admin/system-status ── which connections are on, and is storage safe (on/off facts only, no secrets)
+router.get('/system-status', auth, ADMIN_ONLY, (req, res) => {
+  try {
+    res.json(require('../services/systemStatus').getSystemStatus());
+  } catch (err) {
+    console.error('[admin/system-status] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ── GET /api/admin/audit-logs ─────────────────────────────────────────────────
 // Paginated audit trail, filterable by entity / action / userId.
 router.get('/audit-logs', auth, ADMIN_ONLY, async (req, res) => {
