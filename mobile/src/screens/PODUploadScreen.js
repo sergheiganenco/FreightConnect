@@ -105,7 +105,7 @@ export default function PODUploadScreen({ route, navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.title}>Proof of Delivery</Text>
       <Text style={styles.subtitle}>Take a photo or select from gallery</Text>
 
@@ -187,20 +187,20 @@ export default function PODUploadScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bgDark },
-  content: { padding: 20, paddingBottom: 100 },
+  content: { padding: 20, paddingBottom: 100, width: '100%', maxWidth: 600, alignSelf: 'center' },
   title: { color: '#fff', fontSize: 22, fontWeight: '800', marginBottom: 4 },
   subtitle: { color: COLORS.textMuted, fontSize: 14, marginBottom: 20 },
   previewContainer: { alignItems: 'center', marginBottom: 16 },
   preview: {
     width: '100%',
-    height: 300,
+    aspectRatio: 4 / 3,
     borderRadius: 12,
     backgroundColor: COLORS.bgCard,
   },
-  removeBtn: { marginTop: 8 },
+  removeBtn: { marginTop: 8, minHeight: 44, justifyContent: 'center' },
   removeBtnText: { color: COLORS.error, fontSize: 14, fontWeight: '600' },
   placeholder: {
-    height: 200,
+    minHeight: 200,
     backgroundColor: COLORS.bgCard,
     borderRadius: 12,
     borderWidth: 1,
@@ -211,9 +211,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   placeholderText: { color: COLORS.textMuted, fontSize: 15 },
-  row: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 },
   pickBtn: {
     flex: 1,
+    minWidth: 140,
+    minHeight: 44,
     backgroundColor: COLORS.indigo,
     borderRadius: 10,
     paddingVertical: 14,
@@ -245,12 +247,14 @@ const styles = StyleSheet.create({
   },
   signaturePreview: {
     width: '100%',
-    height: 120,
+    aspectRatio: 3 / 1,
     backgroundColor: '#fff',
     borderRadius: 8,
   },
   clearSigBtn: {
     marginTop: 8,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   clearSigBtnText: {
     color: COLORS.error,

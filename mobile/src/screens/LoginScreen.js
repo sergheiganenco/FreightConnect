@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { COLORS } from '../constants/config';
@@ -101,6 +101,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
       <View style={styles.card}>
         <Text style={styles.logo}>FreightConnect</Text>
         <Text style={styles.subtitle}>Carrier Driver App</Text>
@@ -190,6 +191,7 @@ export default function LoginScreen() {
         </>
         )}
       </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -198,10 +200,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bgDark,
+  },
+  scroll: {
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingVertical: 24,
   },
   card: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
     backgroundColor: COLORS.bgCard,
     borderRadius: 16,
     padding: 28,

@@ -3,10 +3,12 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Modal, TextInput,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SignatureScreen from 'react-native-signature-canvas';
 
 export default function SignatureCapture({ visible, onSave, onCancel, signerName, onSignerNameChange }) {
   const signatureRef = useRef(null);
+  const insets = useSafeAreaInsets();
 
   const handleOK = (signature) => {
     // signature is a base64-encoded PNG data URI
@@ -56,7 +58,7 @@ export default function SignatureCapture({ visible, onSave, onCancel, signerName
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
           <Text style={styles.headerTitle}>Capture Signature</Text>
           <Text style={styles.headerSub}>Consignee signature for Proof of Delivery</Text>
         </View>
@@ -98,7 +100,7 @@ export default function SignatureCapture({ visible, onSave, onCancel, signerName
         </View>
 
         {/* Action buttons */}
-        <View style={styles.actions}>
+        <View style={[styles.actions, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.actionsRow}>
             <TouchableOpacity style={styles.undoBtn} onPress={handleUndo}>
               <Text style={styles.undoBtnText}>Undo</Text>
@@ -123,11 +125,13 @@ export default function SignatureCapture({ visible, onSave, onCancel, signerName
 
 const styles = StyleSheet.create({
   container: {
+    width: '100%',
+    maxWidth: 700,
+    alignSelf: 'center',
     flex: 1,
     backgroundColor: '#0a1628',
   },
   header: {
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingHorizontal: 20,
     paddingBottom: 16,
   },
@@ -157,7 +161,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a2744',
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: 'center',
     color: '#fff',
     fontSize: 15,
     borderWidth: 1,
@@ -168,6 +173,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   canvasWrapper: {
+    minHeight: 140,
     flex: 1,
     borderRadius: 12,
     overflow: 'hidden',
@@ -185,7 +191,6 @@ const styles = StyleSheet.create({
   },
   actions: {
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
     paddingTop: 12,
   },
   actionsRow: {
@@ -197,7 +202,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a2744',
     borderRadius: 10,
-    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(0, 199, 183, 0.2)',
@@ -211,7 +217,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a2744',
     borderRadius: 10,
-    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(248, 113, 113, 0.3)',
@@ -224,7 +231,8 @@ const styles = StyleSheet.create({
   saveBtn: {
     backgroundColor: '#00C7B7',
     borderRadius: 12,
-    paddingVertical: 14,
+    minHeight: 48,
+    justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
@@ -235,7 +243,8 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     borderRadius: 12,
-    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   cancelBtnText: {

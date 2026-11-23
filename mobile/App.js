@@ -9,6 +9,7 @@ import * as SecureStore from 'expo-secure-store';
 import { registerForPushNotifications, showLocalNotification } from './src/services/notifications';
 import { getSocket } from './src/services/socket';
 import api from './src/services/api';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { COLORS } from './src/constants/config';
 
 // Import tracking task definition (must be at top level)
@@ -63,11 +64,13 @@ function RootNavigator() {
 
 export default function App() {
   return (
+    <SafeAreaProvider>
     <AuthProvider>
       <NavigationContainer>
         <StatusBar style="light" />
         <RootNavigator />
       </NavigationContainer>
     </AuthProvider>
+    </SafeAreaProvider>
   );
 }

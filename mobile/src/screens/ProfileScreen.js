@@ -76,7 +76,7 @@ export default function ProfileScreen({ navigation }) {
           </TouchableOpacity>
         )}
         <TouchableOpacity
-          style={{ marginTop: 12, backgroundColor: COLORS.bgInput, borderRadius: 9999, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border }}
+          style={{ marginTop: 12, backgroundColor: COLORS.bgInput, borderRadius: 9999, minHeight: 44, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border }}
           onPress={() => navigation.navigate('Loads', { screen: 'Consent' })}
         >
           <Text style={{ color: COLORS.textPrimary, fontWeight: '700', fontSize: 14 }}>Manage GPS Consent</Text>
@@ -101,7 +101,7 @@ function Row({ label, value }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bgDark },
-  content: { padding: 16, paddingBottom: 100 },
+  content: { padding: 16, paddingBottom: 100, width: '100%', maxWidth: 600, alignSelf: 'center' },
   card: {
     backgroundColor: COLORS.bgCard,
     borderRadius: 16,
@@ -133,16 +133,17 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   sectionTitle: { color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 8 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, gap: 12 },
   rowLabel: { color: COLORS.textMuted, fontSize: 14 },
-  rowValue: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  rowValue: { color: '#fff', fontSize: 14, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
   trackingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  trackingStatus: { color: '#fff', fontSize: 14 },
+  trackingStatus: { color: '#fff', fontSize: 14, flexShrink: 1 },
   stopBtn: {
     backgroundColor: COLORS.error,
     borderRadius: 8,
-    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
     marginTop: 12,
   },
@@ -151,7 +152,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.error,
     borderRadius: 12,
-    paddingVertical: 14,
+    minHeight: 48,
+    justifyContent: 'center',
     alignItems: 'center',
     marginTop: 8,
   },

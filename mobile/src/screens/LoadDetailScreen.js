@@ -340,7 +340,7 @@ export default function LoadDetailScreen({ route, navigation }) {
           <Text style={styles.sectionTitle}>Pickup code</Text>
           {pickup.code ? (
             <>
-              <Text style={styles.pickupCode}>{pickup.code}</Text>
+              <Text style={styles.pickupCode} numberOfLines={1} adjustsFontSizeToFit>{pickup.code}</Text>
               <Text style={styles.facilityAddr}>Show this code to the dock. Never share it by phone, text or email.</Text>
               {load.pickupVerification?.required && (
                 <Text style={styles.facilityAddr}>The shipper requires this check before you can start the trip.</Text>
@@ -440,8 +440,8 @@ function ActionButton({ label, color, onPress, disabled }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bgDark },
-  content: { padding: 16, paddingBottom: 100 },
-  statusRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  content: { padding: 16, paddingBottom: 100, width: '100%', maxWidth: 600, alignSelf: 'center' },
+  statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   badge: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { color: '#000', fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   title: { color: '#fff', fontSize: 22, fontWeight: '800', marginBottom: 4 },
@@ -455,9 +455,9 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   sectionTitle: { color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 8 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, gap: 12 },
   rowLabel: { color: COLORS.textMuted, fontSize: 14 },
-  rowValue: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  rowValue: { color: '#fff', fontSize: 14, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
   facilityLabel: { color: COLORS.textMuted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 },
   facilityValue: { color: '#fff', fontSize: 14, fontWeight: '600' },
   facilityAddr: { color: COLORS.textMuted, fontSize: 13, marginTop: 2 },
@@ -467,6 +467,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a2744',
     borderRadius: 10,
     paddingVertical: 14,
+    minHeight: 48,
+    justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
     borderWidth: 1,
@@ -474,6 +476,6 @@ const styles = StyleSheet.create({
   },
   mapBtnText: { color: '#00C7B7', fontSize: 15, fontWeight: '700' },
   actions: { marginTop: 8 },
-  actionBtn: { borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
+  actionBtn: { borderRadius: 10, paddingVertical: 14, minHeight: 48, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
   actionBtnText: { color: '#000', fontSize: 15, fontWeight: '700' },
 });

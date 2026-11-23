@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/config';
 
 import LoadBoardScreen from '../screens/LoadBoardScreen';
@@ -65,6 +66,7 @@ function LoadStackNavigator() {
 }
 
 export default function AppNavigator() {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -74,9 +76,9 @@ export default function AppNavigator() {
         tabBarStyle: {
           backgroundColor: COLORS.bgCard,
           borderTopColor: COLORS.border,
-          paddingBottom: 6,
+          paddingBottom: 6 + insets.bottom,
           paddingTop: 6,
-          height: 60,
+          height: 60 + insets.bottom,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         headerStyle: { backgroundColor: COLORS.bgCard },

@@ -58,7 +58,7 @@ export default function ConsentScreen({ navigation }) {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 20 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: 20, width: '100%', maxWidth: 600, alignSelf: 'center' }}>
       <Text style={styles.title}>GPS Tracking Consent</Text>
 
       <View style={styles.card}>
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
   bullet: { color: COLORS.textMuted, fontSize: 14, lineHeight: 22, marginLeft: 4 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
   dot: { width: 12, height: 12, borderRadius: 6 },
-  status: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '600' },
-  btn: { borderRadius: 9999, paddingVertical: 14, alignItems: 'center' },
+  status: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  btn: { borderRadius: 9999, minHeight: 48, justifyContent: 'center', alignItems: 'center' },
   btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

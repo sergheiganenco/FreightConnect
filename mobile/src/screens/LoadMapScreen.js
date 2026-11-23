@@ -1,16 +1,17 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Dimensions, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Platform,
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { Linking } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/config';
 
-const { width } = Dimensions.get('window');
 
 export default function LoadMapScreen({ route }) {
   const { load } = route.params;
   const mapRef = useRef(null);
+  const insets = useSafeAreaInsets();
 
   // Parse coordinates from load — support multiple field layouts
   const origin = {
@@ -109,14 +110,14 @@ export default function LoadMapScreen({ route }) {
       </MapView>
 
       {/* Info overlay card */}
-      <View style={styles.infoCard}>
-        <Text style={styles.loadTitle} numberOfLines={1}>{load.title || 'Load'}</Text>
+      <View style={[styles.infoCard, { paddingBottom: 20 + insets.bottom }]}>
+        <Text style={styles.loadTitle} numberOfLines={2}>{load.title || 'Load'}</Text>
 
         <View style={styles.addressRow}>
           <View style={[styles.dot, { backgroundColor: COLORS.success }]} />
           <View style={styles.addressText}>
             <Text style={styles.addressLabel}>PICKUP</Text>
-            <Text style={styles.addressValue} numberOfLines={1}>{load.origin || 'N/A'}</Text>
+            <Text style={styles.addressValue} numberOfLines={2}>{load.origin || 'N/A'}</Text>
           </View>
         </View>
 
@@ -126,7 +127,7 @@ export default function LoadMapScreen({ route }) {
           <View style={[styles.dot, { backgroundColor: COLORS.error }]} />
           <View style={styles.addressText}>
             <Text style={styles.addressLabel}>DELIVERY</Text>
-            <Text style={styles.addressValue} numberOfLines={1}>{load.destination || 'N/A'}</Text>
+            <Text style={styles.addressValue} numberOfLines={2}>{load.destination || 'N/A'}</Text>
           </View>
         </View>
 
@@ -191,7 +192,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    paddingBottom: 36,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 199, 183, 0.2)',
   },
@@ -238,7 +238,8 @@ const styles = StyleSheet.create({
     marginTop: 16,
     backgroundColor: '#00C7B7',
     borderRadius: 12,
-    paddingVertical: 14,
+    minHeight: 48,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   navButtonText: {

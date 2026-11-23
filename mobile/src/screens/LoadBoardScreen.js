@@ -219,6 +219,7 @@ export default function LoadBoardScreen() {
                 key={r}
                 style={[styles.radiusChip, radius === r && styles.radiusChipActive]}
                 onPress={() => setRadius(r)}
+                hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
               >
                 <Text style={[styles.radiusChipText, radius === r && styles.radiusChipTextActive]}>{r} mi</Text>
               </TouchableOpacity>
@@ -247,6 +248,7 @@ export default function LoadBoardScreen() {
           keyExtractor={(item) => item._id}
           renderItem={renderLoad}
           contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
           }
@@ -264,6 +266,9 @@ export default function LoadBoardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bgDark },
   tabs: {
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingTop: 12,
@@ -271,7 +276,8 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 8,
     marginHorizontal: 4,
@@ -280,14 +286,15 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: COLORS.primary },
   tabText: { color: COLORS.textMuted, fontWeight: '600', fontSize: 14 },
   tabTextActive: { color: '#fff' },
-  searchWrap: { paddingHorizontal: 16, paddingBottom: 8 },
+  searchWrap: { paddingHorizontal: 16, paddingBottom: 8, width: '100%', maxWidth: 600, alignSelf: 'center' },
   searchRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   searchInput: {
     flex: 1,
     backgroundColor: COLORS.bgInput,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     color: '#fff',
     fontSize: 14,
     borderWidth: 1,
@@ -297,7 +304,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 8,
     paddingHorizontal: 16,
-    paddingVertical: 11,
+    minHeight: 44,
+    justifyContent: 'center',
     minWidth: 74,
     alignItems: 'center',
   },
@@ -306,6 +314,8 @@ const styles = StyleSheet.create({
   radiusChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
+    minHeight: 36,
+    justifyContent: 'center',
     borderRadius: 16,
     backgroundColor: COLORS.bgCard,
     borderWidth: 1,
@@ -314,7 +324,7 @@ const styles = StyleSheet.create({
   radiusChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   radiusChipText: { color: COLORS.textMuted, fontSize: 12, fontWeight: '600' },
   radiusChipTextActive: { color: '#fff' },
-  clearChip: { paddingHorizontal: 12, paddingVertical: 6, marginLeft: 'auto' },
+  clearChip: { paddingHorizontal: 12, paddingVertical: 6, minHeight: 36, justifyContent: 'center', marginLeft: 'auto' },
   clearChipText: { color: COLORS.error, fontSize: 12, fontWeight: '600' },
   rateWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rpm: { color: COLORS.success, fontWeight: '700', fontSize: 13 },
@@ -329,7 +339,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  list: { padding: 16, paddingBottom: 100 },
+  list: { padding: 16, paddingBottom: 100, width: '100%', maxWidth: 600, alignSelf: 'center' },
   card: {
     backgroundColor: COLORS.bgCard,
     borderRadius: 12,
@@ -348,13 +358,14 @@ const styles = StyleSheet.create({
   badge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   badgeText: { color: '#000', fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
   route: { color: COLORS.indigo, fontSize: 14, fontWeight: '600', marginBottom: 10 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4, gap: 12 },
   label: { color: COLORS.textMuted, fontSize: 13 },
-  value: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  value: { color: '#fff', fontSize: 13, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
   acceptBtn: {
     backgroundColor: COLORS.success,
     borderRadius: 8,
-    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     alignItems: 'center',
     marginTop: 12,
   },

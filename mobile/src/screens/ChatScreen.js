@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../services/api';
 import { getSocket } from '../services/socket';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +11,7 @@ import { COLORS } from '../constants/config';
 
 export default function ChatScreen() {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -132,11 +134,11 @@ export default function ChatScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
+      keyboardVerticalOffset={insets.top + 44}
     >
       {/* Header with back button */}
       <View style={styles.chatHeader}>
-        <TouchableOpacity onPress={() => setActiveChannel(null)}>
+        <TouchableOpacity onPress={() => setActiveChannel(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={styles.backBtn}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.chatTitle} numberOfLines={1}>
@@ -175,6 +177,7 @@ export default function ChatScreen() {
           );
         }}
         contentContainerStyle={styles.msgList}
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
       />
 
@@ -222,7 +225,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 10,
     minWidth: 20,
-    height: 20,
+    minHeight: 20,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 6,
@@ -240,7 +243,7 @@ const styles = StyleSheet.create({
   backBtn: { color: COLORS.indigo, fontSize: 15, fontWeight: '600', marginRight: 12 },
   chatTitle: { color: '#fff', fontSize: 17, fontWeight: '700', flex: 1 },
   msgList: { padding: 16, paddingBottom: 8 },
-  bubble: { maxWidth: '80%', borderRadius: 12, padding: 10, marginBottom: 8 },
+  bubble: { maxWidth: '85%', borderRadius: 12, padding: 10, marginBottom: 8 },
   bubbleMe: { backgroundColor: COLORS.primary, alignSelf: 'flex-end' },
   bubbleThem: { backgroundColor: COLORS.bgCard, alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.border },
   senderName: { color: COLORS.indigo, fontSize: 11, fontWeight: '600', marginBottom: 2 },
@@ -263,6 +266,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     color: '#fff',
     fontSize: 14,
     maxHeight: 100,
@@ -273,6 +278,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 18,
     paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   sendBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
