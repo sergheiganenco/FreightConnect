@@ -31,7 +31,8 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
 
     const load = await Load.findById(req.params.loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (String(load.acceptedBy) !== req.user.userId) {
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
+    if (String(load.acceptedBy) !== companyId) {
       return res.status(403).json({ error: 'Not your load' });
     }
 
@@ -46,7 +47,7 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
     // facility visit.
     const existing = await DwellEvent.findOne({
       load: load._id,
-      carrier: req.user.userId,
+      carrier: companyId,
       bookedAt: load.bookedAt || null, // this booking only (null matches legacy events)
       stopType,
       stopIndex: stopIndex || 0,
@@ -63,7 +64,7 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
 
     const event = await DwellEvent.create({
       load: load._id,
-      carrier: req.user.userId,
+      carrier: companyId,
       shipper: load.postedBy,
       bookedAt: load.bookedAt || null,
       stopType,
@@ -92,7 +93,7 @@ router.post('/check-in/:loadId', auth, async (req, res) => {
 // ── PATCH /dock-in/:eventId — loading/unloading starts ──────────────────────
 router.patch('/dock-in/:eventId', auth, async (req, res) => {
   try {
-    const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: req.user.userId });
+    const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: String(req.user.companyOwnerId || req.user.userId) });
     if (!event) return res.status(404).json({ error: 'Dwell event not found' });
     if (event.dockInAt) return res.status(409).json({ error: 'Already docked in' });
     if (event.closedReason === 'cancelled' || event.departedAt) return res.status(409).json({ error: 'This dwell record is closed' });
@@ -111,7 +112,7 @@ router.patch('/dock-in/:eventId', auth, async (req, res) => {
 // ── PATCH /dock-out/:eventId — loading/unloading complete ───────────────────
 router.patch('/dock-out/:eventId', auth, async (req, res) => {
   try {
-    const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: req.user.userId });
+    const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: String(req.user.companyOwnerId || req.user.userId) });
     if (!event) return res.status(404).json({ error: 'Dwell event not found' });
     if (event.closedReason === 'cancelled' || event.departedAt) return res.status(409).json({ error: 'This dwell record is closed' });
 
@@ -128,7 +129,7 @@ router.patch('/dock-out/:eventId', auth, async (req, res) => {
 // ── PATCH /depart/:eventId — driver leaves facility ─────────────────────────
 router.patch('/depart/:eventId', auth, async (req, res) => {
   try {
-    const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: req.user.userId });
+    const event = await DwellEvent.findOne({ _id: req.params.eventId, carrier: String(req.user.companyOwnerId || req.user.userId) });
     if (!event) return res.status(404).json({ error: 'Dwell event not found' });
     if (event.closedReason === 'cancelled') return res.status(409).json({ error: 'This dwell record was closed when the booking ended' });
     if (event.departedAt) return res.status(409).json({ error: 'Already departed' });
@@ -154,8 +155,9 @@ router.get('/load/:loadId', auth, async (req, res) => {
     // admin may view dwell events (they expose facility timing + detention $).
     const load = await Load.findById(req.params.loadId).select('postedBy acceptedBy');
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    const isShipper = String(load.postedBy) === req.user.userId;
-    const isCarrier = String(load.acceptedBy) === req.user.userId;
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
+    const isShipper = String(load.postedBy) === companyId;
+    const isCarrier = String(load.acceptedBy) === companyId;
     const isAdmin = req.user.role === 'admin';
     if (!isShipper && !isCarrier && !isAdmin) {
       return res.status(403).json({ error: 'Not authorized to view dwell events for this load' });
@@ -174,7 +176,7 @@ router.get('/load/:loadId', auth, async (req, res) => {
 router.get('/active', auth, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
-    const events = await DwellEvent.find({ carrier: req.user.userId, departedAt: null })
+    const events = await DwellEvent.find({ carrier: String(req.user.companyOwnerId || req.user.userId), departedAt: null })
       .populate('load', 'title origin destination status')
       .sort({ arrivedAt: -1 });
     res.json(events);
@@ -193,7 +195,7 @@ router.get('/summary', auth, async (req, res) => {
     const end   = new Date(`${year}-12-31T23:59:59.999Z`);
 
     const mongoose = require('mongoose');
-    const carrierId = new mongoose.Types.ObjectId(req.user.userId);
+    const carrierId = new mongoose.Types.ObjectId(String(req.user.companyOwnerId || req.user.userId));
 
     const pipeline = [
       { $match: { carrier: carrierId, arrivedAt: { $gte: start, $lte: end }, departedAt: { $ne: null }, closedReason: { $ne: 'cancelled' } } },
@@ -250,7 +252,7 @@ router.get('/cascade/:loadId', auth, async (req, res) => {
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
     const estimatedDeparture = load.deliveryTimeWindow?.end || new Date();
-    const cascade = await assessCascadeImpact(req.user.userId, estimatedDeparture);
+    const cascade = await assessCascadeImpact(String(req.user.companyOwnerId || req.user.userId), estimatedDeparture);
 
     res.json(cascade);
   } catch (err) {

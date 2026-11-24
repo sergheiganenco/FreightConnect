@@ -3,8 +3,9 @@
  *
  * companyRole is 'owner' | 'dispatcher' | 'driver' and is carried on the JWT
  * (exposed by authMiddleware). Owners/dispatchers manage the company; drivers
- * operate loads (accept/status/deliver/POD/HOS/GPS) but must not edit the fleet
- * or driver roster or manage the team.
+ * run loads (status/deliver/POD/photos/HOS/GPS) but must not book, bid on, cancel or
+ * assign freight, edit the fleet or driver roster, or manage the team. A person who
+ * should book for the company is given the dispatcher role.
  *
  * Mount AFTER auth so req.user is populated.
  */

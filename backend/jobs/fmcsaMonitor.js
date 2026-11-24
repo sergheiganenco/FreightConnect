@@ -144,6 +144,7 @@ async function runFmcsaCheck() {
           legalName: v.fmcsaData?.legalName || data.legalName,
           operatingStatus: data.operatingStatus,
           safetyRating: data.safetyRating,
+          forHireAuthority: data.forHireAuthority,
           lastChecked: new Date(),
         };
 

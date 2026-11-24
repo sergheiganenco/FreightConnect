@@ -41,7 +41,9 @@ router.post('/readings/:loadId', auth, async (req, res) => {
       .populate('postedBy', 'name')
       .populate('acceptedBy', 'name');
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (load.acceptedBy?.toString() !== req.user.userId && req.user.role !== 'admin') {
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
+    // acceptedBy is populated here, so compare its _id (toString() on a document never matches)
+    if (String(load.acceptedBy?._id || load.acceptedBy) !== companyId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You are not assigned to this load' });
     }
 
@@ -59,7 +61,7 @@ router.post('/readings/:loadId', auth, async (req, res) => {
     const alertMsg = checkAlert(celsius, load.reefer);
     const reading = await TempReading.create({
       load:         load._id,
-      carrier:      req.user.userId,
+      carrier:      companyId,
       tempC:        celsius,
       humidity:     humidity ? parseFloat(humidity) : undefined,
       location,
@@ -104,7 +106,7 @@ router.get('/readings/:loadId', auth, async (req, res) => {
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
     // Both shipper (postedBy) and carrier (acceptedBy) can view
-    const uid = req.user.userId;
+    const uid = String(req.user.companyOwnerId || req.user.userId);
     if (
       req.user.role !== 'admin' &&
       load.postedBy?.toString() !== uid &&
@@ -133,7 +135,7 @@ router.get('/status/:loadId', auth, async (req, res) => {
     const load = await Load.findById(req.params.loadId).select('postedBy acceptedBy reefer title');
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    const uid = req.user.userId;
+    const uid = String(req.user.companyOwnerId || req.user.userId);
     if (
       req.user.role !== 'admin' &&
       load.postedBy?.toString() !== uid &&
@@ -184,7 +186,7 @@ router.put('/settings/:loadId', auth, async (req, res) => {
     }
     const load = await Load.findById(req.params.loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
-    if (load.postedBy?.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (load.postedBy?.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
 

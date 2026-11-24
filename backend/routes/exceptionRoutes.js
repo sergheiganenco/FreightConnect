@@ -83,7 +83,8 @@ router.post('/', auth, async (req, res) => {
     const uid = req.user.userId;
     const role = req.user.role;
     if (role === 'admin') return res.status(403).json({ error: 'Admins cannot file exceptions — use the admin panel' });
-    if (load.postedBy?.toString() !== uid && load.acceptedBy?.toString() !== uid) {
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
+    if (load.postedBy?.toString() !== companyId && load.acceptedBy?.toString() !== companyId) {
       return res.status(403).json({ error: 'You are not a participant on this load' });
     }
 
@@ -104,7 +105,7 @@ router.post('/', auth, async (req, res) => {
     });
 
     // Notify the other party + admins via socket
-    const otherPartyId = load.postedBy?.toString() === uid
+    const otherPartyId = load.postedBy?.toString() === companyId
       ? load.acceptedBy?.toString()
       : load.postedBy?.toString();
     if (otherPartyId) {
@@ -176,11 +177,11 @@ router.get('/load/:loadId', auth, async (req, res) => {
     const load = await Load.findById(req.params.loadId);
     if (!load) return res.status(404).json({ error: 'Load not found' });
 
-    const uid = req.user.userId;
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
     if (
       req.user.role !== 'admin' &&
-      load.postedBy?.toString() !== uid &&
-      load.acceptedBy?.toString() !== uid
+      load.postedBy?.toString() !== companyId &&
+      load.acceptedBy?.toString() !== companyId
     ) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -210,12 +211,13 @@ router.get('/:id', auth, async (req, res) => {
     if (!exception) return res.status(404).json({ error: 'Exception not found' });
 
     const uid = req.user.userId;
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
     const load = exception.loadId;
     if (
       req.user.role !== 'admin' &&
       exception.filedBy?._id?.toString() !== uid &&
-      load?.postedBy?.toString() !== uid &&
-      load?.acceptedBy?.toString() !== uid
+      load?.postedBy?.toString() !== companyId &&
+      load?.acceptedBy?.toString() !== companyId
     ) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -305,12 +307,13 @@ router.post('/:id/notes', auth, async (req, res) => {
     if (!exception) return res.status(404).json({ error: 'Exception not found' });
 
     const uid = req.user.userId;
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
     const load = exception.loadId;
     const role = req.user.role;
     if (
       role !== 'admin' &&
-      load?.postedBy?.toString() !== uid &&
-      load?.acceptedBy?.toString() !== uid
+      load?.postedBy?.toString() !== companyId &&
+      load?.acceptedBy?.toString() !== companyId
     ) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -327,7 +330,7 @@ router.post('/:id/notes', auth, async (req, res) => {
     const participantIds = [
       load?.postedBy?.toString(),
       load?.acceptedBy?.toString(),
-    ].filter(id => id && id !== uid);
+    ].filter(id => id && id !== companyId);
     participantIds.forEach(id => {
       notify(id, 'exception:note', {
         exceptionId: exception._id,
@@ -365,9 +368,9 @@ router.post('/:id/evidence', auth, uploadEvidence, async (req, res) => {
     const ex = await Exception.findById(req.params.id).populate('loadId', 'postedBy acceptedBy');
     if (!ex) return res.status(404).json({ error: 'Exception not found' });
 
-    const uid = req.user.userId;
+    const companyId = String(req.user.companyOwnerId || req.user.userId);
     const load = ex.loadId;
-    const isParty = load && (String(load.postedBy) === uid || String(load.acceptedBy) === uid);
+    const isParty = load && (String(load.postedBy) === companyId || String(load.acceptedBy) === companyId);
     if (!isParty && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Not authorized to attach evidence to this exception' });
     }

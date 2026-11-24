@@ -272,6 +272,11 @@ class VerificationService {
     // Insurance check (synchronous — uses embedded data)
     const ins = user.verification?.insurance;
     if (vStatus === 'pending') {
+      // A suspended carrier that restarts verification is "pending" until FMCSA answers. It stays
+      // blocked for that whole time, however long the lookup takes or fails.
+      if (user.verification?.suspensionReason) {
+        reasons.push('Account is suspended; booking reopens when the re-check confirms your record');
+      }
       // Pending carriers must have valid insurance
       if (!ins || ins.status !== 'valid') {
         reasons.push('Valid insurance required while verification is pending');

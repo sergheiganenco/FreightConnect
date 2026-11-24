@@ -13,8 +13,17 @@ function isExpired(date) {
   return !isNaN(d.getTime()) && d.getTime() <= Date.now();
 }
 
+const stateOf = (place) => { const m = /,\s*([A-Za-z]{2})\s*$/.exec(String(place || '')); return m ? m[1].toUpperCase() : null; };
+
 function checkLoadEligibility({ load, carrier, driver }) {
   const reasons = [];
+
+  // A load that crosses a state line needs for-hire operating authority, not just a DOT number.
+  // Only a definite "none" from FMCSA blocks; an unknown record does not.
+  const from = stateOf(load.origin), to = stateOf(load.destination);
+  if (from && to && from !== to && carrier?.verification?.fmcsaData?.forHireAuthority === 'none') {
+    reasons.push('This load crosses a state line, and FMCSA shows no active for-hire operating authority for your company');
+  }
   const required = Array.isArray(load.requiredEndorsements) ? load.requiredEndorsements : [];
 
   // ── Driver credential expiry (any load — driving on these is illegal) ──
@@ -43,9 +52,10 @@ function checkLoadEligibility({ load, carrier, driver }) {
     const driverEnd  = (driver && driver.endorsements) || [];
     if (![...carrierEnd, ...driverEnd].includes('hazmat')) {
       reasons.push('Hazmat load requires hazmat endorsement');
-    } else if (driver && driverEnd.includes('hazmat') && !carrierEnd.includes('hazmat')
-               && isExpired(driver.hazmatExpiry)) {
-      // The hazmat qualification comes from the driver — their card must be current
+    } else if (driver && !driverEnd.includes('hazmat')) {
+      // The endorsement is on a person's licence. A company-level flag cannot cover a named driver without it.
+      reasons.push('This driver does not hold a hazmat endorsement');
+    } else if (driver && isExpired(driver.hazmatExpiry)) {
       reasons.push("Driver's hazmat endorsement has expired");
     }
   }

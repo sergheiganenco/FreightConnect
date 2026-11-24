@@ -101,6 +101,11 @@ function normalizeCarrierData(raw) {
     authorityStatusCode: c.statusCode || null,
     // Letter code ('S'/'C'/'U') or word; null when unrated.
     safetyRating: c.safetyRating || c.safety_rating || null,
+    // For-hire operating authority (the MC side). A DOT number alone only registers the company;
+    // hauling other people's freight across state lines needs common or contract authority.
+    // 'unknown' when the record carries neither field, so a thin record never looks like "none".
+    forHireAuthority: (c.commonAuthorityStatus == null && c.contractAuthorityStatus == null) ? 'unknown'
+      : [c.commonAuthorityStatus, c.contractAuthorityStatus].some((s) => String(s || '').trim().toUpperCase() === 'A') ? 'active' : 'none',
     // Out of service if an OOS date is on file.
     outOfService: !!(c.oosDate || c.outOfService),
     oosDate: c.oosDate || null,
@@ -268,8 +273,19 @@ async function runFullVerification(user, mcInput, dotInput) {
       mcNumber: fmcsaData.mcNumber ? String(fmcsaData.mcNumber) : null,
       lastChecked: new Date(),
     };
-    user.verification.status = isAuthorized ? 'verified' : 'rejected';
-    if (isAuthorized) user.verification.verifiedAt = new Date();
+    // An FMCSA check may only lift a suspension that FMCSA caused. A carrier suspended for
+    // insurance, fraud or by an admin stays suspended however clean its federal record is.
+    const reason = user.verification.suspensionReason;
+    const ours = !reason || reason === 'fmcsa_authority' || reason === 'fmcsa_unconfirmed';
+    if (!ours) {
+      user.verification.status = 'suspended';
+    } else if (isAuthorized) {
+      user.verification.status = 'verified';
+      user.verification.suspensionReason = null;
+      user.verification.verifiedAt = new Date();
+    } else {
+      user.verification.status = 'rejected';
+    }
 
     // ── Real insurance verification (FMCSA insurance-on-file) ──────────────────
     // Populate verification.insurance from the federal record so the trust score,
@@ -305,7 +321,9 @@ async function runFullVerification(user, mcInput, dotInput) {
     console.error('FMCSA verification error:', err.message);
     // Network failure → set to pending for retry
     if (user.verification) {
-      user.verification.status = 'pending'; // unconfirmed typed numbers are NOT stored
+      // unconfirmed typed numbers are NOT stored. suspensionReason is kept, and "pending" with a
+      // suspension reason cannot book (verificationService.canAcceptLoads).
+      user.verification.status = 'pending';
       await user.save();
     }
     return { success: false, error: 'FMCSA service unavailable — set to pending for retry' };

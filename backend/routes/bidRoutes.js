@@ -14,6 +14,7 @@ const { notifyUserSafe } = require('../utils/notifyUser');
 // Accepting a bid (or a counter) ASSIGNS the load, so it must pass the exact
 // same eligibility + anti-fraud enforcement as the direct accept path.
 const { evaluateBookingGate, atomicBookLoad } = require('../services/bookingGuard');
+const { managerOnly } = require('../middlewares/companyRoles');
 
 // ── Helper: notify via socket ────────────────────────────────────────────────
 function notify(userId, event, payload) {
@@ -87,7 +88,7 @@ router.post('/rate-suggestion-preview', auth, async (req, res) => {
 // ────────────────────────────────────────────────────────────────────────────
 // POST /api/bids  — carrier places a bid
 // ────────────────────────────────────────────────────────────────────────────
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, managerOnly, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') {
       return res.status(403).json({ error: 'Only carriers can place bids' });
@@ -376,7 +377,7 @@ router.put('/:id/counter', auth, async (req, res) => {
 // ────────────────────────────────────────────────────────────────────────────
 // PUT /api/bids/:id/accept-counter — carrier accepts shipper's counter
 // ────────────────────────────────────────────────────────────────────────────
-router.put('/:id/accept-counter', auth, async (req, res) => {
+router.put('/:id/accept-counter', auth, managerOnly, async (req, res) => {
   try {
     const bid = await Bid.findById(req.params.id).populate('loadId');
     if (!bid) return res.status(404).json({ error: 'Bid not found' });

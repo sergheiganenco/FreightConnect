@@ -207,6 +207,7 @@ const UserSchema = new mongoose.Schema({
       mcNumber: String,
       operatingStatus: String,
       safetyRating: String,
+      forHireAuthority: String, // 'active' | 'none' | 'unknown' (common or contract authority, from FMCSA)
       lastChecked: Date,
     },
     insurance: {

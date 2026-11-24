@@ -38,7 +38,7 @@ router.post('/', auth, CARRIER_ONLY, async (req, res) => {
     if (loadIds.length > 0) {
       loads = await Load.find({
         _id:        { $in: loadIds },
-        acceptedBy: req.user.userId,
+        acceptedBy: String(req.user.companyOwnerId || req.user.userId),
         status:     { $in: ['accepted', 'in-transit'] },
       }).lean();
     }
@@ -74,7 +74,7 @@ router.post('/', auth, CARRIER_ONLY, async (req, res) => {
     }
 
     const trip = await Trip.create({
-      carrier: req.user.userId,
+      carrier: String(req.user.companyOwnerId || req.user.userId),
       name,
       truck,
       loads: loads.map(l => l._id),
@@ -98,7 +98,7 @@ router.post('/', auth, CARRIER_ONLY, async (req, res) => {
 router.get('/', auth, CARRIER_ONLY, async (req, res) => {
   try {
     const { status } = req.query;
-    const filter = { carrier: req.user.userId };
+    const filter = { carrier: String(req.user.companyOwnerId || req.user.userId) };
     if (status && status !== 'all') filter.status = status;
 
     const trips = await Trip.find(filter)
@@ -119,7 +119,7 @@ router.get('/:id', auth, async (req, res) => {
       .populate('history.performedBy', 'name role');
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
 
-    const uid = req.user.userId;
+    const uid = String(req.user.companyOwnerId || req.user.userId);
     if (req.user.role !== 'admin' && trip.carrier.toString() !== uid) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -134,7 +134,7 @@ router.put('/:id', auth, CARRIER_ONLY, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
-    if (trip.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (trip.carrier.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (trip.status !== 'planned') {
@@ -158,7 +158,7 @@ router.post('/:id/start', auth, CARRIER_ONLY, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
-    if (trip.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (trip.carrier.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (trip.status !== 'planned') {
@@ -181,7 +181,7 @@ router.post('/:id/complete', auth, CARRIER_ONLY, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
-    if (trip.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (trip.carrier.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (trip.status !== 'active') {
@@ -204,7 +204,7 @@ router.delete('/:id', auth, CARRIER_ONLY, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
-    if (trip.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (trip.carrier.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (trip.status === 'completed') {
@@ -225,7 +225,7 @@ router.patch('/:id/waypoints/:waypointId', auth, CARRIER_ONLY, async (req, res) 
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
-    if (trip.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (trip.carrier.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -249,7 +249,7 @@ router.post('/:id/fuel', auth, CARRIER_ONLY, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
-    if (trip.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (trip.carrier.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -282,7 +282,7 @@ router.get('/:id/route', auth, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id).populate('loads', 'originLat originLng destinationLat destinationLng');
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
-    if (trip.carrier.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (trip.carrier.toString() !== String(req.user.companyOwnerId || req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
 

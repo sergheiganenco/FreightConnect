@@ -27,6 +27,8 @@ module.exports = (io) => {
   const { fetchOrsRoute, plausibleMiles, loadDistanceFields } = require('../services/routingService');
   const { createPostedLoad, updatePostedLoad, voidBidsAfterChange } = require('../services/loadPostingService');
   const { versionIs } = require('../services/bookingGuard');
+  // Booking, cancelling and assigning freight is for the owner or a dispatcher, not a driver login.
+  const { managerOnly: bookingRole } = require('../middlewares/companyRoles');
 
   const TERMS_CHANGED = { error: 'This load was changed by the shipper. Review the new details before accepting.', code: 'TERMS_CHANGED' };
 
@@ -780,7 +782,7 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
   // ----------------------------------------
   // PUT /api/loads/:id/accept - Accept a Load (atomic — prevents double-accept)
   // ----------------------------------------
-  router.put("/:id/accept", auth, async (req, res) => {
+  router.put("/:id/accept", auth, bookingRole, async (req, res) => {
     try {
       // A sub-account books on behalf of its company: ownership, the eligibility/
       // fraud gate, and verification/fleet/insurance all resolve to the owner account.
@@ -1238,6 +1240,9 @@ router.put("/:id/status", auth, async (req, res) => {
     // Auto-generate Bill of Lading on delivery (non-blocking)
     if (status === 'delivered') {
       autoGenerateBOL(load._id);
+      // Charge the shipper and pay the carrier. Before this, only the fleet page did it, so a load
+      // delivered from the phone or My Loads left the card hold uncollected and the carrier unpaid.
+      await require('../services/deliveryPayment').settleOnDelivery(load._id);
     }
 
     // Emit only to the shipper and carrier involved — not all connected users
@@ -1594,7 +1599,7 @@ router.post('/voice-command', auth, async (req, res) => {
   //    - Trust score adjusted: carrier cancel = -5 points, shipper late cancel = warning
   // ========================================================================
 
-  router.put('/:id/cancel', auth, async (req, res) => {
+  router.put('/:id/cancel', auth, bookingRole, async (req, res) => {
     try {
       const load = await Load.findById(req.params.id);
       if (!load) return res.status(404).json({ error: 'Load not found' });
@@ -2258,7 +2263,7 @@ router.post('/voice-command', auth, async (req, res) => {
   //  DRIVER ASSIGNMENT — Carrier assigns a fleet driver to an accepted load
   //  Re-checks endorsement eligibility at the driver level (hazmat, etc.)
   // ========================================================================
-  router.put('/:id/assign-driver', auth, async (req, res) => {
+  router.put('/:id/assign-driver', auth, bookingRole, async (req, res) => {
     try {
       const { driverId } = req.body;
       if (!driverId) return res.status(400).json({ error: 'driverId is required' });

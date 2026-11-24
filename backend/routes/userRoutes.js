@@ -872,7 +872,7 @@ router.delete('/fleet/:truckId', auth, managerOnly, async (req, res) => {
 
 
 // PUT /api/users/fleet/:truckId/assign-load
-router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
+router.put('/fleet/:truckId/assign-load', auth, managerOnly, async (req, res) => {
   try {
     const { truckId } = req.params;
     const { loadId } = req.body;
@@ -1027,7 +1027,7 @@ router.put('/fleet/:truckId/assign-load', auth, async (req, res) => {
 
 
 // PUT /api/users/fleet/:truckId/unassign-load
-router.put('/fleet/:truckId/unassign-load', auth, async (req, res) => {
+router.put('/fleet/:truckId/unassign-load', auth, managerOnly, async (req, res) => {
   try {
     const { truckId } = req.params;
 
@@ -1257,90 +1257,8 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
       })
     );
 
-    // 7. Auto-release escrow payment on delivery (non-blocking).
-    try {
-      const Payment = require('../models/Payment');
-      const Invoice = require('../models/Invoice');
-      const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
-      if (payment) {
-        const stripeConfigured = !!process.env.STRIPE_SECRET_KEY;
-        let moneyMoved = false;
-
-        if (stripeConfigured && payment.stripePaymentIntentId) {
-          // Real money path: capture the held funds and pay the carrier (NOA-aware).
-          // Only advance Payment state to reflect what actually happened in Stripe —
-          // never fabricate a "paid" invoice for money that didn't move.
-          const escrowService = require('../services/escrowService');
-          const carrierUser = await User.findById(payment.carrierId).select('stripe');
-          const connectId = carrierUser?.stripe?.connectAccountId;
-          if (!connectId) {
-            console.warn(`[deliver] Load ${load._id}: escrow funded but carrier has no Connect account — payout deferred, leaving in_escrow.`);
-          } else {
-            try {
-              const result = await escrowService.captureEscrow(
-                payment.stripePaymentIntentId, String(load._id), connectId
-              );
-              if (result.chargeId) payment.stripeChargeId = result.chargeId;
-              if (result.transferId) {
-                // Paid straight to the carrier.
-                payment.status = 'released';
-                payment.stripeTransferId = result.transferId;
-                payment.releasedAt = new Date();
-              } else {
-                // Captured, but the carrier payout was redirected to a factor or held
-                // (UCC §9-406). The shipper WAS charged, so the invoice is legitimate.
-                payment.status = 'captured';
-                payment.payoutRoute = result.redirectedToFactor ? 'factor' : (result.payoutError ? 'carrier' : 'held');
-              }
-              await payment.save();
-              moneyMoved = true;
-            } catch (capErr) {
-              console.error(`[deliver] Load ${load._id}: escrow capture failed — leaving in_escrow for retry:`, capErr.message);
-            }
-          }
-        }
-        // Payment provider off: no money can move, so the record is left exactly as it is —
-        // never "released", no "paid" invoice, no payout notice.
-
-        if (moneyMoved) {
-          const existing = await Invoice.findOne({ loadId: load._id });
-          if (!existing) {
-            await Invoice.create({
-              loadId: load._id,
-              shipperId: payment.shipperId,
-              carrierId: payment.carrierId,
-              // Canonical cents from the payment; dollar fields kept for backward-compat.
-              subtotalCents: payment.amountCents,
-              platformFeeCents: payment.platformFeeCents,
-              totalCents: payment.amountCents,
-              subtotal: payment.amount,
-              platformFee: payment.platformFee,
-              total: payment.amount,
-              status: 'paid',
-              paidAt: new Date(),
-              issuedAt: new Date(),
-              stripePaymentIntentId: payment.stripePaymentIntentId,
-              lineItems: [{
-                description: `Freight: ${load.title} (${load.origin} → ${load.destination})`,
-                quantity: 1,
-                unitAmount: payment.amount,
-                total: payment.amount,
-              }],
-            });
-          }
-          const io = getIO();
-          if (io) {
-            // Only tell the carrier they were paid if funds actually transferred to them.
-            if (payment.status === 'released') {
-              io.to(`user_${payment.carrierId}`).emit('payment:released', { loadId: load._id, amount: payment.carrierPayout });
-            }
-            io.to(`user_${payment.shipperId}`).emit('payment:released', { loadId: load._id, amount: payment.amount });
-          }
-        }
-      }
-    } catch (payErr) {
-      console.error('Auto-release payment error (non-fatal):', payErr.message);
-    }
+    // 7. Charge the shipper and pay the carrier: the same function every delivery path uses.
+    await require('../services/deliveryPayment').settleOnDelivery(load._id);
 
     // 8. Emit live update (socket.io)
     const io = getIO();
