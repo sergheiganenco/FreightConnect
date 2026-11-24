@@ -42,6 +42,7 @@ const emptyForm = {
   hazmatExpiry: '',
   endorsements: [],
   status: 'active',
+  loginUserId: '',
 };
 
 const DRIVER_COLUMNS = [
@@ -106,6 +107,15 @@ export default function CarrierDrivers() {
     }
   }, []);
 
+  // The company's driver logins, for linking a roster driver to the person who signs in
+  const [logins, setLogins] = useState([]);
+  const fetchLogins = useCallback(async () => {
+    try {
+      const { data } = await api.get('/drivers/logins');
+      setLogins(data.data || []);
+    } catch { setLogins([]); /* drivers cannot see this list */ }
+  }, []);
+
   const fetchAlerts = useCallback(async () => {
     try {
       const { data } = await api.get('/drivers/compliance-alerts');
@@ -116,7 +126,8 @@ export default function CarrierDrivers() {
   useEffect(() => {
     fetchDrivers();
     fetchAlerts();
-  }, [fetchDrivers, fetchAlerts]);
+    fetchLogins();
+  }, [fetchDrivers, fetchAlerts, fetchLogins]);
 
   /* ── dialog helpers ──────────────────────────────────────────── */
   const openAdd = () => {
@@ -138,6 +149,7 @@ export default function CarrierDrivers() {
       hazmatExpiry: toDateInput(d.hazmatExpiry),
       endorsements: Array.isArray(d.endorsements) ? d.endorsements : [],
       status: d.status || 'active',
+      loginUserId: d.loginUserId ? String(d.loginUserId) : '',
     });
     setFormError('');
     setDialogOpen(true);
@@ -165,6 +177,7 @@ export default function CarrierDrivers() {
       hazmatExpiry: form.hazmatExpiry || undefined,
       endorsements: form.endorsements,
       status: form.status,
+      ...(editing && logins.length ? { loginUserId: form.loginUserId || null } : {}),
     };
     try {
       if (editing) {
@@ -177,6 +190,7 @@ export default function CarrierDrivers() {
       closeDialog();
       fetchDrivers();
       fetchAlerts();
+      fetchLogins();
     } catch (err) {
       setFormError(err.response?.data?.error || 'Failed to save driver.');
     } finally {
@@ -490,6 +504,23 @@ export default function CarrierDrivers() {
                 <MenuItem value="on_leave">On leave</MenuItem>
               </Select>
             </FormControl>
+            {editing && logins.length > 0 && (
+              <FormControl fullWidth sx={darkFieldSx}>
+                <InputLabel id="signs-in-as-label">Signs in as</InputLabel>
+                <Select labelId="signs-in-as-label" value={form.loginUserId || ''} label="Signs in as" onChange={(e) => setField('loginUserId', e.target.value)}>
+                  <MenuItem value=""><em>No login linked</em></MenuItem>
+                  {logins.map((l) => (
+                    <MenuItem key={l._id} value={String(l._id)}
+                      disabled={!!l.linkedDriverId && l.linkedDriverId !== editing}>
+                      {l.name} ({l.email}){l.linkedDriverId && l.linkedDriverId !== editing ? ` - linked to ${l.linkedDriverName}` : ''}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <Typography variant="caption" sx={{ color: T.secondary, mt: 0.5 }}>
+                  The linked login gets this driver's load assignments and next-load notices, and their hours log is checked when you assign a load.
+                </Typography>
+              </FormControl>
+            )}
             {formError && <Alert severity="error">{formError}</Alert>}
           </Stack>
         </DialogContent>

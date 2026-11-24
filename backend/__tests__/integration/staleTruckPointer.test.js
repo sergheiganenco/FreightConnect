@@ -27,6 +27,8 @@ describe('stale truck pointer', () => {
   let app, shipper, A, B, load;
   const call = (who, action) => request(app).put(`/api/users/fleet/T1/${action}`).set(bearer(who)).send({});
   const truckOf = async (u) => (await User.findById(u._id)).fleet.find((t) => t.truckId === 'T1');
+  // A load is picked up (in transit) before it can be delivered.
+  const pickUp = (who) => request(app).put(`/api/loads/${load._id}/status`).set(bearer(who)).send({ status: 'in-transit' });
 
   beforeEach(async () => {
     app = buildApp();
@@ -41,6 +43,7 @@ describe('stale truck pointer', () => {
   const rebookToB = (extra = {}) => Load.updateOne({ _id: load._id }, { $set: { acceptedBy: B._id, status: 'accepted', ...extra } });
 
   test('happy path: A delivers its own load', async () => {
+    expect((await pickUp(A)).status).toBe(200);
     const r = await call(A, 'deliver');
     expect(r.status).toBe(200);
     const fresh = await Load.findById(load._id);
@@ -96,6 +99,7 @@ describe('stale truck pointer', () => {
     const token = (await request(app).post(`/api/loads/${load._id}/dock-link`).set(bearer(shipper))).body.token;
     const code = (await Load.findById(load._id).select('+pickupVerification.code')).pickupVerification.code;
     await request(app).post(`/api/dock/${token}/verify`).send({ code }).expect(200);
+    expect((await pickUp(A)).status).toBe(200);
     expect((await call(A, 'deliver')).status).toBe(200);
     expect((await Load.findById(load._id)).status).toBe('delivered');
   });

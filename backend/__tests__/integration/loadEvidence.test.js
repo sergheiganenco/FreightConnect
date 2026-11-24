@@ -300,6 +300,24 @@ describe('load photo evidence', () => {
       await up(load, bearer(carrier), { stage: 'delivery' }).expect(201);
       expect((await deliver()).status).toBe(200);
       expect((await Load.findById(load._id)).status).toBe('delivered');
+      const history = await require('../../models/StatusHistory').findOne({ entityType: 'load', entityId: load._id, toStatus: 'delivered' });
+      expect(history.reason).toBe('Delivered from the fleet page');
+    });
+
+    test('fleet deliver cannot skip pickup: an accepted load is not marked delivered', async () => {
+      const { carrier, load } = await setup({ evidenceRequired: { pickup: false, delivery: false } });
+      await Load.updateOne({ _id: load._id }, { $set: { 'documents.pod': '/documents/uploads/x-pod.jpg' } });
+      const res = await request(app).put('/api/users/fleet/T1/deliver').set(bearer(carrier));
+      expect(res.status).toBe(409);
+      expect(res.body.reason).toBe('not_in_transit');
+      expect((await Load.findById(load._id)).status).toBe('accepted');
+    });
+
+    test('the truck shows In Transit once its load is picked up', async () => {
+      const { carrier, load } = await setup({ evidenceRequired: { pickup: false, delivery: false }, assignedTruckId: 'T1' });
+      expect((await status(load, bearer(carrier), 'in-transit')).status).toBe(200);
+      const truck = (await User.findById(carrier._id)).fleet.find((t) => t.truckId === 'T1');
+      expect(truck.status).toBe('In Transit');
     });
 
     test('required delivery photos block delivered via /status and /deliver', async () => {

@@ -933,7 +933,7 @@ router.put('/fleet/:truckId/assign-load', auth, managerOnly, async (req, res) =>
     }
 
     truck.assignedLoadId = loadId;
-    truck.status = "In Transit";               // Automated status (could be "Assigned" if you prefer)
+    truck.status = "Assigned";                 // booked, not yet picked up
     truck.available = false;                   // Truck is now busy!
     truck.lastStatusUpdate = new Date();       // Track when the status changed
 
@@ -942,13 +942,13 @@ router.put('/fleet/:truckId/assign-load', auth, managerOnly, async (req, res) =>
     load.acceptedBy = booked.acceptedBy;
     load.assignedTruckId = booked.assignedTruckId;
 
-    // Notify shipper that carrier is in transit
+    // Tell the shipper the load is booked (it is not picked up yet: that is a separate step)
     notifyUserSafe(load.postedBy?.toString(), {
       type: 'load:status',
-      title: 'Carrier is on the way!',
-      body: `"${load.title}" — ${load.origin} → ${load.destination}`,
+      title: 'Your load was booked',
+      body: `"${load.title}" — ${load.origin} → ${load.destination}. Truck ${truckId} is assigned.`,
       link: '/dashboard/shipper/loads',
-      metadata: { loadId: load._id, status: 'in-transit' },
+      metadata: { loadId: load._id, status: 'accepted' },
     });
 
     // Post system message to load thread on dispatch
@@ -1175,19 +1175,23 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
     const photoBlock = (await pickupBlockers(load)) || (await deliveryBlockers(load));
     if (photoBlock) return res.status(409).json(photoBlock);
 
-    // 4. Mark as delivered and free up truck
-    truck.status = "Available";           // Truck is free again
+    // 4. Mark as delivered through the same rules as every other delivery: only from in transit (a load
+    //    is picked up before it is delivered), in one guarded write, and recorded in the load's history.
+    if (load.status !== 'in-transit') {
+      return res.status(409).json({ error: 'Mark the load picked up (in transit) before marking it delivered.', reason: 'not_in_transit' });
+    }
+    const deliveredFields = { deliveredAt: new Date(), completedBy: user._id, assignedTruckId: null };
+    const moved = await require('../services/loadStateMachine').transitionLoadStatus(
+      load._id, 'in-transit', 'delivered', deliveredFields, req.user.userId, 'Delivered from the fleet page');
+    if (!moved.success) return res.status(409).json({ error: moved.error });
+    load.set({ status: 'delivered', ...deliveredFields }); // the rest of this handler reads the local copy
+
+    // Free up the truck
+    truck.status = "Available";
     truck.available = true;
     truck.lastStatusUpdate = new Date();
     truck.assignedLoadId = null;
-
-    load.status = "delivered";
-    load.deliveredAt = new Date();
-    load.completedBy = user._id;
-    load.assignedTruckId = null;
-
     await user.save();
-    await load.save();
 
     // 5. Auto-generate BOL (non-blocking)
     try {

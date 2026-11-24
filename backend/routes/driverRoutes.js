@@ -235,6 +235,29 @@ router.get('/compliance-alerts', auth, async (req, res) => {
 });
 
 // ── PUT /:driverId  — update a driver (owner/dispatcher only) ────────────────
+// ── GET /logins — the company's driver logins, and which roster driver each is linked to ──
+// A roster driver linked to a login is the one who gets load assignments, next-load notices and the
+// hours check from that login's log. Owner and dispatchers only.
+router.get('/logins', auth, managerOnly, async (req, res) => {
+  try {
+    if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
+    const companyId = req.user.companyOwnerId || req.user.userId;
+    const [owner, logins] = await Promise.all([
+      User.findById(companyId).select('drivers.driverId drivers.name drivers.loginUserId').lean(),
+      User.find({ parentAccountId: companyId, companyRole: 'driver', active: { $ne: false } }).select('name email').sort({ name: 1 }).lean(),
+    ]);
+    const linked = new Map(((owner && owner.drivers) || []).filter((d) => d.loginUserId).map((d) => [String(d.loginUserId), d]));
+    res.json({ data: logins.map((u) => ({
+      _id: u._id, name: u.name, email: u.email,
+      linkedDriverId: linked.get(String(u._id))?.driverId || null,
+      linkedDriverName: linked.get(String(u._id))?.name || null,
+    })) });
+  } catch (err) {
+    console.error('[drivers logins] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.put('/:driverId', auth, managerOnly, async (req, res) => {
   try {
     if (req.user.role !== 'carrier') return res.status(403).json({ error: 'Carriers only' });
@@ -247,6 +270,21 @@ router.put('/:driverId', auth, managerOnly, async (req, res) => {
     // Normalize the web form's legacy alias to the canonical field
     if (req.body.medicalExpiry !== undefined && req.body.medicalCardExpiry === undefined) {
       req.body.medicalCardExpiry = req.body.medicalExpiry;
+    }
+
+    // Link (or unlink) this roster driver to one of the company's driver logins.
+    if (req.body.loginUserId !== undefined) {
+      const id = req.body.loginUserId;
+      if (id === null || id === '') {
+        driver.loginUserId = null;
+      } else {
+        if (!require('mongoose').isValidObjectId(id)) return res.status(400).json({ error: 'Invalid login' });
+        const ok = await User.exists({ _id: id, parentAccountId: user._id, companyRole: 'driver', active: { $ne: false } });
+        if (!ok) return res.status(400).json({ error: 'That login is not an active driver login in your company.' });
+        const taken = user.drivers.find((d) => d.driverId !== driver.driverId && d.loginUserId && String(d.loginUserId) === String(id));
+        if (taken) return res.status(409).json({ error: `That login is already linked to ${taken.name}. Unlink it there first.` });
+        driver.loginUserId = id;
+      }
     }
 
     const allowed = [

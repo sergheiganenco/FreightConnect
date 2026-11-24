@@ -1282,6 +1282,14 @@ router.put("/:id/status", auth, async (req, res) => {
     const load = result.load;
 
     // Auto-generate Bill of Lading on delivery (non-blocking)
+    // The truck's own status follows the load: booked is "Assigned", picked up is "In Transit".
+    if (status === 'in-transit' && existingLoad.assignedTruckId) {
+      await User.updateOne(
+        { _id: existingLoad.acceptedBy, 'fleet.truckId': existingLoad.assignedTruckId },
+        { $set: { 'fleet.$.status': 'In Transit', 'fleet.$.lastStatusUpdate': new Date() } },
+      ).catch((e) => console.error('[status] truck status update failed (non-fatal):', e.message));
+    }
+
     if (status === 'delivered') {
       autoGenerateBOL(load._id);
       // Charge the shipper and pay the carrier. Before this, only the fleet page did it, so a load

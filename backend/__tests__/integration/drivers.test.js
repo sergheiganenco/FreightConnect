@@ -175,3 +175,34 @@ describe('Integration — Hazmat Eligibility', () => {
     expect(res.body.load.status).toBe('accepted');
   });
 });
+
+describe('linking a roster driver to a driver login', () => {
+  const jwt = require('jsonwebtoken');
+  const User = require('../../models/User');
+  test('a manager links and unlinks; a login can back only one roster driver; another company\'s login is refused', async () => {
+    const app = buildApp();
+    const owner = await createTestUser({ role: 'carrier', drivers: [{ driverId: 'A', name: 'Ann' }, { driverId: 'B', name: 'Bob' }] });
+    const login = await createTestUser({ role: 'carrier', name: 'Ann Smith', parentAccountId: owner._id, companyRole: 'driver', mustChangePassword: false });
+    const outsider = await createTestUser({ role: 'carrier', companyRole: 'driver', parentAccountId: (await createTestUser({ role: 'carrier' }))._id });
+    const tok = { Authorization: `Bearer ${generateToken(owner)}` };
+    const put = (id, body) => request(app).put(`/api/drivers/${id}`).set(tok).send(body);
+
+    let list = await request(app).get('/api/drivers/logins').set(tok);
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0].linkedDriverId).toBeNull();
+
+    expect((await put('A', { loginUserId: String(login._id) })).status).toBe(200);
+    list = await request(app).get('/api/drivers/logins').set(tok);
+    expect(list.body.data[0].linkedDriverName).toBe('Ann');
+    expect((await put('B', { loginUserId: String(login._id) })).status).toBe(409);
+    expect((await put('B', { loginUserId: String(outsider._id) })).status).toBe(400);
+    expect((await put('B', { loginUserId: 'nope' })).status).toBe(400);
+
+    // A driver login cannot see or change the links.
+    const dTok = { Authorization: `Bearer ${jwt.sign({ userId: String(login._id), role: 'carrier', companyRole: 'driver', companyOwnerId: String(owner._id) }, process.env.JWT_SECRET)}` };
+    expect((await request(app).get('/api/drivers/logins').set(dTok)).status).toBe(403);
+
+    expect((await put('A', { loginUserId: null })).status).toBe(200);
+    expect((await User.findById(owner._id)).drivers.find((d) => d.driverId === 'A').loginUserId).toBeNull();
+  });
+});
