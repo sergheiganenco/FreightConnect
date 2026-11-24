@@ -175,6 +175,12 @@ describe('on the road', () => {
     expect(String(charge.receiptEvidenceId)).toBe(String(photo.body.data._id));
     expect([...charge.evidenceUrls]).toEqual([]);
     expect((await ask()).status).toBe(400); // the same receipt cannot back a second charge
+
+    // Two requests at the same moment for one new receipt: exactly one charge.
+    await request(app).post(`/api/loads/${load._id}/evidence`).set(bearer(owner)).field('stage', 'delivery').field('kind', 'receipt').attach('file', PNG_BYTES, 'r2.png');
+    const both = await Promise.all([ask(), ask()]);
+    expect(both.filter((r) => r.status === 201)).toHaveLength(1);
+    expect((await Load.findById(load._id)).accessorialCharges).toHaveLength(2);
   });
 });
 
@@ -184,6 +190,7 @@ describe('who sees what, and what cannot be rewritten', () => {
     const carrier = await createTestUser({ role: 'carrier' });
     const load = await createTestLoad(shipper._id, {
       pickupNumber: 'PU-77', deliveryContactEmail: 'dock@receiver.test', pickupContactPhone: '555-0100', pickupHours: 'Mon-Fri',
+      stops: [{ sequence: 1, type: 'delivery', address: '5 Mid St, Jackson, TN', contactName: 'Stop Sue', contactPhone: '555-0199', notes: 'gate code 4471' }],
     });
     const seen = async (u) => (await request(app).get(`/api/loads/${load._id}`).set(bearer(u))).body;
 
@@ -193,6 +200,8 @@ describe('who sees what, and what cannot be rewritten', () => {
     expect(browsing.pickupNumber).toBeUndefined();
     expect(browsing.deliveryContactEmail).toBeUndefined();
     expect(browsing.pickupContactPhone).toBeUndefined();
+    expect(browsing.stops[0].address).toBe('5 Mid St, Jackson, TN');
+    expect(JSON.stringify(browsing)).not.toMatch(/Stop Sue|555-0199|4471/);
     const board = (await request(app).get('/api/loads').set(bearer(carrier))).body;
     expect(JSON.stringify(board)).not.toContain('PU-77');
 

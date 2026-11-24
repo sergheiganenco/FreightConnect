@@ -2554,19 +2554,25 @@ router.post('/voice-command', auth, async (req, res) => {
         receiptEvidenceId = receipt._id;
       }
 
-      load.accessorialCharges.push({
-        type,
-        description: description || null,
-        amountCents,
-        status: 'pending',
-        requestedBy: req.user.userId,
-        requestedAt: new Date(),
-        evidenceUrls: [], // client-supplied links are not stored; proof is a photo on the load
-        receiptEvidenceId,
-      });
-      await load.save();
-
-      const charge = load.accessorialCharges[load.accessorialCharges.length - 1];
+      // One conditional write: two requests at once cannot both claim the same receipt.
+      const chargeId = new (require('mongoose').Types.ObjectId)();
+      const saved = await Load.findOneAndUpdate(
+        { _id: load._id, acceptedBy: load.acceptedBy, ...(receiptEvidenceId ? { 'accessorialCharges.receiptEvidenceId': { $ne: receiptEvidenceId } } : {}) },
+        { $push: { accessorialCharges: {
+          _id: chargeId,
+          type,
+          description: description || null,
+          amountCents,
+          status: 'pending',
+          requestedBy: req.user.userId,
+          requestedAt: new Date(),
+          evidenceUrls: [], // client-supplied links are not stored; proof is a photo on the load
+          receiptEvidenceId,
+        } } },
+        { new: true }
+      );
+      if (!saved) return res.status(409).json({ error: 'That receipt already backs a charge, or the load changed. Try again.' });
+      const charge = saved.accessorialCharges.id(chargeId);
 
       try {
         await notifyUserSafe(load.postedBy, {

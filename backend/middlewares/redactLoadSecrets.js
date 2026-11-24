@@ -11,13 +11,16 @@ const SECRET_FIELDS = [
   'pickupContactName', 'pickupContactPhone', 'deliveryContactName', 'deliveryContactPhone',
 ];
 const idOf = (v) => (v && typeof v === 'object' ? String(v._id || v.id || '') : v ? String(v) : '');
-const looksLikeLoad = (o) => 'postedBy' in o && 'origin' in o && 'destination' in o && 'equipmentType' in o;
+// Deliberately loose, so a partial projection of a load is still recognised.
+const looksLikeLoad = (o) => 'postedBy' in o && ('origin' in o || 'destination' in o || 'equipmentType' in o || 'stops' in o);
+const STOP_SECRETS = ['contactName', 'contactPhone', 'notes'];
 
 function redact(node, me, isAdmin, depth) {
   if (!node || typeof node !== 'object' || depth > 8) return;
   if (Array.isArray(node)) { for (const x of node) redact(x, me, isAdmin, depth + 1); return; }
   if (looksLikeLoad(node) && !isAdmin && !(me && (idOf(node.postedBy) === me || idOf(node.acceptedBy) === me))) {
     for (const f of SECRET_FIELDS) delete node[f];
+    if (Array.isArray(node.stops)) for (const s of node.stops) if (s && typeof s === 'object') for (const f of STOP_SECRETS) delete s[f];
   }
   for (const k of Object.keys(node)) if (node[k] && typeof node[k] === 'object') redact(node[k], me, isAdmin, depth + 1);
 }
