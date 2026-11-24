@@ -425,7 +425,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         assignedDriverId: selectedDriver,
         assignedDriverName: data?.assignedDriverName || drv?.name || p.assignedDriverName,
       }));
-      setOk('Driver assigned.');
+      setOk(data?.hosWarning ? `Driver assigned. ${data.hosWarning}` : 'Driver assigned.');
     } catch (err) {
       setOpError(err.response?.data?.error || 'Failed to assign driver.');
     }

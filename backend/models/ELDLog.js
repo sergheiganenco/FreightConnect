@@ -12,7 +12,8 @@
 
 const mongoose = require('mongoose');
 
-const DUTY_STATUSES = ['OFF_DUTY', 'SLEEPER_BERTH', 'DRIVING', 'ON_DUTY_NOT_DRIVING'];
+// PERSONAL_CONVEYANCE counts as off duty and YARD_MOVE as on duty (not driving), as on a registered ELD.
+const DUTY_STATUSES = ['OFF_DUTY', 'SLEEPER_BERTH', 'DRIVING', 'ON_DUTY_NOT_DRIVING', 'PERSONAL_CONVEYANCE', 'YARD_MOVE'];
 
 const StatusEventSchema = new mongoose.Schema({
   status:     { type: String, enum: DUTY_STATUSES, required: true },
@@ -66,6 +67,17 @@ const ELDLogSchema = new mongoose.Schema({
 
   violations: [ViolationSchema],
 
+  // Every correction to an entry is kept: what it was, what it became, who changed it and why.
+  edits: [{
+    _id: false,
+    eventId: mongoose.Schema.Types.ObjectId,
+    at: { type: Date, default: Date.now },
+    by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    from: { status: String, startTime: Date },
+    to: { status: String, startTime: Date },
+    note: String,
+  }],
+
   certified: { type: Boolean, default: false },
   certifiedAt: Date,
 
@@ -78,3 +90,4 @@ ELDLogSchema.index({ carrier: 1, date: -1 }, { unique: true });
 ELDLogSchema.index({ companyId: 1, date: -1 });
 
 module.exports = mongoose.model('ELDLog', ELDLogSchema);
+module.exports.DUTY_STATUSES = DUTY_STATUSES;

@@ -3,6 +3,10 @@ const {
   computeRemaining,
   checkViolations,
   computeShiftStatus,
+  computeClock,
+  dailySummaries,
+  dayStart,
+  dateIn,
   checkCycleViolation,
   mergeViolations,
 } = require('../services/hosRules');
@@ -187,5 +191,86 @@ describe('hosRules.computeRemaining', () => {
     const r = computeRemaining(totals);
     expect(r.driveMinutes).toBe(0);       // 660 - 700 floored at 0
     expect(r.onDutyMinutes).toBe(0);      // 840 - 900 floored at 0
+  });
+});
+
+describe('hosRules.computeClock: split sleeper, cycle, restart, special statuses', () => {
+  const H = 60;
+  test('split sleeper: 7h in the sleeper pairs with an earlier 3h rest; clocks run from the end of the first', () => {
+    const events = [
+      tev('DRIVING', 0, 5 * H),              // 5h driving
+      tev('OFF_DUTY', 5 * H, 8 * H),         // 3h rest (first of the pair)
+      tev('DRIVING', 8 * H, 12 * H),         // 4h driving
+      tev('SLEEPER_BERTH', 12 * H, 19 * H),  // 7h sleeper (second of the pair)
+      tev('DRIVING', 19 * H, 20 * H),        // 1h driving
+    ];
+    const c = computeClock(events, at(20 * H));
+    expect(c.splitSleeper).toBe(true);
+    expect(c.driveMinutesUsed).toBe(5 * H);        // 4h + 1h since the first rest ended; the first 5h dropped off
+    expect(c.windowElapsedMinutes).toBe(5 * H);    // 12h since hour 8, less the 7h in the sleeper
+  });
+
+  test('two short rests with no 7h sleeper do not pair', () => {
+    const events = [
+      tev('DRIVING', 0, 5 * H), tev('OFF_DUTY', 5 * H, 8 * H), tev('DRIVING', 8 * H, 12 * H),
+      tev('OFF_DUTY', 12 * H, 19 * H), tev('DRIVING', 19 * H, 20 * H),
+    ];
+    const c = computeClock(events, at(20 * H));
+    expect(c.splitSleeper).toBe(false);
+    expect(c.driveMinutesUsed).toBe(10 * H);
+    expect(c.windowElapsedMinutes).toBe(20 * H);
+  });
+
+  test('a status left running past midnight keeps counting (no open-ended loss)', () => {
+    const c = computeClock([{ status: 'DRIVING', startTime: at(0) }], at(3 * H));
+    expect(c.driveMinutesUsed).toBe(3 * H);
+    expect(c.currentStatus).toBe('DRIVING');
+  });
+
+  test('personal conveyance is rest; a yard move is on duty but not driving', () => {
+    const events = [
+      tev('YARD_MOVE', 0, 1 * H),
+      tev('DRIVING', 1 * H, 3 * H),
+      { status: 'PERSONAL_CONVEYANCE', startTime: at(3 * H) },
+    ];
+    const c = computeClock(events, at(13 * H));
+    expect(c.onShift).toBe(false);            // 10h of personal conveyance is a full rest
+    expect(c.driveRemaining).toBe(660);
+    expect(c.cycleUsedMinutes).toBe(3 * H);   // yard move + driving
+  });
+
+  test('cycle: 60h/7 days is stricter than 70h/8, and 34h of rest restarts it', () => {
+    const events = [];
+    for (let d = 0; d < 5; d++) {             // five 13-hour days = 65h on duty
+      events.push(tev('ON_DUTY_NOT_DRIVING', d * 24 * H, d * 24 * H + 13 * H));
+      events.push(tev('OFF_DUTY', d * 24 * H + 13 * H, (d + 1) * 24 * H));
+    }
+    const now = at(5 * 24 * H);
+    expect(computeClock(events, now, { cycle: '70_8' }).cycleRemaining).toBe(5 * H);
+    const strict = computeClock(events, now, { cycle: '60_7' });
+    expect(strict.cycleRemaining).toBe(0);
+    expect(strict.driveableMinutes).toBe(0);
+    expect(strict.violations.find((v) => v.type === '60_HOUR')?.severity).toBe('violation');
+
+    delete events[events.length - 1].endTime; // still off duty
+    const rested = computeClock(events, at(4 * 24 * H + 13 * H + 34 * H), { cycle: '60_7' });
+    expect(rested.cycleUsedMinutes).toBe(0);
+    expect(rested.cycleRestartAt).not.toBeNull();
+  });
+});
+
+describe('hosRules.dailySummaries: days follow the home time zone', () => {
+  test('a drive across local midnight is split between the two days', () => {
+    // 22:00 to 02:00 Central (CDT, UTC-5) on 10/11 March 2026 -> 03:00Z to 07:00Z on the 11th.
+    const events = [{ status: 'DRIVING', startTime: new Date('2026-03-11T03:00:00Z'), endTime: new Date('2026-03-11T07:00:00Z') }];
+    const d = dailySummaries(events, 'America/Chicago', ['2026-03-10', '2026-03-11'], new Date('2026-03-12T12:00:00Z'));
+    expect(d['2026-03-10'].totals.drivingMinutes).toBe(120);
+    expect(d['2026-03-11'].totals.drivingMinutes).toBe(120);
+    expect(d['2026-03-11'].totals.offDutyMinutes).toBe(0); // time nobody logged is not invented
+  });
+  test('dayStart and dateIn agree across a daylight-saving change', () => {
+    expect(new Date(dayStart('2026-03-08', 'America/Chicago')).toISOString()).toBe('2026-03-08T06:00:00.000Z'); // CST
+    expect(new Date(dayStart('2026-03-09', 'America/Chicago')).toISOString()).toBe('2026-03-09T05:00:00.000Z'); // CDT
+    expect(dateIn(Date.parse('2026-03-09T04:59:00Z'), 'America/Chicago')).toBe('2026-03-08');
   });
 });

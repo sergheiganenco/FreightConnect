@@ -36,6 +36,8 @@ import {
   Grid,
   Tooltip,
   IconButton,
+  MenuItem,
+  Stack,
 } from '@mui/material';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import HotelIcon from '@mui/icons-material/Hotel';
@@ -46,6 +48,10 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorIcon from '@mui/icons-material/Error';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TimerIcon from '@mui/icons-material/Timer';
+import CommuteIcon from '@mui/icons-material/Commute';
+import WarehouseIcon from '@mui/icons-material/Warehouse';
+import DownloadIcon from '@mui/icons-material/Download';
+import EditIcon from '@mui/icons-material/Edit';
 import { semantic, brand, surface } from '../../theme/tokens';
 
 // Normalize to origin so `${API}/api/...` never doubles `/api`
@@ -57,7 +63,18 @@ const STATUSES = [
   { key: 'SLEEPER_BERTH',       label: 'Sleeper Berth',     short: 'SB',   color: '#a78bfa', icon: <NightShelterIcon /> },
   { key: 'DRIVING',             label: 'Driving',           short: 'D',    color: semantic.success, icon: <DirectionsCarIcon /> },
   { key: 'ON_DUTY_NOT_DRIVING', label: 'On Duty (Not Drv)', short: 'ON',   color: semantic.warning, icon: <WorkIcon /> },
+  // Personal conveyance counts as off duty and a yard move as on duty; both need a reason.
+  { key: 'PERSONAL_CONVEYANCE', label: 'Personal Use',      short: 'PC',   color: '#38bdf8', icon: <CommuteIcon />, needsNote: true },
+  { key: 'YARD_MOVE',           label: 'Yard Move',         short: 'YM',   color: '#fb923c', icon: <WarehouseIcon />, needsNote: true },
 ];
+
+const TIME_ZONES = [
+  ['America/New_York', 'Eastern'], ['America/Chicago', 'Central'], ['America/Denver', 'Mountain'],
+  ['America/Phoenix', 'Arizona'], ['America/Los_Angeles', 'Pacific'], ['America/Anchorage', 'Alaska'], ['Pacific/Honolulu', 'Hawaii'],
+];
+const fieldSx = { input: { color: '#fff' }, label: { color: semantic.muted }, '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' }, color: '#fff' }, '& .MuiSvgIcon-root': { color: semantic.muted } };
+// <input type="datetime-local"> wants local wall time without a zone.
+const toLocalInput = (d) => { const t = new Date(d); return new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 
 function statusMeta(key) {
   return STATUSES.find(s => s.key === key) || STATUSES[0];
@@ -244,6 +261,12 @@ export default function CarrierELD() {
   const [statusNote, setStatusNote] = useState('');
   const [statusOdometer, setStatusOdometer] = useState('');
 
+  // Correcting an entry, the company settings, the printable record
+  const [editing, setEditing] = useState(null); // { _id, status, startTime, note }
+  const [settings, setSettings] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const isManager = (localStorage.getItem('companyRole') || 'owner') !== 'driver';
+
   // Certify dialog
   const [certifyLoading, setCertifyLoading] = useState(false);
 
@@ -258,6 +281,7 @@ export default function CarrierELD() {
       ]);
       const [t, s, l] = await Promise.all([todayRes.json(), summaryRes.json(), logsRes.json()]);
       setToday(t);
+      setSettings((cur) => cur || t.settings || null);
       setSummary(s);
       setLogs(Array.isArray(l) ? l : []);
       setError('');
@@ -324,6 +348,55 @@ export default function CarrierELD() {
     }
   };
 
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/api/eld/events/${editing._id}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: editing.status, startTime: new Date(editing.startTime).toISOString(), note: editing.note }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Could not correct the entry'); return; }
+      setEditing(null);
+      await fetchAll();
+    } catch {
+      setError('Could not correct the entry');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveSettings = async (next) => {
+    setSettings(next);
+    try {
+      const res = await fetch(`${API}/api/eld/settings`, {
+        method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(next),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Could not save the settings'); return; }
+      await fetchAll();
+    } catch {
+      setError('Could not save the settings');
+    }
+  };
+
+  const downloadRecord = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/api/eld/record/pdf`, { headers });
+      if (!res.ok) { setError('Could not build the record'); return; }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = 'duty-status-record.pdf'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch {
+      setError('Could not build the record');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
@@ -333,10 +406,16 @@ export default function CarrierELD() {
   }
 
   const currentMeta   = statusMeta(today?.currentStatus);
-  const driveUsed     = today ? (today.totals?.drivingMinutes || 0) : 0;
-  const onDutyUsed    = today ? ((today.totals?.drivingMinutes || 0) + (today.totals?.onDutyNotDrivingMinutes || 0)) : 0;
-  const cycleUsedMins = summary ? Math.round((summary.usedOnDutyHours || 0) * 60) : 0;
-  const todayDate     = new Date().toISOString().slice(0, 10);
+  // The gauges follow the current shift and the weekly cycle, not the calendar day.
+  const clock         = today?.clock || {};
+  const driveUsed     = clock.driveMinutesUsed || 0;
+  const onDutyUsed    = clock.windowElapsedMinutes || 0;
+  const cycleUsedMins = clock.cycleUsedMinutes || 0;
+  const cycleHours    = clock.cycleHours || 70;
+  const cycleDays     = clock.cycleDays || 8;
+  const todayDate     = today?.date || new Date().toISOString().slice(0, 10);
+  const entries       = logs.flatMap((l) => (l.events || []).map((e) => ({ ...e, date: l.date })))
+    .sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
 
   return (
     <Box>
@@ -346,15 +425,19 @@ export default function CarrierELD() {
         <Typography variant="h5" fontWeight={700} sx={{ color: '#fff' }}>
           HOS Advisor
         </Typography>
-        <IconButton onClick={fetchAll} size="small" sx={{ ml: 'auto', color: semantic.muted }}>
+        <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={downloadRecord} disabled={busy}
+          sx={{ ml: 'auto', borderColor: surface.glassBorder, color: '#e5e7eb' }}>
+          8-day record
+        </Button>
+        <IconButton onClick={fetchAll} size="small" aria-label="Refresh" sx={{ color: semantic.muted }}>
           <RefreshIcon />
         </IconButton>
       </Box>
 
       <Alert severity="info" sx={{ mb: 2 }}>
         This is an advisory Hours-of-Service planner, <strong>not an FMCSA-registered ELD</strong>.
-        Clocks are shift-based (they reset after 10&nbsp;hours off duty, and the 14-hour window is
-        elapsed time), but this tool does not satisfy the 49&nbsp;CFR&nbsp;395.8 records-of-duty-status
+        It follows the federal rules (11 and 14 hours, the 30-minute break, split sleeper, the weekly
+        limit and the 34-hour restart) from what you enter here, but this tool does not satisfy the 49&nbsp;CFR&nbsp;395.8 records-of-duty-status
         requirement — keep using your registered ELD as your legal log of record.
       </Alert>
 
@@ -377,6 +460,7 @@ export default function CarrierELD() {
                 Active for {fmtMinutes(today.liveActiveMinutes)}
               </Typography>
             )}
+            {clock.splitSleeper && <Chip size="small" label="Split sleeper in use" sx={{ bgcolor: '#a78bfa', color: '#0f172a', fontWeight: 700 }} />}
           </Box>
 
           <Typography variant="body2" sx={{ color: semantic.muted, mb: 1.5 }}>Change Status:</Typography>
@@ -414,9 +498,9 @@ export default function CarrierELD() {
         </Grid>
         <Grid item xs={12} sm={4}>
           <HosGauge
-            label="Cycle (70h / 8-day)"
+            label={`Cycle (${cycleHours}h / ${cycleDays}-day)`}
             used={cycleUsedMins}
-            total={4200}
+            total={cycleHours * 60}
             color={brand.indigo}
           />
         </Grid>
@@ -468,7 +552,7 @@ export default function CarrierELD() {
             <Grid item xs={6} sm={3}>
               <Typography variant="caption" sx={{ color: semantic.muted }}>Cycle Used</Typography>
               <Typography variant="body1" sx={{ color: '#e5e7eb', fontWeight: 700 }}>
-                {summary ? `${summary.usedOnDutyHours}h / 70h` : '--'}
+                {summary ? `${summary.usedOnDutyHours}h / ${cycleHours}h` : '--'}
               </Typography>
             </Grid>
           </Grid>
@@ -482,8 +566,72 @@ export default function CarrierELD() {
             Today's Timeline
           </Typography>
           <Timeline events={today?.events || []} liveActiveMinutes={today?.liveActiveMinutes} />
+          {today?.carriedOver && (
+            <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', mt: 1 }}>
+              {statusMeta(today.carriedOver.status).label} since {new Date(today.carriedOver.startTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} (started on an earlier day).
+            </Typography>
+          )}
         </CardContent>
       </Card>
+
+      {/* Entries, with corrections */}
+      <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassHover}`, borderRadius: 3, mb: 3 }}>
+        <CardContent>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 0.5 }}>
+            Entries (last 8 days)
+          </Typography>
+          <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', mb: 1.5 }}>
+            Picked the wrong status or time? Correct it and say why. The original stays on the record.
+          </Typography>
+          {entries.length === 0 && <Typography variant="body2" sx={{ color: semantic.muted }}>No entries yet.</Typography>}
+          <Stack spacing={0.5} sx={{ maxHeight: 320, overflowY: 'auto' }}>
+            {entries.map((e) => (
+              <Box key={e._id} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5, borderBottom: `1px solid ${surface.glass}` }}>
+                <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: statusMeta(e.status).color, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="body2" sx={{ color: '#e5e7eb', fontWeight: 600 }}>
+                    {statusMeta(e.status).label}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', wordBreak: 'break-word' }}>
+                    {new Date(e.startTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}{e.notes ? ` · ${e.notes}` : ''}
+                  </Typography>
+                </Box>
+                <IconButton size="small" aria-label="Correct this entry" sx={{ color: semantic.muted }}
+                  onClick={() => setEditing({ _id: e._id, status: e.status, startTime: toLocalInput(e.startTime), note: '' })}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            ))}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Company settings */}
+      {settings && (
+        <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassHover}`, borderRadius: 3, mb: 3 }}>
+          <CardContent>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 1.5 }}>
+              Company hours settings
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField select size="small" label="Weekly limit" value={settings.cycle} disabled={!isManager} fullWidth sx={fieldSx}
+                onChange={(e) => saveSettings({ ...settings, cycle: e.target.value })}>
+                <MenuItem value="70_8">70 hours in 8 days (runs every day)</MenuItem>
+                <MenuItem value="60_7">60 hours in 7 days</MenuItem>
+              </TextField>
+              <TextField select size="small" label="Home time zone" value={settings.timeZone} disabled={!isManager} fullWidth sx={fieldSx}
+                onChange={(e) => saveSettings({ ...settings, timeZone: e.target.value })}>
+                {TIME_ZONES.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
+                {!TIME_ZONES.some(([v]) => v === settings.timeZone) && <MenuItem value={settings.timeZone}>{settings.timeZone}</MenuItem>}
+              </TextField>
+            </Stack>
+            <Typography variant="caption" sx={{ color: semantic.muted, display: 'block', mt: 1 }}>
+              A log day starts at midnight in the home time zone.{!isManager ? ' Only the owner or a dispatcher can change these.' : ''}
+              {clock.cycleRestartAt ? ` Weekly hours restarted after 34 hours of rest on ${new Date(clock.cycleRestartAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : ''}
+            </Typography>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Violations */}
       {today?.violations?.length > 0 && (
@@ -675,24 +823,24 @@ export default function CarrierELD() {
         <Card sx={{ bgcolor: surface.indigoTint, border: `1.5px solid ${surface.glassHover}`, borderRadius: 3, mt: 3 }}>
           <CardContent>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#e5e7eb', mb: 1.5 }}>
-              70-Hour Cycle Detail (last 8 days)
+              {cycleHours}-Hour Cycle Detail (last {cycleDays} days)
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
               <Typography variant="body2" sx={{ color: semantic.muted, minWidth: 120 }}>On-Duty Used:</Typography>
               <LinearProgress
                 variant="determinate"
-                value={pct(summary.usedOnDutyHours * 60, 4200)}
+                value={pct(summary.usedOnDutyHours * 60, cycleHours * 60)}
                 sx={{ flex: 1, height: 10, borderRadius: 5, bgcolor: surface.glassBorder, '& .MuiLinearProgress-bar': { bgcolor: brand.indigo } }}
               />
               <Typography variant="body2" sx={{ color: '#818cf8', fontWeight: 700, minWidth: 60 }}>
-                {summary.usedOnDutyHours}h / 70h
+                {summary.usedOnDutyHours}h / {cycleHours}h
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Typography variant="body2" sx={{ color: semantic.muted, minWidth: 120 }}>Drive Used:</Typography>
               <LinearProgress
                 variant="determinate"
-                value={pct(summary.usedDriveHours * 60, 4200)}
+                value={pct(summary.usedDriveHours * 60, cycleHours * 60)}
                 sx={{ flex: 1, height: 10, borderRadius: 5, bgcolor: surface.glassBorder, '& .MuiLinearProgress-bar': { bgcolor: semantic.success } }}
               />
               <Typography variant="body2" sx={{ color: semantic.success, fontWeight: 700, minWidth: 60 }}>
@@ -730,7 +878,8 @@ export default function CarrierELD() {
             InputProps={{ endAdornment: <Typography variant="caption" sx={{ color: semantic.muted }}>mi</Typography> }}
           />
           <TextField
-            label="Notes (optional)"
+            label={statusMeta(pendingStatus).needsNote ? 'Reason (required)' : 'Notes (optional)'}
+            required={!!statusMeta(pendingStatus).needsNote}
             fullWidth
             size="small"
             multiline
@@ -745,10 +894,39 @@ export default function CarrierELD() {
           <Button
             variant="contained"
             onClick={submitStatus}
-            disabled={statusLoading}
+            disabled={statusLoading || (!!statusMeta(pendingStatus).needsNote && !statusNote.trim())}
             sx={{ bgcolor: statusMeta(pendingStatus).color, color: '#0f172a', '&:hover': { bgcolor: statusMeta(pendingStatus).color, opacity: 0.85 } }}
           >
             {statusLoading ? <CircularProgress size={20} /> : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Correct an entry */}
+      <Dialog open={!!editing} onClose={() => setEditing(null)} fullWidth maxWidth="xs"
+        PaperProps={{ sx: { bgcolor: '#1e1b4b', color: '#fff', borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>Correct this entry</DialogTitle>
+        {editing && (
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField select size="small" label="Status" value={editing.status} sx={fieldSx}
+                onChange={(e) => setEditing({ ...editing, status: e.target.value })}>
+                {STATUSES.map((s) => <MenuItem key={s.key} value={s.key}>{s.label}</MenuItem>)}
+              </TextField>
+              <TextField size="small" type="datetime-local" label="Started at" value={editing.startTime} sx={fieldSx}
+                InputLabelProps={{ shrink: true }} onChange={(e) => setEditing({ ...editing, startTime: e.target.value })} />
+              <TextField size="small" label="Why are you correcting it? (required)" value={editing.note} multiline rows={2} sx={fieldSx}
+                onChange={(e) => setEditing({ ...editing, note: e.target.value })} />
+              <Typography variant="caption" sx={{ color: semantic.muted }}>
+                A corrected day has to be certified again.
+              </Typography>
+            </Stack>
+          </DialogContent>
+        )}
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEditing(null)} sx={{ color: semantic.muted }}>Cancel</Button>
+          <Button variant="contained" onClick={saveEdit} disabled={busy || !editing || editing.note.trim().length < 4 || !editing.startTime}>
+            Save correction
           </Button>
         </DialogActions>
       </Dialog>

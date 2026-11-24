@@ -470,3 +470,84 @@ exports.generateRateConfirmation = async (load, carrier, shipper) => {
     stream.on('error', reject);
   });
 };
+
+// ── Driver's record of duty status (last 8 days) ─────────────────────────────
+// Streams straight to the response: the record is rebuilt from the log every time, never stored.
+const HOS_ROWS = ['OFF_DUTY', 'SLEEPER_BERTH', 'DRIVING', 'ON_DUTY_NOT_DRIVING'];
+const HOS_ROW_OF = { PERSONAL_CONVEYANCE: 0, OFF_DUTY: 0, SLEEPER_BERTH: 1, DRIVING: 2, ON_DUTY_NOT_DRIVING: 3, YARD_MOVE: 3 };
+const HOS_LABEL = {
+  OFF_DUTY: 'Off duty', SLEEPER_BERTH: 'Sleeper berth', DRIVING: 'Driving', ON_DUTY_NOT_DRIVING: 'On duty (not driving)',
+  PERSONAL_CONVEYANCE: 'Personal conveyance (off duty)', YARD_MOVE: 'Yard move (on duty)',
+};
+const hhmm = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+const latin = (v) => String(v == null ? '' : v).replace(/[^\x00-\xFF]/g, '?');
+
+exports.streamHosRecord = (record, res) => {
+  const tz = record.settings.timeZone;
+  const clockTime = (d) => new Date(d).toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+  const doc = new PDFDocument({ size: 'LETTER', margins: { top: 100, bottom: 60, left: 50, right: 50 } });
+  doc.pipe(res);
+  addHeader(doc, 'RECORD OF DUTY STATUS', `${record.days.length} days to ${record.days[0].date}`);
+
+  let y = 110;
+  y = infoRow(doc, 'Driver', record.driver.name, y);
+  y = infoRow(doc, 'Carrier', record.carrier.name || 'N/A', y);
+  y = infoRow(doc, 'USDOT number', record.carrier.dotNumber || 'N/A', y);
+  y = infoRow(doc, 'Home time zone', tz, y);
+  y = infoRow(doc, 'Weekly limit', `${record.clock.cycleHours} hours in ${record.clock.cycleDays} days`, y);
+  y = infoRow(doc, 'Hours left now', `Driving ${hhmm(record.clock.driveRemaining)}, 14-hour window ${hhmm(record.clock.windowRemaining)}, weekly ${hhmm(record.clock.cycleRemaining)}`, y);
+  y = infoRow(doc, 'Source', 'Entries made by the driver in the FreightConnect app. This is not the record of a registered electronic logging device.', y);
+  y += 6;
+
+  const X0 = 150; const W = 360; const RH = 13; const DAY = 24 * 3600000;
+  for (const day of record.days) {
+    const need = 30 + RH * 4 + 24 + 11 * (day.events.length + day.edits.length);
+    if (y + Math.min(need, 300) > doc.page.height - 70) { doc.addPage(); y = 60; }
+    const title = new Date(`${day.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+    y = sectionTitle(doc, `${title}   ${day.certified ? 'Certified by the driver' : (day.events.length || day.segments.length ? 'NOT certified' : '')}`, y);
+
+    // The grid: four duty lines across 24 hours, with the time spent on each at the right.
+    const t = day.totals;
+    const totals = [t.offDutyMinutes, t.sleeperMinutes, t.drivingMinutes, t.onDutyNotDrivingMinutes];
+    doc.lineWidth(0.4).strokeColor('#94a3b8');
+    for (let r = 0; r <= 4; r++) doc.moveTo(X0, y + r * RH).lineTo(X0 + W, y + r * RH).stroke();
+    for (let hgt = 0; hgt <= 24; hgt++) doc.moveTo(X0 + (hgt * W) / 24, y).lineTo(X0 + (hgt * W) / 24, y + 4 * RH).stroke();
+    doc.fontSize(7).fillColor('#64748b').font('Helvetica');
+    for (let hgt = 0; hgt <= 24; hgt += 2) doc.text(String(hgt % 24), X0 + (hgt * W) / 24 - 6, y + 4 * RH + 2, { width: 12, align: 'center', lineBreak: false });
+    doc.fontSize(8).fillColor('#1e293b');
+    HOS_ROWS.forEach((s, r) => {
+      doc.font('Helvetica').text(HOS_LABEL[s], 50, y + r * RH + 3, { width: 96, lineBreak: false });
+      doc.font('Helvetica-Bold').text(hhmm(totals[r]), X0 + W + 8, y + r * RH + 3, { lineBreak: false });
+    });
+    const dayFrom = +new Date(day.from);
+    doc.lineWidth(1.6).strokeColor('#1e1040');
+    let prevY = null;
+    for (const seg of day.segments) {
+      const xa = X0 + Math.max(0, Math.min(1, (+new Date(seg.start) - dayFrom) / DAY)) * W;
+      const xb = X0 + Math.max(0, Math.min(1, (+new Date(seg.end) - dayFrom) / DAY)) * W;
+      const ry = y + HOS_ROW_OF[seg.status] * RH + RH / 2;
+      if (prevY !== null && prevY !== ry) doc.moveTo(xa, prevY).lineTo(xa, ry).stroke();
+      doc.moveTo(xa, ry).lineTo(xb, ry).stroke();
+      prevY = ry;
+    }
+    y += 4 * RH + 16;
+
+    doc.fontSize(8).fillColor('#1e293b').font('Helvetica');
+    const line = (text) => {
+      if (y > doc.page.height - 70) { doc.addPage(); y = 60; }
+      doc.text(latin(text), 50, y, { width: 512 });
+      y += Math.ceil(doc.heightOfString(latin(text), { width: 512 })) + 2;
+    };
+    if (!day.events.length) line(day.segments.length ? 'No change of status on this day.' : 'No entries.');
+    for (const e of day.events) {
+      line([clockTime(e.startTime), HOS_LABEL[e.status] || e.status, e.location, e.notes].filter(Boolean).join('   '));
+    }
+    for (const c of day.edits) {
+      line(`Corrected ${fmtDateTime(c.at)}: ${HOS_LABEL[c.from.status] || c.from.status} at ${clockTime(c.from.startTime)} became ${HOS_LABEL[c.to.status] || c.to.status} at ${clockTime(c.to.startTime)}. Reason: ${c.note}`);
+    }
+    for (const v of day.violations.filter((x) => x.severity === 'violation')) line(`Limit reached: ${v.message}`);
+    y += 8;
+  }
+  addFooter(doc);
+  doc.end();
+};

@@ -2341,6 +2341,18 @@ router.post('/voice-command', auth, async (req, res) => {
         });
       }
 
+      // Hours of service: a driver who cannot legally drive before pickup is not assigned.
+      let hosWarning = null;
+      {
+        const { loginForDriver } = require('../services/driverLink');
+        const hosService = require('../services/hosService');
+        const loginId = (await loginForDriver(companyId, driver)) || (carrier.drivers.length === 1 ? companyId : null);
+        const hos = loginId ? await hosService.driverHos(loginId, await hosService.settingsFor(companyId)) : null;
+        const check = hosService.hoursCheck(hos, load.pickupTimeWindow?.end || load.pickupTimeWindow?.start);
+        if (!check.ok) return res.status(409).json({ error: check.message, code: 'driver_out_of_hours', readyAt: check.readyAt });
+        hosWarning = check.warning || null;
+      }
+
       const previousDriverId = load.assignedDriverId;
       load.assignedDriverId = driver.driverId;
       load.assignedDriverName = driver.name;
@@ -2370,7 +2382,7 @@ router.post('/voice-command', auth, async (req, res) => {
         });
       } catch (_) {}
 
-      res.json({ message: 'Driver assigned', load });
+      res.json({ message: 'Driver assigned', load, hosWarning });
     } catch (err) {
       console.error('Error assigning driver:', err);
       res.status(500).json({ error: 'Server error' });

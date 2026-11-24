@@ -63,6 +63,12 @@ const UserSchema = new mongoose.Schema({
   // sub-account's parentAccountId points at its owner; owners have it null.
   companyRole: { type: String, enum: ['owner', 'dispatcher', 'driver'], default: 'owner' },
   parentAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+  // Hours of service (carrier company owner): which weekly limit the company runs under and the
+  // home terminal time zone that decides where a log day starts.
+  hosSettings: {
+    cycle: { type: String, enum: ['70_8', '60_7'], default: '70_8' },
+    timeZone: { type: String, default: 'America/Chicago' },
+  },
   // Deactivated accounts cannot log in (used to disable a dispatcher/driver).
   active: { type: Boolean, default: true },
 

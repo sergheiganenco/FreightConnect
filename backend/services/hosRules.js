@@ -2,11 +2,8 @@
  * hosRules.js — pure Hours-of-Service calculations (49 CFR Part 395).
  *
  * Extracted from eldRoutes so the rule logic is unit-testable in isolation.
- * This is an ADVISORY calculator, not a registered ELD. Known limitation: it
- * still buckets by calendar day rather than by a driver's 10-hour-off shift, so
- * the 11h/14h windows reset at day boundaries; correcting that needs a shift
- * model. What these functions DO get right: the driving/on-duty/break/cycle
- * thresholds, warning-vs-violation severities, and the 70h/8-day cycle.
+ * This is an ADVISORY calculator, not a registered ELD. The live clock (computeClock) works on
+ * one continuous timeline of duty statuses, so shifts, rest and the cycle are not cut at midnight.
  *
  * All limits are in minutes to avoid float drift.
  */
@@ -86,110 +83,205 @@ function checkViolations(totals, events) {
   return violations;
 }
 
-/**
- * 70-hour / 8-day rolling cycle check.
- * @param {number} cycleOnDutyMinutes - total on-duty minutes across the last 8 days
- */
-const REST_RESET_MIN = 600; // 10 consecutive hours off duty ends a shift
+const MIN = 60000;
+const HOUR = 60 * MIN;
+const REST_STATUSES = new Set(['OFF_DUTY', 'SLEEPER_BERTH', 'PERSONAL_CONVEYANCE']);
+const isRest = (s) => REST_STATUSES.has(s);
+const CYCLES = { '70_8': { hours: 70, days: 8 }, '60_7': { hours: 60, days: 7 } };
+
+// ── Time zone helpers (a log day is the home terminal's day, not the server's) ──
+function tzOffsetMs(t, tz) {
+  const p = {};
+  for (const x of new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(t))) p[x.type] = Number(x.value);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(t / 1000) * 1000;
+}
+/** The instant (ms) a YYYY-MM-DD day starts in `tz`. */
+function dayStart(dateStr, tz = 'UTC') {
+  const guess = Date.parse(`${dateStr}T00:00:00Z`);
+  return guess - tzOffsetMs(guess - tzOffsetMs(guess, tz), tz); // second pass settles daylight-saving edges
+}
+/** YYYY-MM-DD of an instant in `tz`. */
+function dateIn(t, tz = 'UTC') {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t));
+}
+function addDays(dateStr, n) {
+  return new Date(Date.parse(`${dateStr}T00:00:00Z`) + n * 24 * HOUR).toISOString().slice(0, 10);
+}
+function validTimeZone(tz) {
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return typeof tz === 'string' && tz.length > 0; } catch (_) { return false; }
+}
 
 /**
- * Shift-accurate HOS computation (the correct model, replacing calendar-day buckets).
- *
- * A shift begins when a driver comes on duty after 10+ consecutive hours off duty
- * (off-duty or sleeper). Within that shift:
- *   - 11-hour driving limit: total DRIVING minutes in the shift (660).
- *   - 14-hour window: ELAPSED time since the shift started (840) — NOT paused by
- *     short breaks; this is the key fix over the old sum-of-on-duty approach.
- *   - 30-minute break: driving accrued since the last 30-min non-driving interruption.
- *
- * @param {Array} events - chronological duty events: { status, startTime, endTime? }.
- *                         An open (endTime-less) event is treated as running until `now`.
- * @param {Date}  now
- * @returns {{ onShift, shiftStart, driveMinutesUsed, driveRemaining,
- *             windowElapsedMinutes, windowRemaining, breakDriveMinutes, violations }}
+ * One continuous, chronological list of duty segments { status, start, end } (ms).
+ * A status runs until the next one starts (or its own end, or now). Time nobody logged
+ * between two entries is treated as off duty.
  */
-function computeShiftStatus(events, now = new Date()) {
-  const nowT = new Date(now);
+function timeline(events, now = new Date()) {
+  const nowMs = +new Date(now);
   const evs = (events || [])
     .filter((e) => e && e.startTime)
-    .map((e) => ({
-      status: e.status,
-      start: new Date(e.startTime),
-      end: e.endTime ? new Date(e.endTime) : nowT,
-    }))
-    .filter((e) => e.end >= e.start)
+    .map((e) => ({ status: e.status, start: +new Date(e.startTime), end: e.endTime ? +new Date(e.endTime) : nowMs }))
+    .filter((e) => e.start <= nowMs)
     .sort((a, b) => a.start - b.start);
+  const out = [];
+  evs.forEach((e, i) => {
+    const end = Math.min(e.end, i + 1 < evs.length ? evs[i + 1].start : nowMs, nowMs);
+    const last = out[out.length - 1];
+    if (last && e.start > last.end) out.push({ status: 'OFF_DUTY', start: last.end, end: e.start });
+    if (end > e.start || i === evs.length - 1) out.push({ status: e.status, start: e.start, end: Math.max(end, e.start) }); // the newest entry counts even at zero length
+  });
+  return out;
+}
 
-  const empty = {
-    onShift: false, shiftStart: null,
-    driveMinutesUsed: 0, driveRemaining: LIMITS.DRIVING_MIN,
-    windowElapsedMinutes: 0, windowRemaining: LIMITS.ONDUTY_MIN,
-    breakDriveMinutes: 0, violations: [],
-  };
-  if (evs.length === 0) return empty;
+/**
+ * The driver's live clock (49 CFR 395.3, property-carrying).
+ *
+ *   - A shift starts after 10 consecutive hours of rest (off duty, sleeper, personal conveyance).
+ *   - 11 hours of driving per shift; no driving after the 14th hour since the shift started.
+ *   - Split sleeper (395.1(g)): one rest of 7+ hours in the sleeper paired with another rest of 2+ hours,
+ *     10+ hours together. The clocks then run from the end of the first of the pair, and the second
+ *     does not count against the 14 hours.
+ *   - 30-minute break after 8 hours of driving without a 30-minute interruption.
+ *   - Cycle: 70 hours in 8 days or 60 in 7 (company setting), counted over calendar days in the home
+ *     time zone; 34 consecutive hours of rest restarts it.
+ *
+ * @param {Array} events { status, startTime, endTime? }
+ * @param {Date}  now
+ * @param {{cycle?: '70_8'|'60_7', tz?: string}} opts
+ */
+function computeClock(events, now = new Date(), opts = {}) {
+  const nowMs = +new Date(now);
+  const tz = opts.tz || 'UTC';
+  const cyc = CYCLES[opts.cycle] || CYCLES['70_8'];
+  const cycleLimit = cyc.hours * 60;
+  const segs = timeline(events, nowMs);
 
-  // Find the current shift start: the on-duty event that follows the most recent
-  // 10h+ continuous rest (or the first on-duty event if there was no prior reset).
-  let shiftStart = null;
-  let restAccum = 0;
-  for (const e of evs) {
-    const dur = Math.round((e.end - e.start) / 60000);
-    const isRest = e.status === 'OFF_DUTY' || e.status === 'SLEEPER_BERTH';
-    const isOnDuty = e.status === 'DRIVING' || e.status === 'ON_DUTY_NOT_DRIVING';
-    if (isRest) {
-      restAccum += dur;
-    } else if (isOnDuty) {
-      if (shiftStart === null || restAccum >= REST_RESET_MIN) shiftStart = e.start;
-      restAccum = 0;
+  // Runs of consecutive rest, with the longest unbroken sleeper stretch inside each.
+  const blocks = [];
+  for (const s of segs) {
+    if (!isRest(s.status)) continue;
+    let b = blocks[blocks.length - 1];
+    if (!b || b.end !== s.start) { b = { start: s.start, end: s.start, sleeper: 0, run: 0 }; blocks.push(b); }
+    b.end = s.end;
+    b.run = s.status === 'SLEEPER_BERTH' ? b.run + (s.end - s.start) : 0;
+    b.sleeper = Math.max(b.sleeper, b.run);
+  }
+
+  // Where the 11/14-hour clocks count from.
+  let anchor = null; let excluded = null; let prev = null; let restartAt = null; let split = false;
+  for (const b of blocks) {
+    const len = b.end - b.start;
+    if (len >= 34 * HOUR) restartAt = b.end;
+    if (len >= 10 * HOUR) { anchor = b.end; excluded = null; prev = null; split = false; continue; }
+    if (len < 2 * HOUR) continue;
+    // ponytail: pairs a rest only with the qualifying rest just before it; a planner that searches every legal pairing is more than an advisory clock needs.
+    if (prev && (prev.end - prev.start) + len >= 10 * HOUR && (prev.sleeper >= 7 * HOUR || b.sleeper >= 7 * HOUR)) {
+      anchor = prev.end; excluded = b; split = true;
+    }
+    prev = b;
+  }
+  if (anchor === null) {
+    const first = segs.find((s) => !isRest(s.status));
+    anchor = first ? first.start : nowMs;
+  }
+
+  let drive = 0; let sinceBreak = 0; let nonDriving = 0; let worked = false;
+  for (const s of segs) {
+    if (s.end <= anchor) continue;
+    const dur = s.end - Math.max(s.start, anchor);
+    if (s.status === 'DRIVING') { drive += dur; sinceBreak += dur; nonDriving = 0; worked = true; }
+    else {
+      nonDriving += dur;
+      if (nonDriving >= 30 * MIN) sinceBreak = 0;
+      if (!isRest(s.status)) worked = true;
     }
   }
-  if (!shiftStart) return empty; // only ever off duty → no active shift
+  let windowMs = worked ? nowMs - anchor : 0;
+  if (worked && excluded && excluded.end > anchor) windowMs -= excluded.end - Math.max(excluded.start, anchor);
+  if (!worked) { drive = 0; sinceBreak = 0; }
 
-  // Accumulate driving + break tracking from the shift start onward.
-  let shiftDriving = 0;
-  let breakDriving = 0; // driving since the last qualifying 30-min break
-  let curBreak = 0;
-  for (const e of evs) {
-    if (e.end <= shiftStart) continue;
-    const start = e.start < shiftStart ? shiftStart : e.start;
-    const dur = Math.max(0, Math.round((e.end - start) / 60000));
-    if (e.status === 'DRIVING') {
-      shiftDriving += dur;
-      breakDriving += dur;
-      curBreak = 0;
-    } else {
-      curBreak += dur;
-      if (curBreak >= 30) breakDriving = 0; // any 30-min non-driving break resets it
-    }
-  }
+  // Cycle
+  let cycleStart = dayStart(addDays(dateIn(nowMs, tz), -(cyc.days - 1)), tz);
+  if (restartAt && restartAt > cycleStart) cycleStart = restartAt;
+  let cycleMs = 0;
+  for (const s of segs) if (!isRest(s.status) && s.end > cycleStart) cycleMs += s.end - Math.max(s.start, cycleStart);
 
-  const windowElapsed = Math.max(0, Math.round((nowT - shiftStart) / 60000));
+  const m = (ms) => Math.round(ms / MIN);
+  const driveUsed = m(drive); const windowElapsed = m(windowMs); const breakDrive = m(sinceBreak); const cycleUsed = m(cycleMs);
+  const last = segs[segs.length - 1] || null;
+  const resting = !!last && isRest(last.status);
 
   const violations = [];
-  if (shiftDriving >= LIMITS.DRIVING_MIN) {
-    violations.push({ type: '11_HOUR', message: '11-hour driving limit reached', severity: 'violation' });
-  } else if (shiftDriving >= LIMITS.DRIVING_WARN) {
-    violations.push({ type: '11_HOUR', message: `Approaching 11-hour limit (${(shiftDriving / 60).toFixed(1)}h driven this shift)`, severity: 'warning' });
-  }
-  if (windowElapsed >= LIMITS.ONDUTY_MIN) {
-    violations.push({ type: '14_HOUR', message: '14-hour on-duty window exceeded — cannot drive', severity: 'violation' });
-  } else if (windowElapsed >= LIMITS.ONDUTY_WARN) {
-    violations.push({ type: '14_HOUR', message: `Approaching 14-hour window (${(windowElapsed / 60).toFixed(1)}h since shift start)`, severity: 'warning' });
-  }
-  if (breakDriving >= LIMITS.BREAK_AFTER_MIN) {
-    violations.push({ type: '30_MIN_BREAK', message: 'Required 30-minute break after 8 hours of driving', severity: 'violation' });
-  }
+  if (driveUsed >= LIMITS.DRIVING_MIN) violations.push({ type: '11_HOUR', message: '11-hour driving limit reached', severity: 'violation' });
+  else if (driveUsed >= LIMITS.DRIVING_WARN) violations.push({ type: '11_HOUR', message: `Approaching 11-hour limit (${(driveUsed / 60).toFixed(1)}h driven this shift)`, severity: 'warning' });
+  if (windowElapsed >= LIMITS.ONDUTY_MIN) violations.push({ type: '14_HOUR', message: '14-hour on-duty window exceeded — cannot drive', severity: 'violation' });
+  else if (windowElapsed >= LIMITS.ONDUTY_WARN) violations.push({ type: '14_HOUR', message: `Approaching 14-hour window (${(windowElapsed / 60).toFixed(1)}h since shift start)`, severity: 'warning' });
+  if (breakDrive >= LIMITS.BREAK_AFTER_MIN) violations.push({ type: '30_MIN_BREAK', message: 'Required 30-minute break after 8 hours of driving', severity: 'violation' });
+  const cycleType = `${cyc.hours}_HOUR`;
+  if (cycleUsed >= cycleLimit) violations.push({ type: cycleType, message: `${cyc.hours}-hour/${cyc.days}-day on-duty cycle limit reached`, severity: 'violation' });
+  else if (cycleUsed >= cycleLimit - 300) violations.push({ type: cycleType, message: `Approaching ${cyc.hours}-hour cycle limit (${(cycleUsed / 60).toFixed(1)}h)`, severity: 'warning' });
 
+  const driveRemaining = Math.max(0, LIMITS.DRIVING_MIN - driveUsed);
+  const windowRemaining = Math.max(0, LIMITS.ONDUTY_MIN - windowElapsed);
+  const cycleRemaining = Math.max(0, cycleLimit - cycleUsed);
   return {
-    onShift: true,
-    shiftStart,
-    driveMinutesUsed: shiftDriving,
-    driveRemaining: Math.max(0, LIMITS.DRIVING_MIN - shiftDriving),
+    onShift: worked,
+    shiftStart: worked ? new Date(anchor) : null,
+    currentStatus: last ? last.status : 'OFF_DUTY',
+    statusSince: last ? new Date(last.start) : null,
+    driveMinutesUsed: driveUsed,
+    driveRemaining,
     windowElapsedMinutes: windowElapsed,
-    windowRemaining: Math.max(0, LIMITS.ONDUTY_MIN - windowElapsed),
-    breakDriveMinutes: breakDriving,
+    windowRemaining,
+    breakDriveMinutes: breakDrive,
+    breakDueIn: Math.max(0, LIMITS.BREAK_AFTER_MIN - breakDrive),
+    cycleHours: cyc.hours,
+    cycleDays: cyc.days,
+    cycleUsedMinutes: cycleUsed,
+    cycleRemaining,
+    cycleRestartAt: restartAt ? new Date(restartAt) : null,
+    splitSleeper: worked && split,
+    // Driving time actually available right now: the tightest of the three clocks.
+    driveableMinutes: Math.min(driveRemaining, windowRemaining, cycleRemaining),
+    restingSince: resting ? new Date(blocks[blocks.length - 1].start) : null,
     violations,
   };
+}
+
+/** Kept for existing callers: the shift part of computeClock. */
+function computeShiftStatus(events, now = new Date()) {
+  const c = computeClock(events, now);
+  return { ...c, violations: c.violations.filter((v) => v.type === '11_HOUR' || v.type === '14_HOUR' || v.type === '30_MIN_BREAK') };
+}
+
+/**
+ * Minutes in each duty line for the given log days (home time zone), from the continuous timeline,
+ * so a status that runs past midnight is counted on both days. Personal conveyance is off duty and
+ * a yard move is on duty; both are also reported on their own.
+ */
+function dailySummaries(events, tz, dates, now = new Date()) {
+  const nowMs = +new Date(now);
+  const segs = timeline(events, nowMs);
+  const line = { DRIVING: 'drivingMinutes', ON_DUTY_NOT_DRIVING: 'onDutyNotDrivingMinutes', YARD_MOVE: 'onDutyNotDrivingMinutes', SLEEPER_BERTH: 'sleeperMinutes', OFF_DUTY: 'offDutyMinutes', PERSONAL_CONVEYANCE: 'offDutyMinutes' };
+  const out = {};
+  for (const date of dates) {
+    const from = dayStart(date, tz); const to = Math.min(dayStart(addDays(date, 1), tz), nowMs);
+    const ms = { drivingMinutes: 0, onDutyNotDrivingMinutes: 0, sleeperMinutes: 0, offDutyMinutes: 0, personalConveyanceMinutes: 0, yardMoveMinutes: 0 };
+    const parts = [];
+    for (const s of segs) {
+      const a = Math.max(s.start, from); const b = Math.min(s.end, to);
+      if (b <= a) continue;
+      if (line[s.status]) ms[line[s.status]] += b - a;
+      if (s.status === 'PERSONAL_CONVEYANCE') ms.personalConveyanceMinutes += b - a;
+      if (s.status === 'YARD_MOVE') ms.yardMoveMinutes += b - a;
+      parts.push({ status: s.status, start: new Date(a), end: new Date(b) });
+    }
+    for (const k of Object.keys(ms)) ms[k] = Math.round(ms[k] / MIN);
+    out[date] = { totals: ms, segments: parts, from: new Date(from), to: new Date(to) };
+  }
+  return out;
 }
 
 /** On-duty minutes (driving + on-duty-not-driving) summed from ELDLog day totals. Shared by the ELD routes and Autopilot. */
@@ -237,6 +329,15 @@ module.exports = {
   computeRemaining,
   checkViolations,
   computeShiftStatus,
+  computeClock,
+  dailySummaries,
+  timeline,
+  dayStart,
+  dateIn,
+  addDays,
+  validTimeZone,
+  CYCLES,
+  isRest,
   checkCycleViolation,
   sumOnDutyMinutes,
   mergeViolations,

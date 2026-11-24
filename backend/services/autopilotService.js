@@ -4,12 +4,11 @@
  */
 const User = require('../models/User');
 const Load = require('../models/Load');
-const ELDLog = require('../models/ELDLog');
 const { haversineMiles, boundingBox } = require('../utils/geo');
 const { carrierOpenVisibleConditions } = require('./loadVisibility');
 const { checkLoadEligibility } = require('./loadEligibility');
 const { PUBLIC_PARTY_SELECT } = require('./trustScoreService');
-const { computeShiftStatus, sumOnDutyMinutes, LIMITS } = require('./hosRules');
+const hosService = require('./hosService');
 const { planChains, ROAD_FACTOR, PLANNING_MPH, DWELL_MIN } = require('./tripChainPlanner');
 
 const MIN_MS = 60000;
@@ -59,39 +58,17 @@ async function driverLoginId(owner, driver) {
 
 // ── Hours of service from ELD logs (null => unknown) ─────────────────────────
 // Logs are keyed per logged-in PERSON (ELDLog.carrier), so this is only as good as the login match above.
-async function hosFromEld(loginId, now) {
+async function hosFromEld(loginId, now, companyId) {
   if (!loginId) return null;
-  const from = new Date(now.getTime() - 7 * 24 * HOUR_MS).toISOString().slice(0, 10);
-  const logs = await ELDLog.find({ carrier: loginId, date: { $gte: from } }).select('date events totals').lean();
-  const events = logs.flatMap((l) => l.events || []).filter((e) => e && e.startTime);
-  if (!events.length) return null;
-
-  const nowMs = now.getTime();
-  const endOf = (e) => (e.endTime ? new Date(e.endTime).getTime() : nowMs);
-  const lastTouch = Math.max(...events.map(endOf));
-  if (nowMs - lastTouch > ELD_FRESH_MS) return null;
-
-  // Cycle: stored day totals + the still-open event (day totals only update on a status change).
-  let cycleUsed = sumOnDutyMinutes(logs);
-  for (const e of events) {
-    if (!e.endTime && (e.status === 'DRIVING' || e.status === 'ON_DUTY_NOT_DRIVING')) {
-      cycleUsed += Math.max(0, Math.round((nowMs - new Date(e.startTime).getTime()) / MIN_MS));
-    }
-  }
-  const cycleMinLeft = Math.max(0, LIMITS.CYCLE_MIN - cycleUsed);
-
-  // 10h+ off duty since the last on-duty time => a fresh shift is available.
-  const onDutyEnds = events.filter((e) => e.status === 'DRIVING' || e.status === 'ON_DUTY_NOT_DRIVING').map(endOf);
-  const restedMin = onDutyEnds.length ? (nowMs - Math.max(...onDutyEnds)) / MIN_MS : Infinity;
-  if (restedMin >= 600) {
-    return { driveMinLeft: LIMITS.DRIVING_MIN, dutyWindowMinLeft: LIMITS.ONDUTY_MIN, cycleMinLeft, minSinceLastBreak: 0 };
-  }
-  const shift = computeShiftStatus(events, now);
+  const h = await hosService.driverHos(loginId, await hosService.settingsFor(companyId || loginId), now);
+  if (!h.known) return null;
+  // A status untouched for longer than ELD_FRESH_MS only counts when it is rest (a rested driver stays rested).
+  if (now.getTime() - h.clock.statusSince.getTime() > ELD_FRESH_MS && !h.clock.restingSince) return null;
   return {
-    driveMinLeft: shift.driveRemaining,
-    dutyWindowMinLeft: shift.windowRemaining,
-    cycleMinLeft,
-    minSinceLastBreak: shift.breakDriveMinutes,
+    driveMinLeft: h.clock.driveRemaining,
+    dutyWindowMinLeft: h.clock.windowRemaining,
+    cycleMinLeft: h.clock.cycleRemaining,
+    minSinceLastBreak: h.clock.breakDriveMinutes,
   };
 }
 
@@ -197,7 +174,7 @@ async function planForTruck({ companyId, caller, truckId, overrides = {}, now = 
   // HOS: only meaningful for "now"; a start further out (truck still on a booked load) can't use today's clock.
   let hos = null;
   if (start.availableAt.getTime() - now.getTime() <= HOS_PROJECTION_LIMIT_MS) {
-    hos = await hosFromEld(await driverLoginId({ ...owner, _id: companyId }, driver), now);
+    hos = await hosFromEld(await driverLoginId({ ...owner, _id: companyId }, driver), now, companyId);
     if (!hos) notes.push('No recent ELD log found for this truck\'s driver, so hours of service are assumed fresh.');
   } else {
     notes.push('The truck is busy until later, so hours of service after that are assumed fresh.');

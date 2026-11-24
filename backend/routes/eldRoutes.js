@@ -1,352 +1,416 @@
 /**
- * ELD Routes — Hours of Service / Electronic Logging
+ * /api/eld: the driver's duty-status log and hours of service.
  *
- * POST  /api/eld/status          — Log a duty status change
- * GET   /api/eld/today           — Today's log + live HOS summary
- * GET   /api/eld/logs            — Paginated history (default: last 8 days)
- * GET   /api/eld/summary         — 70-hour rolling cycle summary
- * POST  /api/eld/certify/:date   — Certify a day's log
+ * POST  /status            change duty status
+ * GET   /today             today's log + the live clock
+ * GET   /logs              recent log days
+ * GET   /summary           weekly cycle summary
+ * GET   /fleet             every driver's clock (owner/dispatcher)
+ * POST  /certify/:date     certify a past day
+ * PUT   /events/:eventId   correct an entry (a reason is required; the original is kept)
+ * GET   /settings, PUT /settings   weekly limit and home time zone (PUT: owner/dispatcher)
+ * GET   /record, /record/pdf       the last 8 days as one record (a manager may ask for any company driver)
+ *
+ * An advisory log kept in the app. It is not a registered electronic logging device.
+ * All numbers come from services/hosService so no two screens can disagree.
  */
 
 const express = require('express');
+const { body, param, query } = require('express-validator');
 const router  = express.Router();
 const auth    = require('../middlewares/authMiddleware');
+const validate = require('../middlewares/validate');
+const { managerOnly } = require('../middlewares/companyRoles');
 const ELDLog  = require('../models/ELDLog');
+const User    = require('../models/User');
 const { notifyUserSafe } = require('../utils/notifyUser');
-const {
-  computeTotals,
-  computeShiftStatus,
-  checkCycleViolation,
-  sumOnDutyMinutes,
-  mergeViolations,
-} = require('../services/hosRules');
+const { mergeViolations, dateIn, validTimeZone } = require('../services/hosRules');
+const hosService = require('../services/hosService');
 
+const { DUTY_STATUSES } = ELDLog;
 const CARRIER_ONLY = (req, res, next) => {
   if (req.user.role !== 'carrier' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Carriers only' });
   }
   next();
 };
+const companyOf = (req) => String(req.user.companyOwnerId || req.user.userId);
+const clean = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f<>]/g, ' ').trim() : v);
+const hours = (min) => Math.round((min / 60) * 10) / 10;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+/** What the log page shows for today. */
+function todayPayload(h, userId) {
+  const log = h.logs.find((l) => l.date === h.today);
+  const c = h.clock;
+  // A status that started on an earlier day and is still running is not among today's entries.
+  const carriedOver = c.statusSince && dateIn(c.statusSince, h.settings.timeZone) !== h.today
+    ? { status: c.currentStatus, startTime: c.statusSince } : null;
+  return {
+    carrier: userId,
+    date: h.today,
+    events: [],
+    violations: [],
+    certified: false,
+    ...(log || {}),
+    currentStatus: c.currentStatus,
+    totals: h.daily[h.today].totals,
+    remaining: { driveMinutes: c.driveRemaining, onDutyMinutes: c.windowRemaining, cycleMinutes: c.cycleRemaining, breakDueIn: c.breakDueIn },
+    shift: {
+      onShift: c.onShift, shiftStart: c.shiftStart,
+      driveMinutesUsed: c.driveMinutesUsed, driveRemaining: c.driveRemaining,
+      windowElapsedMinutes: c.windowElapsedMinutes, windowRemaining: c.windowRemaining,
+    },
+    clock: c,
+    carriedOver,
+    settings: h.settings,
+    liveActiveMinutes: c.statusSince ? Math.round((Date.now() - c.statusSince) / 60000) : 0,
+  };
 }
 
-function minutesBetween(start, end) {
-  return Math.round((new Date(end) - new Date(start)) / 60000);
+/** One record day: totals, entries and corrections. */
+function recordDays(h) {
+  return h.dates.map((date) => {
+    const log = h.logs.find((l) => l.date === date);
+    return {
+      date,
+      totals: h.daily[date].totals,
+      segments: h.daily[date].segments,
+      from: h.daily[date].from,
+      events: (log && log.events) || [],
+      edits: (log && log.edits) || [],
+      violations: (log && log.violations) || [],
+      certified: !!(log && log.certified),
+      certifiedAt: (log && log.certifiedAt) || null,
+    };
+  });
 }
 
-// Gather duty events across the last few days so a shift (and the 10h rest that
-// starts it) is visible even when it spans midnight. Today's events are supplied
-// in-memory by the caller because they include the just-pushed, unsaved event.
-async function gatherRecentEvents(carrierId, today, todayEvents) {
-  const from = new Date();
-  from.setDate(from.getDate() - 2);
-  const fromStr = from.toISOString().slice(0, 10);
-  const priorLogs = await ELDLog.find({
-    carrier: carrierId,
-    date: { $gte: fromStr, $lt: today },
-  }).sort({ date: 1 }).select('events').lean();
-  const events = [];
-  for (const l of priorLogs) for (const e of (l.events || [])) events.push(e);
-  for (const e of (todayEvents || [])) events.push(e);
-  return events;
+/** The driver a request is about: yourself, or (for a manager) a member of your company. */
+async function subjectDriver(req) {
+  const id = req.query.driverId;
+  if (!id || String(id) === String(req.user.userId)) return req.user.userId;
+  if (req.user.companyRole === 'driver') return null;
+  const company = companyOf(req);
+  const ok = await User.exists({ _id: id, $or: [{ _id: company }, { parentAccountId: company }] });
+  return ok ? id : null;
 }
 
-// Sum on-duty minutes across the driver's rolling 8-day cycle (excluding today,
-// which the caller adds live). Used for the 70-hour check.
-async function cycleOnDutyMinutesExcludingToday(carrierId, today) {
-  const from = new Date();
-  from.setDate(from.getDate() - 7);
-  const fromStr = from.toISOString().slice(0, 10);
-  const logs = await ELDLog.find({
-    carrier: carrierId,
-    date: { $gte: fromStr, $ne: today },
-  }).select('totals').lean();
-  return sumOnDutyMinutes(logs);
-}
-
-// ── POST /status — log a duty status change ───────────────────────────────────
-router.post('/status', auth, CARRIER_ONLY, async (req, res) => {
+// ── POST /status ──────────────────────────────────────────────────────────────
+router.post('/status', auth, CARRIER_ONLY, [
+  body('status').isIn(DUTY_STATUSES).withMessage(`status must be one of: ${DUTY_STATUSES.join(', ')}`),
+  body('location').optional({ nullable: true }).isString().isLength({ max: 200 }),
+  body('notes').optional({ nullable: true }).isString().isLength({ max: 500 }),
+  body('odometer').optional({ nullable: true }).isFloat({ min: 0, max: 9999999 }),
+  body('loadId').optional({ nullable: true }).isMongoId(),
+], validate, async (req, res) => {
   try {
-    const { status, location, loadId, odometer, notes } = req.body;
-    const VALID = ['OFF_DUTY', 'SLEEPER_BERTH', 'DRIVING', 'ON_DUTY_NOT_DRIVING'];
-    if (!VALID.includes(status)) return res.status(400).json({ error: `status must be one of: ${VALID.join(', ')}` });
-
-    const today = todayStr();
-    const now   = new Date();
-
-    // Logs are per-DRIVER (the logged-in person), linked to their company so the
-    // fleet owner can see everyone's HOS.
-    const companyId = req.user.companyOwnerId || req.user.userId;
-
-    // Get or create today's log
-    let log = await ELDLog.findOne({ carrier: req.user.userId, date: today });
-    if (!log) {
-      log = await ELDLog.create({
-        carrier:       req.user.userId,
-        companyId,
-        date:          today,
-        currentStatus: 'OFF_DUTY',
-        events:        [],
-      });
+    const { status, loadId, odometer } = req.body;
+    const location = clean(req.body.location); const notes = clean(req.body.notes);
+    // Personal conveyance and yard moves must say why, as on a registered ELD.
+    if ((status === 'PERSONAL_CONVEYANCE' || status === 'YARD_MOVE') && !notes) {
+      return res.status(400).json({ error: 'Add a note saying why (for example "to the nearest safe parking").' });
     }
-    // Backfill the company link on logs created before per-driver HOS.
+    const companyId = companyOf(req);
+    const settings = await hosService.settingsFor(companyId);
+    const now = new Date();
+    const today = dateIn(now, settings.timeZone);
+
+    // Close whatever is still running, on whichever day it started (a status often runs past midnight).
+    const open = await ELDLog.find({ carrier: req.user.userId, events: { $elemMatch: { endTime: null } } });
+    let running = null;
+    for (const l of open) for (const e of l.events) if (!e.endTime && (!running || e.startTime > running.startTime)) running = e;
+    if (running && running.status === status) {
+      return res.json(todayPayload(await hosService.driverHos(req.user.userId, settings, now), req.user.userId));
+    }
+    for (const l of open) {
+      for (const e of l.events) {
+        if (e.endTime) continue;
+        e.endTime = now;
+        e.durationMinutes = Math.max(0, Math.round((now - e.startTime) / 60000));
+      }
+      if (l.date !== today) await l.save();
+    }
+
+    let log = open.find((l) => l.date === today) || await ELDLog.findOneAndUpdate(
+      { carrier: req.user.userId, date: today },
+      { $setOnInsert: { companyId } },
+      { upsert: true, new: true },
+    );
     if (!log.companyId) log.companyId = companyId;
-
-    // Close the current open event
-    const openEvent = log.events.find(e => !e.endTime);
-    if (openEvent) {
-      openEvent.endTime         = now;
-      openEvent.durationMinutes = minutesBetween(openEvent.startTime, now);
-    }
-
-    // Open new event
     log.events.push({ status, startTime: now, location, load: loadId || null, odometer, notes });
     log.currentStatus = status;
+    await log.save();
 
-    // Day totals (for the daily-log display).
-    log.totals = computeTotals(log.events);
-
-    // Shift-accurate HOS: gather events across the last few days so a shift that
-    // spans midnight (and the 10h rest before it) is visible, then compute the
-    // 11h/14h/break status against the CURRENT shift — not the calendar day.
-    const shiftEvents = await gatherRecentEvents(req.user.userId, today, log.events);
-    const shift = computeShiftStatus(shiftEvents, now);
-
-    log.remaining.driveMinutes  = shift.driveRemaining;
-    log.remaining.onDutyMinutes = shift.windowRemaining;
-
-    const newViolations = [...shift.violations];
-    // …plus the 70h/8-day cycle (needs prior days).
-    const cycleOnDuty =
-      (await cycleOnDutyMinutesExcludingToday(req.user.userId, today)) +
-      log.totals.drivingMinutes + log.totals.onDutyNotDrivingMinutes;
-    const cycleViolation = checkCycleViolation(cycleOnDuty);
-    if (cycleViolation) newViolations.push(cycleViolation);
-
-    // Dedupe by type AND severity so a recorded "warning" no longer suppresses the
-    // later "violation" of the same type. Notify only for newly-added violations.
-    const { merged, added } = mergeViolations(log.violations, newViolations);
-    log.violations = merged;
+    // Recompute from the whole timeline, then store the day figures other reports read.
+    const h = await hosService.driverHos(req.user.userId, settings, now);
+    for (const l of h.logs) {
+      if (h.daily[l.date]) await ELDLog.updateOne({ _id: l._id }, { $set: { totals: h.daily[l.date].totals } });
+    }
+    const { merged, added } = mergeViolations(log.violations, h.clock.violations);
+    await ELDLog.updateOne({ _id: log._id }, { $set: {
+      violations: merged,
+      'remaining.driveMinutes': h.clock.driveRemaining,
+      'remaining.onDutyMinutes': h.clock.windowRemaining,
+      'remaining.cycleMinutes': h.clock.cycleRemaining,
+      'remaining.breakDueIn': h.clock.breakDueIn,
+    } });
     for (const v of added) {
-      if (v.severity === 'violation') {
-        notifyUserSafe(req.user.userId, {
-          type:  'exception:new',
-          title: 'HOS Violation',
-          body:  v.message,
-          link:  '/dashboard/carrier/eld',
-          metadata: { date: today },
-        });
-      }
+      if (v.severity !== 'violation') continue;
+      notifyUserSafe(req.user.userId, {
+        type: 'exception:new', title: 'HOS Violation', body: v.message,
+        link: '/dashboard/carrier/eld', metadata: { date: today },
+      });
     }
 
-    await log.save();
-    res.json(log);
+    const fresh = await hosService.driverHos(req.user.userId, settings, now);
+    res.json(todayPayload(fresh, req.user.userId));
   } catch (err) {
-    console.error('ELD status error:', err);
+    console.error('[eld/status] failed:', err.message);
     res.status(500).json({ error: 'Failed to log status' });
   }
 });
 
-// ── GET /today — today's full log ─────────────────────────────────────────────
+// ── GET /today ────────────────────────────────────────────────────────────────
 router.get('/today', auth, CARRIER_ONLY, async (req, res) => {
   try {
-    const today = todayStr();
-    let log = await ELDLog.findOne({ carrier: req.user.userId, date: today })
-      .populate('events.load', 'title origin destination');
-
-    if (!log) {
-      // Return empty skeleton
-      return res.json({
-        carrier: req.user.userId,
-        date:    today,
-        currentStatus: 'OFF_DUTY',
-        events:  [],
-        totals:  { drivingMinutes: 0, onDutyNotDrivingMinutes: 0, sleeperMinutes: 0, offDutyMinutes: 0 },
-        remaining: { driveMinutes: 660, onDutyMinutes: 840, cycleMinutes: 4200 },
-        violations: [],
-        certified: false,
-      });
-    }
-
-    // Shift-accurate live status (spans midnight; used for the gauge + remaining).
-    const now = new Date();
-    const shiftEvents = await gatherRecentEvents(req.user.userId, today, log.events);
-    const shift = computeShiftStatus(shiftEvents, now);
-    const shiftOut = {
-      onShift: shift.onShift,
-      shiftStart: shift.shiftStart,
-      driveMinutesUsed: shift.driveMinutesUsed,
-      driveRemaining: shift.driveRemaining,
-      windowElapsedMinutes: shift.windowElapsedMinutes,
-      windowRemaining: shift.windowRemaining,
-    };
-
-    // If there's an open event, include live duration in the day totals display.
-    const openEvent = log.events.find(e => !e.endTime);
-    if (openEvent) {
-      const liveMinutes = minutesBetween(openEvent.startTime, now);
-      const liveTotals  = computeTotals(log.events.map(e => {
-        if (!e.endTime) return { ...e.toObject(), durationMinutes: liveMinutes };
-        return e;
-      }));
-      return res.json({
-        ...log.toObject(),
-        totals:    liveTotals,
-        // Remaining now comes from the shift model (day-bucket was the false-negative source).
-        remaining: { ...log.remaining.toObject(), driveMinutes: shift.driveRemaining, onDutyMinutes: shift.windowRemaining },
-        shift: shiftOut,
-        liveActiveMinutes: liveMinutes,
-      });
-    }
-
-    res.json({ ...log.toObject(), shift: shiftOut });
+    const h = await hosService.driverHos(req.user.userId, await hosService.settingsFor(companyOf(req)));
+    res.json(todayPayload(h, req.user.userId));
   } catch (err) {
+    console.error('[eld/today] failed:', err.message);
     res.status(500).json({ error: 'Failed to fetch today\'s log' });
   }
 });
 
-// ── GET /logs — paginated history ─────────────────────────────────────────────
-router.get('/logs', auth, CARRIER_ONLY, async (req, res) => {
+// ── GET /logs ─────────────────────────────────────────────────────────────────
+router.get('/logs', auth, CARRIER_ONLY, [query('days').optional().isInt({ min: 1, max: 30 })], validate, async (req, res) => {
   try {
-    const days = Math.min(parseInt(req.query.days, 10) || 8, 30);
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    const fromStr = from.toISOString().slice(0, 10);
-
-    const logs = await ELDLog.find({
-      carrier: req.user.userId,
-      date:    { $gte: fromStr },
-    }).sort({ date: -1 });
-
-    res.json(logs);
+    const days = parseInt(req.query.days, 10) || 8;
+    const h = await hosService.driverHos(req.user.userId, await hosService.settingsFor(companyOf(req)), new Date(), days);
+    // Newest first; a day with no entries of its own is listed only when something was running through it.
+    res.json(h.dates
+      .map((date) => ({ ...(h.logs.find((l) => l.date === date) || { date, events: [], violations: [], certified: false }), totals: h.daily[date].totals }))
+      .filter((d) => d._id || Object.values(d.totals).some((n) => n > 0)));
   } catch (err) {
+    console.error('[eld/logs] failed:', err.message);
     res.status(500).json({ error: 'Failed to fetch logs' });
   }
 });
 
-// ── GET /summary — 70-hour rolling cycle ─────────────────────────────────────
+// ── GET /summary ──────────────────────────────────────────────────────────────
 router.get('/summary', auth, CARRIER_ONLY, async (req, res) => {
   try {
-    const from = new Date();
-    from.setDate(from.getDate() - 7);
-    const fromStr = from.toISOString().slice(0, 10);
-
-    const logs = await ELDLog.find({
-      carrier: req.user.userId,
-      date:    { $gte: fromStr },
-    }).lean();
-
-    let totalOnDutyMinutes = 0;
-    let totalDriveMinutes  = 0;
-    for (const log of logs) {
-      totalOnDutyMinutes += (log.totals?.drivingMinutes || 0) + (log.totals?.onDutyNotDrivingMinutes || 0);
-      totalDriveMinutes  += log.totals?.drivingMinutes || 0;
-    }
-
-    // Today's open event — add live time
-    const today = todayStr();
-    const todayLog = logs.find(l => l.date === today);
-    const openEvent = todayLog?.events?.find(e => !e.endTime);
-    const liveExtra = openEvent ? minutesBetween(openEvent.startTime, new Date()) : 0;
-    if (openEvent && ['DRIVING', 'ON_DUTY_NOT_DRIVING'].includes(openEvent.status)) {
-      totalOnDutyMinutes += liveExtra;
-      if (openEvent.status === 'DRIVING') totalDriveMinutes += liveExtra;
-    }
-
+    const h = await hosService.driverHos(req.user.userId, await hosService.settingsFor(companyOf(req)));
+    const c = h.clock;
+    const days = recordDays(h).slice(0, c.cycleDays);
     res.json({
-      cycleHours:      70,
-      usedOnDutyHours: Math.round(totalOnDutyMinutes / 60 * 10) / 10,
-      usedDriveHours:  Math.round(totalDriveMinutes  / 60 * 10) / 10,
-      remainingCycleHours: Math.max(0, Math.round((4200 - totalOnDutyMinutes) / 60 * 10) / 10),
-      daysInCycle:     logs.length,
-      logs: logs.map(l => ({
-        date: l.date,
-        drivingHours:  Math.round((l.totals?.drivingMinutes || 0) / 60 * 10) / 10,
-        onDutyHours:   Math.round(((l.totals?.drivingMinutes || 0) + (l.totals?.onDutyNotDrivingMinutes || 0)) / 60 * 10) / 10,
-        violations:    (l.violations || []).length,
-        certified:     l.certified,
+      cycleHours: c.cycleHours,
+      cycleDays: c.cycleDays,
+      usedOnDutyHours: hours(c.cycleUsedMinutes),
+      usedDriveHours: hours(days.reduce((n, d) => n + d.totals.drivingMinutes, 0)),
+      remainingCycleHours: hours(c.cycleRemaining),
+      cycleRestartAt: c.cycleRestartAt,
+      daysInCycle: days.filter((d) => d.totals.drivingMinutes + d.totals.onDutyNotDrivingMinutes > 0).length,
+      logs: days.map((d) => ({
+        date: d.date,
+        drivingHours: hours(d.totals.drivingMinutes),
+        onDutyHours: hours(d.totals.drivingMinutes + d.totals.onDutyNotDrivingMinutes),
+        violations: d.violations.length,
+        certified: d.certified,
       })),
     });
   } catch (err) {
+    console.error('[eld/summary] failed:', err.message);
     res.status(500).json({ error: 'Failed to fetch summary' });
   }
 });
 
-// ── GET /fleet — company-wide HOS snapshot (owner/dispatcher only) ────────────
-// One row per driver who has a log today, with live shift-accurate remaining hours.
+// ── GET /fleet ────────────────────────────────────────────────────────────────
 router.get('/fleet', auth, CARRIER_ONLY, async (req, res) => {
   try {
-    // Management view — drivers use /today for their own log.
     if (req.user.companyRole === 'driver') {
       return res.status(403).json({ error: 'Fleet HOS is available to owners and dispatchers' });
     }
-    const companyId = req.user.companyOwnerId || req.user.userId;
-    const today = todayStr();
+    const companyId = companyOf(req);
+    const settings = await hosService.settingsFor(companyId);
     const now = new Date();
+    const today = dateIn(now, settings.timeZone);
+    // Everyone with an entry in the last few days (a driver still on yesterday's status has no log today).
+    const since = dateIn(now.getTime() - 3 * 86400000, settings.timeZone);
+    const ids = await ELDLog.distinct('carrier', { companyId, date: { $gte: since } });
+    const people = await User.find({ _id: { $in: ids } }).select('name companyRole').lean();
 
-    const logs = await ELDLog.find({ companyId, date: today })
-      .populate('carrier', 'name email companyRole')
-      .lean();
-
-    const drivers = await Promise.all(logs.map(async (log) => {
-      const carrierId = log.carrier?._id || log.carrier;
-      const shiftEvents = await gatherRecentEvents(carrierId, today, log.events);
-      const shift = computeShiftStatus(shiftEvents, now);
+    const drivers = await Promise.all(people.map(async (p) => {
+      const h = await hosService.driverHos(p._id, settings, now);
+      const todayLog = h.logs.find((l) => l.date === today);
       return {
-        driverId: String(carrierId),
-        name: log.carrier?.name || 'Driver',
-        companyRole: log.carrier?.companyRole || 'owner',
-        currentStatus: log.currentStatus,
-        driveRemainingMinutes: shift.driveRemaining,
-        windowRemainingMinutes: shift.windowRemaining,
-        drivingMinutesToday: log.totals?.drivingMinutes || 0,
-        violations: (log.violations || []).filter(v => v.severity === 'violation').length,
-        certified: !!log.certified,
+        driverId: String(p._id),
+        name: p.name || 'Driver',
+        companyRole: p.companyRole || 'owner',
+        currentStatus: h.clock.currentStatus,
+        known: h.known,
+        driveRemainingMinutes: h.clock.driveRemaining,
+        windowRemainingMinutes: h.clock.windowRemaining,
+        cycleRemainingMinutes: h.clock.cycleRemaining,
+        drivingMinutesToday: h.daily[today].totals.drivingMinutes,
+        violations: ((todayLog && todayLog.violations) || []).filter((v) => v.severity === 'violation').length,
+        certified: !!(todayLog && todayLog.certified),
       };
     }));
-
-    // Sort by least drive time remaining first (who's closest to a limit).
     drivers.sort((a, b) => a.driveRemainingMinutes - b.driveRemainingMinutes);
     res.json({ date: today, drivers });
   } catch (err) {
-    console.error('ELD fleet error:', err.message);
+    console.error('[eld/fleet] failed:', err.message);
     res.status(500).json({ error: 'Failed to fetch fleet HOS' });
   }
 });
 
-// ── POST /certify/:date — certify day's log ───────────────────────────────────
-router.post('/certify/:date', auth, CARRIER_ONLY, async (req, res) => {
+// ── POST /certify/:date ───────────────────────────────────────────────────────
+router.post('/certify/:date', auth, CARRIER_ONLY, [param('date').matches(/^\d{4}-\d{2}-\d{2}$/)], validate, async (req, res) => {
   try {
     const { date } = req.params;
-    if (date === todayStr()) {
+    const settings = await hosService.settingsFor(companyOf(req));
+    if (date >= dateIn(new Date(), settings.timeZone)) {
       return res.status(400).json({ error: 'Cannot certify today\'s log until the day ends' });
     }
+    const log = await ELDLog.findOneAndUpdate(
+      { carrier: req.user.userId, date, certified: { $ne: true } },
+      { $set: { certified: true, certifiedAt: new Date() } },
+      { new: true },
+    );
+    if (log) return res.json(log);
+    const exists = await ELDLog.exists({ carrier: req.user.userId, date });
+    return exists ? res.status(409).json({ error: 'Already certified' }) : res.status(404).json({ error: 'Log not found for this date' });
+  } catch (err) {
+    console.error('[eld/certify] failed:', err.message);
+    res.status(500).json({ error: 'Failed to certify log' });
+  }
+});
 
-    const log = await ELDLog.findOne({ carrier: req.user.userId, date });
-    if (!log) return res.status(404).json({ error: 'Log not found for this date' });
-    if (log.certified) return res.status(409).json({ error: 'Already certified' });
+// ── PUT /events/:eventId — correct an entry ───────────────────────────────────
+// Only your own entries, only the status and start time, and always with a reason. The original
+// values stay on the log, and a corrected day has to be certified again.
+router.put('/events/:eventId', auth, CARRIER_ONLY, [
+  param('eventId').isMongoId(),
+  body('note').isString().trim().isLength({ min: 4, max: 500 }).withMessage('Say why you are correcting this entry (at least 4 characters).'),
+  body('status').optional().isIn(DUTY_STATUSES),
+  body('startTime').optional().isISO8601(),
+], validate, async (req, res) => {
+  try {
+    const settings = await hosService.settingsFor(companyOf(req));
+    const now = new Date();
+    const log = await ELDLog.findOne({ carrier: req.user.userId, 'events._id': req.params.eventId });
+    if (!log) return res.status(404).json({ error: 'Entry not found' });
+    const h = await hosService.driverHos(req.user.userId, settings, now);
+    if (!h.dates.includes(log.date)) return res.status(409).json({ error: 'Entries older than 8 days cannot be corrected here.' });
 
-    // Close any open events. Day buckets are UTC (todayStr uses toISOString), so the
-    // end-of-day must be UTC too — a local "T23:59:59" is parsed in server-local time
-    // and produces negative/inflated durations on any non-UTC server. Guard against a
-    // negative span in case the open event somehow started after end-of-day.
-    const openEvent = log.events.find(e => !e.endTime);
-    if (openEvent) {
-      const eod = new Date(`${date}T23:59:59.999Z`);
-      openEvent.endTime         = eod;
-      openEvent.durationMinutes = Math.max(0, minutesBetween(openEvent.startTime, eod));
+    const ev = log.events.id(req.params.eventId);
+    const status = req.body.status || ev.status;
+    const startTime = req.body.startTime ? new Date(req.body.startTime) : ev.startTime;
+    if (status === ev.status && +startTime === +ev.startTime) return res.status(400).json({ error: 'Nothing was changed.' });
+
+    // The corrected time must stay between the entries before and after it, on the same log day.
+    const all = h.events.slice().sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+    const i = all.findIndex((e) => String(e._id) === String(ev._id));
+    const before = all[i - 1]; const after = all[i + 1];
+    if (startTime > now) return res.status(400).json({ error: 'The time cannot be in the future.' });
+    if (before && startTime <= new Date(before.startTime)) return res.status(400).json({ error: 'The time must be after the entry before it.' });
+    if (after && startTime >= new Date(after.startTime)) return res.status(400).json({ error: 'The time must be before the entry after it.' });
+    if (dateIn(startTime, settings.timeZone) !== log.date && +startTime !== +ev.startTime) {
+      return res.status(400).json({ error: 'The time must stay on the same day.' });
     }
 
-    log.totals    = computeTotals(log.events);
-    log.certified = true;
-    log.certifiedAt = new Date();
+    log.edits.push({ eventId: ev._id, by: req.user.userId, from: { status: ev.status, startTime: ev.startTime }, to: { status, startTime }, note: clean(req.body.note) });
+    ev.status = status;
+    ev.startTime = startTime;
+    if (ev.endTime) ev.durationMinutes = Math.max(0, Math.round((ev.endTime - startTime) / 60000));
+    if (!after) log.currentStatus = status;
+    log.certified = false;
+    log.certifiedAt = undefined;
     await log.save();
-    res.json(log);
+    // The entry before it now ends where this one starts.
+    if (before) {
+      await ELDLog.updateOne(
+        { carrier: req.user.userId, 'events._id': before._id },
+        { $set: { 'events.$.endTime': startTime, 'events.$.durationMinutes': Math.max(0, Math.round((startTime - new Date(before.startTime)) / 60000)) } },
+      );
+    }
+    const fresh = await hosService.driverHos(req.user.userId, settings, now);
+    for (const l of fresh.logs) {
+      if (fresh.daily[l.date]) await ELDLog.updateOne({ _id: l._id }, { $set: { totals: fresh.daily[l.date].totals } });
+    }
+    res.json(todayPayload(fresh, req.user.userId));
   } catch (err) {
-    res.status(500).json({ error: 'Failed to certify log' });
+    console.error('[eld/events] failed:', err.message);
+    res.status(500).json({ error: 'Failed to correct the entry' });
+  }
+});
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+router.get('/settings', auth, CARRIER_ONLY, async (req, res) => {
+  try {
+    res.json({ data: await hosService.settingsFor(companyOf(req)) });
+  } catch (err) {
+    console.error('[eld/settings] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.put('/settings', auth, CARRIER_ONLY, managerOnly, [
+  body('cycle').isIn(['70_8', '60_7']).withMessage('Choose 70 hours in 8 days or 60 hours in 7 days.'),
+  body('timeZone').custom(validTimeZone).withMessage('Choose a valid time zone.'),
+], validate, async (req, res) => {
+  try {
+    await User.updateOne({ _id: companyOf(req) }, { $set: { hosSettings: { cycle: req.body.cycle, timeZone: req.body.timeZone } } });
+    res.json({ data: await hosService.settingsFor(companyOf(req)) });
+  } catch (err) {
+    console.error('[eld/settings] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── The 8-day record ──────────────────────────────────────────────────────────
+async function buildRecord(req) {
+  const driverId = await subjectDriver(req);
+  if (!driverId) return null;
+  const company = await User.findById(companyOf(req)).select('name companyName dotNumber mcNumber verification').lean();
+  const driver = await User.findById(driverId).select('name').lean();
+  const h = await hosService.driverHos(driverId, await hosService.settingsFor(companyOf(req)));
+  return {
+    driver: { id: String(driverId), name: (driver && driver.name) || 'Driver' },
+    carrier: {
+      name: (company && (company.companyName || company.name)) || '',
+      dotNumber: (company && (company.verification?.dotNumber || company.dotNumber)) || '',
+    },
+    settings: h.settings,
+    generatedAt: new Date(),
+    clock: h.clock,
+    known: h.known,
+    days: recordDays(h),
+  };
+}
+const recordRules = [query('driverId').optional().isMongoId()];
+
+router.get('/record', auth, CARRIER_ONLY, recordRules, validate, async (req, res) => {
+  try {
+    const record = await buildRecord(req);
+    if (!record) return res.status(403).json({ error: 'You can only open your own record' });
+    res.json({ data: record });
+  } catch (err) {
+    console.error('[eld/record] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/record/pdf', auth, CARRIER_ONLY, recordRules, validate, async (req, res) => {
+  try {
+    const record = await buildRecord(req);
+    if (!record) return res.status(403).json({ error: 'You can only open your own record' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="duty-status-${record.days[0].date}.pdf"`);
+    require('../utils/pdfGenerator').streamHosRecord(record, res);
+  } catch (err) {
+    console.error('[eld/record/pdf] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
