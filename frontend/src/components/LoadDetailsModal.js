@@ -34,6 +34,7 @@ import TenderProgress from '../features/shared/TenderProgress';
 import PickupWindowPanel from '../features/shared/PickupWindowPanel';
 import LoadEvidencePanel from '../features/shared/LoadEvidencePanel';
 import ReputationBadges from './ReputationBadges';
+import PriceBreakdown from '../features/shared/PriceBreakdown';
 import {
   brand, status as ST, semantic, severity as SEV, exceptionStatus as EXC_ST,
   bidStatus as BID_ST, surface, text as T, shadow, tint, darkFieldSx, gradient,
@@ -856,6 +857,10 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
           )}
           {suggLoading && <CircularProgress size={14} />}
         </Stack>
+
+        {userRole !== 'admin' && (
+          <PriceBreakdown rateCents={Number.isInteger(loadState.rateCents) ? loadState.rateCents : Math.round(Number(loadState.rate) * 100)} />
+        )}
 
         {/* Details grid */}
         <Box sx={{

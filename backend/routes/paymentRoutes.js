@@ -295,6 +295,25 @@ router.post('/release/:loadId', auth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// GET /api/payments/price-breakdown?amountCents= — the same numbers for shipper and carrier: what the shipper pays,
+// the platform fee, what the carrier receives. Pure arithmetic from the fee rule (no load or account data).
+// ────────────────────────────────────────────────────────────────────────────
+router.get('/price-breakdown', auth, (req, res) => {
+  const amountCents = Number(req.query.amountCents);
+  if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 100000000) {
+    return res.status(400).json({ error: 'amountCents must be a whole number of cents.' });
+  }
+  res.json({
+    shipperPaysCents: amountCents,
+    platformFeeCents: calculatePlatformFee(amountCents),
+    carrierReceivesCents: calculateCarrierPayout(amountCents),
+    feePercent: Math.round(PLATFORM_FEE_PCT * 10000) / 100,
+    feePaidBy: 'carrier',
+    paymentsOn: !!stripe,
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // GET /api/payments/my — paginated payment history for current user
 // ────────────────────────────────────────────────────────────────────────────
 router.get('/my', auth, async (req, res) => {

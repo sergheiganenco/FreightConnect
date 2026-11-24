@@ -169,3 +169,22 @@ describe('cancelled-truck fee', () => {
     expect(await tonuOf(b.load)).toBeUndefined();
   });
 });
+
+test('price breakdown: the same whole-cent numbers for both sides, and they always add up', async () => {
+  const express = require('express');
+  const request = require('supertest');
+  const { generateToken } = require('../helpers');
+  const app = express();
+  app.use('/api/payments', require('../../routes/paymentRoutes'));
+  const user = await createTestUser({ role: 'carrier' });
+  const get = (q, u = user) => request(app).get(`/api/payments/price-breakdown${q}`).set('Authorization', `Bearer ${generateToken(u)}`);
+  expect((await request(app).get('/api/payments/price-breakdown?amountCents=1000')).status).toBe(401);
+  for (const bad of ['', '?amountCents=abc', '?amountCents=10.5', '?amountCents=0', '?amountCents=-5']) expect((await get(bad)).status).toBe(400);
+  for (const cents of [240000, 3333, 101, 1]) {
+    const { body } = await get(`?amountCents=${cents}`);
+    expect(body.shipperPaysCents).toBe(cents);
+    expect(Number.isInteger(body.platformFeeCents)).toBe(true);
+    expect(body.platformFeeCents + body.carrierReceivesCents).toBe(cents);
+  }
+  expect((await get('?amountCents=240000')).body).toMatchObject({ platformFeeCents: 4800, carrierReceivesCents: 235200, feePercent: 2 });
+});
