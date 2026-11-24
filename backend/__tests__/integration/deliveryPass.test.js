@@ -145,7 +145,7 @@ test('receiver photos: real images only, in transit and before signing, capped; 
   // shipper and the booked carrier see it, marked as the receiver's; another carrier does not
   for (const u of [shipper, carrier]) {
     const list = await request(evApp).get(`/api/loads/${load._id}/evidence`).set('Authorization', `Bearer ${generateToken(u)}`);
-    expect(list.body.data.items[0]).toMatchObject({ byReceiver: true, uploadedByName: 'the receiver', deletable: false });
+    expect(list.body.data.items[0]).toMatchObject({ byReceiver: true, uploadedByName: 'someone using the delivery link', deletable: false });
     expect(list.body.data.items[0].file).toBeUndefined();
     expect((await request(evApp).get(`/api/loads/${load._id}/evidence/${stored._id}/file`).set('Authorization', `Bearer ${generateToken(u)}`)).status).toBe(200);
   }

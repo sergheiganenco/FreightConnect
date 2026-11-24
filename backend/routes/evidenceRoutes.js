@@ -226,7 +226,7 @@ router.get('/loads/:id/evidence', auth, idParam, validate, async (req, res) => {
           : { pickup: !!load.evidenceRequired?.pickup, delivery: !!load.evidenceRequired?.delivery },
         canAdd: booked ? { pickup: stageOpen(load, 'pickup'), delivery: stageOpen(load, 'delivery') } : { pickup: false, delivery: false },
         items: items.map((e) => ({
-          ...view(load, e, req), uploadedByName: e.receiverFor ? 'the receiver' : names.get(String(e.uploadedBy)) || null,
+          ...view(load, e, req), uploadedByName: e.receiverFor ? 'someone using the delivery link' : names.get(String(e.uploadedBy)) || null,
           ...(access === 'all' ? { uploadedByCompany: coNames.get(String(e.companyId)) || null } : {}),
         })),
       },
