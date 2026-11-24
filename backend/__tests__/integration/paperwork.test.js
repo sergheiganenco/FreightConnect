@@ -198,3 +198,26 @@ describe('the transaction record', () => {
     expect(pdf.body.slice(0, 4).toString()).toBe('%PDF');
   });
 });
+
+describe('signature images stay out of responses', () => {
+  const express2 = require('express');
+  test('a party reading the load sees who signed, not the image', async () => {
+    const app2 = express2();
+    app2.use(express2.json());
+    app2.use('/api', require('../../middlewares/redactLoadSecrets'));
+    app2.use('/api/loads', require('../../routes/loadRoutes')(mockIo));
+    const shipper = await shipperUser();
+    const carrier = await createTestUser({ role: 'carrier' });
+    const load = await createTestLoad(shipper._id, {
+      status: 'in-transit', acceptedBy: carrier._id,
+      pickupSignature: { dataUrl: PNG, signerName: 'Dan Driver', signedAt: new Date() },
+    });
+    const res = await request(app2).get(`/api/loads/${load._id}`).set(bearer(shipper));
+    expect(res.status).toBe(200);
+    const body = JSON.stringify(res.body);
+    expect(body).not.toContain('data:image/png');
+    expect(body).toContain('Dan Driver');
+    expect(body).toContain('"signed":true');
+    expect((await Load.findById(load._id)).pickupSignature.dataUrl).toBe(PNG); // still stored for the documents
+  });
+});

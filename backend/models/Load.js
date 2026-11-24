@@ -165,8 +165,8 @@ const LoadSchema = new mongoose.Schema({
   },
 
   // ── E-signatures (base64 PNG data URLs) captured at pickup and delivery ─────
-  // Embedded into the BOL PDF. NEVER indexed; excluded from load list projections
-  // to keep the signature bytes out of high-volume queries.
+  // Embedded into the BOL PDF. NEVER indexed. The image is removed from every API response by
+  // middlewares/redactLoadSecrets (only signerName/signedAt and "signed" go out).
   pickupSignature: {
     dataUrl:     { type: String, default: null },
     signerName:  { type: String, default: null },

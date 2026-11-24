@@ -14,10 +14,19 @@ const idOf = (v) => (v && typeof v === 'object' ? String(v._id || v.id || '') : 
 // Deliberately loose, so a partial projection of a load is still recognised.
 const looksLikeLoad = (o) => 'postedBy' in o && ('origin' in o || 'destination' in o || 'equipmentType' in o || 'stops' in o);
 const STOP_SECRETS = ['contactName', 'contactPhone', 'notes'];
+// Signature images (up to 256 KB each) are for the printed documents, which read them from the database.
+// No screen shows them, so no response carries them, to anyone: only who signed and when.
+const SIGNATURES = ['pickupSignature', 'deliverySignature', 'shipperSignature'];
 
 function redact(node, me, isAdmin, depth) {
   if (!node || typeof node !== 'object' || depth > 8) return;
   if (Array.isArray(node)) { for (const x of node) redact(x, me, isAdmin, depth + 1); return; }
+  if (looksLikeLoad(node)) {
+    for (const f of SIGNATURES) {
+      const sig = node[f];
+      if (sig && typeof sig === 'object' && 'dataUrl' in sig) { sig.signed = !!sig.dataUrl; delete sig.dataUrl; }
+    }
+  }
   if (looksLikeLoad(node) && !isAdmin && !(me && (idOf(node.postedBy) === me || idOf(node.acceptedBy) === me))) {
     for (const f of SECRET_FIELDS) delete node[f];
     if (Array.isArray(node.stops)) for (const s of node.stops) if (s && typeof s === 'object') for (const f of STOP_SECRETS) delete s[f];
