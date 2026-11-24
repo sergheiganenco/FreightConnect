@@ -354,6 +354,9 @@ const LoadSchema = new mongoose.Schema({
       uploadedAt: { type: Date, default: Date.now },
       uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       companyId:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      // Set only on a photo added by the receiving dock through the delivery link (no account):
+      // the carrier company the delivery was for. uploadedBy/companyId stay empty on those.
+      receiverFor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       latitude: Number,
       longitude: Number,
       accuracyMeters: Number,

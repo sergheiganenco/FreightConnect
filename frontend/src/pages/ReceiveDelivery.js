@@ -19,6 +19,8 @@ export default function ReceiveDelivery() {
   const [padOpen, setPadOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signError, setSignError] = useState(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState(null);
 
   useEffect(() => {
     api.get(`/receive/${token}`)
@@ -42,6 +44,24 @@ export default function ReceiveDelivery() {
       setSignError(e?.response?.data?.error || 'The signature could not be saved. Try again.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const addPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoBusy(true);
+    setPhotoError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const { data } = await api.post(`/receive/${token}/photo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setInfo((i) => ({ ...i, photoCount: data.photoCount }));
+    } catch (err) {
+      setPhotoError(err?.response?.data?.error || 'The photo could not be added. Try again.');
+    } finally {
+      setPhotoBusy(false);
     }
   };
 
@@ -111,7 +131,17 @@ export default function ReceiveDelivery() {
                     helperText="Leave empty if everything arrived complete and in good condition."
                     value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))}
                   />
-                  <Button fullWidth size="large" variant="contained" sx={{ mt: 2, py: 1.5 }} onClick={() => setPadOpen(true)} disabled={busy}>
+                  <Button fullWidth variant="outlined" component="label" sx={{ mt: 2 }} disabled={photoBusy || info.photoCount >= 6}>
+                    {photoBusy ? <CircularProgress size={22} /> : 'Add a photo of shortage or damage'}
+                    <input hidden type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={addPhoto} />
+                  </Button>
+                  {info.photoCount > 0 && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      {info.photoCount} photo{info.photoCount > 1 ? 's' : ''} added. The shipper and carrier will see {info.photoCount > 1 ? 'them' : 'it'} with your signature.
+                    </Typography>
+                  )}
+                  {photoError && <Alert severity="error" sx={{ mt: 1 }}>{photoError}</Alert>}
+                  <Button fullWidth size="large" variant="contained" sx={{ mt: 2, py: 1.5 }} onClick={() => setPadOpen(true)} disabled={busy || photoBusy}>
                     {busy ? <CircularProgress size={22} /> : 'Sign for this delivery'}
                   </Button>
                   {signError && <Alert severity="error" sx={{ mt: 2 }}>{signError}</Alert>}

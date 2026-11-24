@@ -84,7 +84,8 @@ function accessOf(load, req) {
   if (String(load.acceptedBy) === co || load.evidence.some((e) => String(e.companyId) === co)) return 'own';
   return null;
 }
-const visibleTo = (access, item, req) => access === 'all' || String(item.companyId) === companyOf(req);
+// A carrier sees its own photos and the receiver's photos for its own delivery.
+const visibleTo = (access, item, req) => access === 'all' || String(item.companyId) === companyOf(req) || String(item.receiverFor) === companyOf(req);
 // eslint-disable-next-line no-control-regex
 const clean = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
 const num = (v) => (v === undefined || v === '' || v === null ? null : Number(v));
@@ -110,7 +111,9 @@ function deletable(load, item, req) {
 function view(load, item, req) {
   const o = item.toObject ? item.toObject() : item;
   delete o.file; delete o.companyId;
-  return { ...o, archived: !!o.archived, uploadedBy: String(o.uploadedBy), deletable: deletable(load, item, req) };
+  const byReceiver = !!o.receiverFor;
+  delete o.receiverFor;
+  return { ...o, archived: !!o.archived, byReceiver, uploadedBy: byReceiver ? null : String(o.uploadedBy), deletable: deletable(load, item, req) };
 }
 const audit = (load, to, userId, reason, meta) =>
   StatusHistory.record('load', load._id, load.status, to, userId, reason, meta).catch(() => {});
@@ -223,7 +226,7 @@ router.get('/loads/:id/evidence', auth, idParam, validate, async (req, res) => {
           : { pickup: !!load.evidenceRequired?.pickup, delivery: !!load.evidenceRequired?.delivery },
         canAdd: booked ? { pickup: stageOpen(load, 'pickup'), delivery: stageOpen(load, 'delivery') } : { pickup: false, delivery: false },
         items: items.map((e) => ({
-          ...view(load, e, req), uploadedByName: names.get(String(e.uploadedBy)) || null,
+          ...view(load, e, req), uploadedByName: e.receiverFor ? 'the receiver' : names.get(String(e.uploadedBy)) || null,
           ...(access === 'all' ? { uploadedByCompany: coNames.get(String(e.companyId)) || null } : {}),
         })),
       },
@@ -333,5 +336,40 @@ router.put('/loads/:id/evidence-required', auth, idParam,
     }
   });
 
+const MAX_RECEIVER_PHOTOS = 6;
+/**
+ * A photo from the receiving dock (delivery link, no account). Same checks and private storage as a
+ * carrier photo. Only while the truck is in transit and before the receiver signs; the signature locks it.
+ * Nobody can delete it: deletable() needs the uploader's company, and these have none.
+ * @returns {Promise<{ ok: boolean, code?: string, count?: number }>}
+ */
+async function addReceiverPhoto(loadId, file, note) {
+  const type = file && sniff(file.buffer);
+  if (!type || type !== file.mimetype) return { ok: false, code: 'bad_image' };
+  const load = await Load.findById(loadId).select('status acceptedBy title postedBy');
+  if (!load || load.status !== 'in-transit' || !load.acceptedBy) return { ok: false, code: 'closed' };
+  const name = `${crypto.randomBytes(16).toString('hex')}${EXT[type]}`;
+  await fs.promises.writeFile(path.join(PRIVATE_DIR, name), file.buffer, { flag: 'wx' });
+  const item = {
+    _id: new mongoose.Types.ObjectId(),
+    stage: 'delivery', kind: 'damage', file: name, mimeType: type, sizeBytes: file.buffer.length,
+    sha256: crypto.createHash('sha256').update(file.buffer).digest('hex'),
+    uploadedAt: new Date(), receiverFor: load.acceptedBy, note: clean(note).slice(0, 300) || undefined,
+  };
+  const fromReceiver = { $size: { $filter: { input: { $ifNull: ['$evidence', []] }, cond: { $and: [{ $eq: ['$$this.receiverFor', load.acceptedBy] }, { $ne: ['$$this.archived', true] }] } } } };
+  const updated = await Load.findOneAndUpdate(
+    {
+      _id: load._id, status: 'in-transit', acceptedBy: load.acceptedBy, 'deliverySignature.signedAt': null,
+      [`evidence.${MAX_STORED - 1}`]: { $exists: false },
+      $expr: { $lt: [fromReceiver, MAX_RECEIVER_PHOTOS] },
+    },
+    { $push: { evidence: item } }, { new: true }
+  ).select('+evidence');
+  if (!updated) { await rm(name); return { ok: false, code: 'closed_or_full' }; }
+  await audit(load, 'evidence_added', null, 'damage photo added by the receiver (delivery link)', { evidenceId: item._id, sha256: item.sha256 });
+  return { ok: true, count: updated.evidence.filter((e) => e.receiverFor && !e.archived).length };
+}
+
 module.exports = router;
 module.exports.PRIVATE_DIR = PRIVATE_DIR;
+module.exports.helpers = { uploadOne, addReceiverPhoto, MAX_RECEIVER_PHOTOS };

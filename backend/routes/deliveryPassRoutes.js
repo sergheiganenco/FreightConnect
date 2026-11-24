@@ -7,6 +7,7 @@
  * Public (no account: the receiving dock), by signed link only:
  *   GET  /receive/:token            what the receiver needs to check the delivery. Never the rate.
  *   GET  /receive/:token/bol        the bill of lading (PDF)
+ *   POST /receive/:token/photo      one photo of shortage/damage (up to 6), before signing. Stored privately.
  *   POST /receive/:token/sign       receiver's name + signature (+ shortage/damage note). Once, while in transit.
  *
  * Signing records proof of delivery and tells both parties; it does NOT mark the load delivered or move money.
@@ -37,6 +38,7 @@ const limiter = (max, prefix) => makeLimiter({
 }, prefix);
 const infoLimiter = limiter(60, 'rl:receiveinfo:');
 const signLimiter = limiter(10, 'rl:receivesign:');
+const photoLimiter = limiter(20, 'rl:receivephoto:');
 
 let qrcode = null;
 try { qrcode = require('qrcode'); } catch (_) { /* link still works without the QR image */ }
@@ -80,7 +82,7 @@ async function tokenLoadId(req, res) {
 /** Only what a receiving dock needs. Never rate, finance, contacts or the pickup code. */
 async function receiveInfo(loadId) {
   const load = await Load.findById(loadId).select(
-    'title status postedBy acceptedBy shipperReferenceNumber poNumber consigneeReference origin destination deliveryFacilityName deliveryAddress deliveryTimeWindow equipmentType commodityType loadWeight hazardousMaterial assignedTruckId assignedDriverName deliveredAt deliverySignature.signedAt deliverySignature.signerName deliverySignature.signedByRole deliverySignature.note'
+    '+evidence title status postedBy acceptedBy shipperReferenceNumber poNumber consigneeReference origin destination deliveryFacilityName deliveryAddress deliveryTimeWindow equipmentType commodityType loadWeight hazardousMaterial assignedTruckId assignedDriverName deliveredAt deliverySignature.signedAt deliverySignature.signerName deliverySignature.signedByRole deliverySignature.note'
   ).lean();
   if (!load) return null;
   const booked = !!load.acceptedBy && ['accepted', 'in-transit', 'delivered'].includes(load.status);
@@ -103,6 +105,7 @@ async function receiveInfo(loadId) {
     carrier: booked ? await carrierIdentity(load.acceptedBy) : null,
     truckId: booked ? load.assignedTruckId || null : null,
     driverName: booked ? load.assignedDriverName || null : null,
+    photoCount: (load.evidence || []).filter((e) => e.receiverFor && !e.archived).length,
     signed: sig.signedAt ? { at: sig.signedAt, by: sig.signerName, byReceiver: sig.signedByRole === 'receiver', note: sig.note || null } : null,
   };
 }
@@ -138,6 +141,26 @@ router.get('/receive/:token/bol', infoLimiter, async (req, res) => {
   }
 });
 
+// The link is checked BEFORE the upload is read, so only someone holding a live delivery link can send a file at all.
+router.post('/receive/:token/photo', photoLimiter,
+  async (req, res, next) => {
+    try { req.receiveLoadId = await tokenLoadId(req, res); if (req.receiveLoadId) next(); } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  },
+  (req, res, next) => require('./evidenceRoutes').helpers.uploadOne(req, res, next),
+  async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'Choose a photo to add.' });
+      const { addReceiverPhoto, MAX_RECEIVER_PHOTOS } = require('./evidenceRoutes').helpers;
+      const r = await addReceiverPhoto(req.receiveLoadId, req.file, typeof req.body.note === 'string' ? req.body.note : '');
+      if (r.ok) return res.status(201).set('Cache-Control', 'no-store').json({ photoCount: r.count });
+      if (r.code === 'bad_image') return res.status(400).json({ error: 'That file is not a JPEG, PNG or WEBP photo.' });
+      return res.status(409).json({ error: `Photos can be added while the truck is at your dock and before you sign, up to ${MAX_RECEIVER_PHOTOS}.` });
+    } catch (err) {
+      console.error('[receive-photo] failed:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
 router.post('/receive/:token/sign', signLimiter,
   body('signerName').isString().trim().isLength({ min: 2, max: 120 }).withMessage('Enter the name of the person receiving the freight.'),
   body('note').optional({ values: 'falsy' }).isString().trim().isLength({ max: 1000 }).withMessage('Keep the note under 1,000 characters.'),
@@ -158,7 +181,7 @@ router.post('/receive/:token/sign', signLimiter,
         { _id: loadId, status: 'in-transit', acceptedBy: { $ne: null }, 'deliverySignature.signedAt': null },
         { $set: { deliverySignature: { dataUrl, signerName, signedByRole: 'receiver', signedBy: null, signedAt: now, note }, 'documents.podSignerName': signerName } },
         { new: true }
-      ).select('title postedBy acceptedBy');
+      ).select('+evidence title postedBy acceptedBy');
       if (!load) {
         const cur = await Load.findById(loadId).select('status deliverySignature.signedAt').lean();
         if (!cur) return res.status(404).json({ error: 'Delivery link not found' });
@@ -167,11 +190,13 @@ router.post('/receive/:token/sign', signLimiter,
       }
       StatusHistory.record('load', loadId, 'delivery_unsigned', 'delivery_signed', null, `Receiver signed via delivery link: ${signerName}${note ? ' (with a note)' : ''}`).catch(() => {});
       regenerateBol(loadId).catch((e) => console.error('[receive-sign] BOL rebuild failed (non-fatal):', e.message));
+      const photos = (load.evidence || []).filter((e) => e.receiverFor && !e.archived).length;
+      const flagged = !!note || photos > 0;
       const notice = {
         type: 'load:delivery_signed',
-        title: note ? 'Receiver signed with a note' : 'Receiver signed for delivery',
-        body: `"${load.title}": signed by ${signerName}.${note ? ` Note: ${note.slice(0, 200)}` : ''}`,
-        metadata: { loadId: load._id, priority: note ? 'high' : 'normal' },
+        title: flagged ? 'Receiver signed and reported a problem' : 'Receiver signed for delivery',
+        body: `"${load.title}": signed by ${signerName}.${note ? ` Note: ${note.slice(0, 200)}` : ''}${photos ? ` ${photos} photo${photos > 1 ? 's' : ''} attached; see the load's photos.` : ''}`,
+        metadata: { loadId: load._id, priority: flagged ? 'high' : 'normal' },
       };
       notifyUserSafe(load.postedBy, { ...notice, link: '/dashboard/shipper/loads' });
       notifyUserSafe(load.acceptedBy, { ...notice, link: '/dashboard/carrier/my-loads' });

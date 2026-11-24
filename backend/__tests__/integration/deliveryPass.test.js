@@ -113,3 +113,57 @@ test('a link dies when the load is rebooked; a later upload cannot replace the r
   await Load.updateOne({ _id: load._id }, { $set: { acceptedBy: null, status: 'open' } });
   expect((await request(app).get(`/api${path}`)).status).toBe(404);
 });
+
+test('receiver photos: real images only, in transit and before signing, capped; both parties see them, nobody can delete them', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const evApp = express();
+  evApp.use(express.json());
+  evApp.use('/api', require('../../routes/evidenceRoutes'));
+  const { PRIVATE_DIR } = require('../../routes/evidenceRoutes');
+  const { shipper, carrier, load } = await scene('in-transit');
+  const outsider = await createTestUser({ role: 'carrier' });
+  const { token } = signDockToken(String(load._id), `receive:${carrier._id}`, 60000);
+  const png = Buffer.from(PNG.split(',')[1], 'base64');
+  const send = (t, buf = png, name = 'dent.png', type = 'image/png') => request(app).post(`/api/receive/${t}/photo`).attach('file', buf, { filename: name, contentType: type });
+
+  expect((await send('bad.token.here')).status).toBe(404);                                   // no live link: the file is never read
+  expect((await send(token, Buffer.from('<html><script>1</script></html>'), 'x.png')).status).toBe(400); // lies about its type
+  expect((await send(token, Buffer.from('%PDF-1.4 ...........'), 'x.pdf', 'application/pdf')).status).toBe(400);
+
+  const ok = await send(token);
+  expect(ok.status).toBe(201);
+  expect(ok.body.photoCount).toBe(1);
+  expect((await request(app).get(`/api/receive/${token}`)).body.photoCount).toBe(1);
+
+  const stored = (await Load.findById(load._id).select('+evidence')).evidence[0];
+  expect(stored).toMatchObject({ stage: 'delivery', kind: 'damage', mimeType: 'image/png' });
+  expect(String(stored.receiverFor)).toBe(String(carrier._id));
+  expect(stored.file).toMatch(/^[a-f0-9]{32}\.png$/);                                         // our name, never the sender's
+  expect(fs.existsSync(path.join(PRIVATE_DIR, stored.file))).toBe(true);
+
+  // shipper and the booked carrier see it, marked as the receiver's; another carrier does not
+  for (const u of [shipper, carrier]) {
+    const list = await request(evApp).get(`/api/loads/${load._id}/evidence`).set('Authorization', `Bearer ${generateToken(u)}`);
+    expect(list.body.data.items[0]).toMatchObject({ byReceiver: true, uploadedByName: 'the receiver', deletable: false });
+    expect(list.body.data.items[0].file).toBeUndefined();
+    expect((await request(evApp).get(`/api/loads/${load._id}/evidence/${stored._id}/file`).set('Authorization', `Bearer ${generateToken(u)}`)).status).toBe(200);
+  }
+  expect((await request(evApp).get(`/api/loads/${load._id}/evidence`).set('Authorization', `Bearer ${generateToken(outsider)}`)).status).toBe(403);
+  expect((await request(evApp).delete(`/api/loads/${load._id}/evidence/${stored._id}`).set('Authorization', `Bearer ${generateToken(carrier)}`)).status).toBe(403);
+
+  // capped at 6
+  for (let i = 0; i < 5; i += 1) expect((await send(token)).status).toBe(201);
+  expect((await send(token)).status).toBe(409);
+
+  // signing tells both parties about the photos, then locks them
+  const signed = await request(app).post(`/api/receive/${token}/sign`).send({ signerName: 'Dana Dock', dataUrl: PNG });
+  expect(signed.status).toBe(200);
+  expect((await send(token)).status).toBe(409);
+  for (const f of (await Load.findById(load._id).select('+evidence')).evidence) fs.unlinkSync(path.join(PRIVATE_DIR, f.file));
+
+  // not out for delivery: refused
+  const early = await scene('accepted');
+  const t2 = signDockToken(String(early.load._id), `receive:${early.carrier._id}`, 60000).token;
+  expect((await send(t2)).status).toBe(409);
+});
