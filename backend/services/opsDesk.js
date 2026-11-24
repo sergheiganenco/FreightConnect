@@ -95,7 +95,7 @@ async function autoResolve() {
 // ── Step 2: the queue ────────────────────────────────────────────────────────
 async function collectCases({ adminId, env = process.env } = {}) {
   const open = { $in: ['open', 'investigating'] };
-  const [claims, exceptions, reviews, frauds, carriers, shippers, contacts, stuckPayouts, unpaidFees] = await Promise.all([
+  const [claims, exceptions, reviews, frauds, carriers, shippers, contacts, stuckPayouts, unpaidFees, heldPayments] = await Promise.all([
     Claim.find({ status: open }).sort({ createdAt: 1 }).limit(200).lean(),
     Exception.find({ status: open }).sort({ createdAt: 1 }).limit(200).lean(),
     ReviewQueue.find({ status: 'pending' }).sort({ createdAt: 1 }).limit(200).populate('subjectUser', 'companyName name').lean(),
@@ -107,7 +107,13 @@ async function collectCases({ adminId, env = process.env } = {}) {
     Payment.find({ status: 'captured', updatedAt: { $lt: new Date(Date.now() - HOUR) } }).sort({ updatedAt: 1 }).limit(100).lean(),
     // A fee (detention, cancelled truck) already collected from the shipper but not yet passed on to the carrier.
     Load.find({ accessorialCharges: { $elemMatch: { status: 'approved', shipperPaymentStatus: 'collected' } } }).select('title accessorialCharges').limit(100).lean(),
+    // Card holds still open. Only the ones on delivered loads become cases (below).
+    Payment.find({ status: 'in_escrow' }).sort({ createdAt: 1 }).limit(500).lean(),
   ]);
+  const deliveredIds = heldPayments.length
+    ? new Set((await Load.find({ _id: { $in: heldPayments.map((p) => p.loadId) }, status: 'delivered' }).select('_id').lean()).map((l) => String(l._id)))
+    : new Set();
+  const uncollected = heldPayments.filter((p) => deliveredIds.has(String(p.loadId)));
   const loadIds = [...claims, ...exceptions].map((c) => c.loadId);
   const loads = loadIds.length
     ? await Load.find({ _id: { $in: loadIds } }).select('title status deliverySignature.signedAt deliverySignature.signedByRole deliverySignature.note').lean()
@@ -123,9 +129,17 @@ async function collectCases({ adminId, env = process.env } = {}) {
       severity: 'critical', ageHours: age(c.approvedAt), link: '/dashboard/admin/ledger',
       proposal: review('The shipper has paid this fee, but it has not been sent to the carrier (often because the carrier has not finished payout setup, or a factoring notice is on file).'),
     }))),
+    ...uncollected.map((p) => {
+      const days = Math.floor(age(p.createdAt) / 24);
+      return {
+        kind: 'payout', id: p._id, title: `Delivered, but the shipper has not been charged: ${money(p.amountCents)}`, detail: `Load ${p.loadId}`,
+        severity: 'critical', ageHours: age(p.createdAt), link: '/dashboard/admin/ledger',
+        proposal: review(`The load is delivered but the hold on the shipper's card was never collected, usually because the carrier has not finished payout setup. The hold was placed ${days} day${days === 1 ? '' : 's'} ago and card holds lapse after about 7 days; once it lapses the shipper has to pay again.`),
+      };
+    }),
     ...stuckPayouts.map((p) => ({
       kind: 'payout', id: p._id, title: `Carrier payout not sent: ${money(p.carrierPayoutCents ?? p.amountCents)}`, detail: `Load ${p.loadId}`,
-      severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger', retryPayoutId: p.payoutRoute === 'factor' ? undefined : p._id,
+      severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger', retryPayoutId: p.payoutRoute === 'factor' ? undefined : p._id, factorPaidId: p.payoutRoute === 'factor' ? p._id : undefined,
       proposal: review('The shipper has been charged, but the payout to the carrier (or its factoring company) has not gone out. "Send payout" tries again; it refuses if a factoring notice is on file or the carrier has no payout account.'),
     })),
     ...claims.map((c) => ({

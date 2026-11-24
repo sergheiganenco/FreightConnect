@@ -34,6 +34,16 @@ export default function AdminOpsDesk() {
       .finally(() => setSending(null));
   };
 
+  const markFactorPaid = (id) => {
+    const reference = window.prompt("Cheque or bank transfer reference for the payment to the factoring company:");
+    if (!reference) return;
+    setSending(id); setNotice(null);
+    api.post(`/payments/${id}/factor-paid`, { reference })
+      .then(() => { setNotice({ severity: "success", text: "Recorded as paid to the factoring company." }); load(); })
+      .catch((e) => setNotice({ severity: "error", text: e.response?.data?.error || "This could not be recorded." }))
+      .finally(() => setSending(null));
+  };
+
   return (
     <Box sx={{ width: "100%", maxWidth: 1100, mx: "auto", py: { xs: 1, md: 3 } }}>
       <Stack direction="row" alignItems="center" spacing={2} mb={1}>
@@ -75,6 +85,7 @@ export default function AdminOpsDesk() {
                   </Box>
                   <Stack direction={{ xs: "row", sm: "column" }} spacing={1} sx={{ flexShrink: 0 }}>
                     {c.retryPayoutId && <Button variant="contained" disabled={sending === c.retryPayoutId} onClick={() => sendPayout(c.retryPayoutId)}>Send payout</Button>}
+                    {c.factorPaidId && <Button variant="contained" disabled={sending === c.factorPaidId} onClick={() => markFactorPaid(c.factorPaidId)}>Mark factor paid</Button>}
                     {c.link && <Button variant="outlined" onClick={() => navigate(c.link)}>Open</Button>}
                   </Stack>
                 </Stack>

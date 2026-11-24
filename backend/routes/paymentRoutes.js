@@ -323,6 +323,42 @@ router.post('/:paymentId/retry-payout', auth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// POST /api/payments/:paymentId/factor-paid — admin records that a payout owed to a factoring company
+// was paid outside the app (cheque / bank transfer). Moves no money; closes the case with a reference.
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/:paymentId/factor-paid', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (!/^[a-f0-9]{24}$/i.test(req.params.paymentId)) return res.status(400).json({ error: 'Invalid payment id' });
+    const reference = typeof (req.body && req.body.reference) === 'string' ? req.body.reference.trim() : '';
+    if (reference.length < 3 || reference.length > 120) return res.status(400).json({ error: 'Enter the cheque or transfer reference (3 to 120 characters).' });
+
+    const payment = await Payment.findOneAndUpdate(
+      { _id: req.params.paymentId, status: 'captured', payoutRoute: 'factor' },
+      { $set: { status: 'released', releasedAt: new Date(), factorPaidAt: new Date(), factorPaidRef: reference, factorPaidBy: req.user.userId } },
+      { new: true },
+    );
+    if (!payment) return res.status(409).json({ error: 'This payment is not waiting on a factoring company.' });
+    try {
+      await ledgerService.record({
+        transactionId: `factor_paid_${payment._id}`,
+        loadId: String(payment.loadId),
+        entryType: 'factor_paid',
+        amountCents: payment.carrierPayoutCents,
+        debitAccount: 'factor_payable',
+        creditAccount: 'escrow_holding',
+        description: `Factoring company paid outside the app for Load ${payment.loadId} (ref ${reference})`,
+        stripeRef: null,
+      });
+    } catch (e) { console.error('[payments] factor-paid ledger failed:', e.message); }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[payments] factor-paid failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // GET /api/payments/price-breakdown?amountCents= — the same numbers for shipper and carrier: what the shipper pays,
 // the platform fee, what the carrier receives. Pure arithmetic from the fee rule (no load or account data).
 // ────────────────────────────────────────────────────────────────────────────

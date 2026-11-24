@@ -276,3 +276,48 @@ test('a payout assigned to a factoring company is never sent to the carrier late
   expect(c.kind).toBe('payout');
   expect(c.retryPayoutId).toBeUndefined(); // shown, but with no send button
 });
+
+describe('desk: factoring payouts and uncollected holds', () => {
+  const express = require('express');
+  const request = require('supertest');
+  const LedgerEntry = require('../../models/LedgerEntry');
+  const { generateToken } = require('../helpers');
+  const app = express();
+  app.use(express.json());
+  app.use('/api/payments', require('../../routes/paymentRoutes'));
+  const old = (p) => Payment.collection.updateOne({ _id: p._id }, { $set: { updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000) } });
+
+  test('a factoring payout is closed by an admin with a reference, once, and the ledger balances', async () => {
+    const { carrier, payment } = await scene('captured', { stripeChargeId: 'ch_1', payoutRoute: 'factor' });
+    await old(payment);
+    expect((await desk.collectCases({})).find((c) => String(c.id) === String(payment._id)).factorPaidId).toBeDefined();
+    const admin = await createTestUser({ role: 'admin' });
+    const post = (u, body, id = payment._id) => request(app).post(`/api/payments/${id}/factor-paid`).set('Authorization', `Bearer ${generateToken(u)}`).send(body);
+    expect((await post(carrier, { reference: 'ACH 1' })).status).toBe(403);
+    expect((await post(admin, {})).status).toBe(400);
+    expect((await post(admin, { reference: { $gt: '' } })).status).toBe(400);
+    mockStripe.transfers.create.mockClear();
+    expect((await post(admin, { reference: 'ACH 20261124-7' })).status).toBe(200);
+    expect(mockStripe.transfers.create).not.toHaveBeenCalled(); // records only, moves no money
+    expect(await Payment.findById(payment._id)).toMatchObject({ status: 'released', factorPaidRef: 'ACH 20261124-7' });
+    expect((await post(admin, { reference: 'again' })).status).toBe(409);
+    const entries = await LedgerEntry.find({ transactionId: `factor_paid_${payment._id}` });
+    expect(entries.map((e) => `${e.direction}:${e.account}:${e.amountCents}`).sort()).toEqual(['credit:escrow_holding:98000', 'debit:factor_payable:98000']);
+    expect((await desk.collectCases({})).some((c) => String(c.id) === String(payment._id))).toBe(false);
+
+    // a payout that is not a factoring one cannot be closed this way
+    const plain = await scene('captured', { stripeChargeId: 'ch_1' });
+    expect((await post(admin, { reference: 'ACH 2' }, plain.payment._id)).status).toBe(409);
+  });
+
+  test('a delivered load whose card hold was never collected is on the desk; an undelivered one is not', async () => {
+    const waiting = await scene('in_escrow');
+    const delivered = await scene('in_escrow');
+    await Load.updateOne({ _id: delivered.load._id }, { $set: { status: 'delivered' } });
+    const cases = await desk.collectCases({});
+    expect(cases.some((c) => String(c.id) === String(waiting.payment._id))).toBe(false);
+    const c = cases.find((x) => String(x.id) === String(delivered.payment._id));
+    expect(c).toMatchObject({ kind: 'payout', severity: 'critical' });
+    expect(c.title).toMatch(/has not been charged: \$1,000\.00/);
+  });
+});

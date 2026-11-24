@@ -39,6 +39,11 @@ const PaymentSchema = new mongoose.Schema({
   // is owed to the factoring company and must never later be sent to the carrier.
   payoutRoute: { type: String, enum: ['carrier', 'factor', 'held'] },
 
+  // Set when an admin records that the factoring company was paid outside the app.
+  factorPaidAt:  Date,
+  factorPaidRef: String,   // cheque / ACH reference the admin entered
+  factorPaidBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
   releasedAt: Date,
   refundedAt: Date,
   failedAt:   Date,

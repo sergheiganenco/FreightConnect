@@ -11,7 +11,7 @@ const LedgerEntrySchema = new mongoose.Schema({
   loadId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Load', default: null, index: true },
   paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment', default: null },
   // Accounts: escrow_holding, carrier_payable, platform_revenue, shipper_funds, refunds, accessorial_payable
-  account:   { type: String, required: true, enum: ['escrow_holding', 'carrier_payable', 'platform_revenue', 'shipper_funds', 'refunds', 'accessorial_payable'], index: true },
+  account:   { type: String, required: true, enum: ['escrow_holding', 'carrier_payable', 'platform_revenue', 'shipper_funds', 'refunds', 'accessorial_payable', 'factor_payable', 'payout_held'], index: true },
   direction: { type: String, required: true, enum: ['debit', 'credit'] },
   amountCents: { type: Number, required: true },
   currency:  { type: String, default: 'usd' },
