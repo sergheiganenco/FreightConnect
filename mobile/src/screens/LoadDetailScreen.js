@@ -263,6 +263,8 @@ export default function LoadDetailScreen({ route, navigation }) {
               <Text style={styles.facilityValue}>{load.pickupFacilityName}</Text>
               {load.pickupAddress && <Text style={styles.facilityAddr}>{load.pickupAddress}</Text>}
               {load.pickupContactName && <Text style={styles.facilityAddr}>Contact: {load.pickupContactName} {load.pickupContactPhone}</Text>}
+              {!!load.pickupNumber && <Text style={styles.facilityAddr}>Pickup number: {load.pickupNumber}</Text>}
+              {!!load.pickupHours && <Text style={styles.facilityAddr}>Hours: {load.pickupHours}</Text>}
             </>
           )}
           {load.deliveryFacilityName && (
@@ -271,6 +273,7 @@ export default function LoadDetailScreen({ route, navigation }) {
               <Text style={styles.facilityValue}>{load.deliveryFacilityName}</Text>
               {load.deliveryAddress && <Text style={styles.facilityAddr}>{load.deliveryAddress}</Text>}
               {load.deliveryContactName && <Text style={styles.facilityAddr}>Contact: {load.deliveryContactName} {load.deliveryContactPhone}</Text>}
+              {!!load.deliveryHours && <Text style={styles.facilityAddr}>Hours: {load.deliveryHours}</Text>}
             </>
           )}
         </View>

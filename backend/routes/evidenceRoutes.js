@@ -180,7 +180,7 @@ router.post('/loads/:id/evidence', auth,
           [`evidence.${MAX_STORED - 1}`]: { $exists: false },
           $expr: { $lt: [{ $size: { $filter: { input: { $ifNull: ['$evidence', []] }, cond: { $ne: ['$$this.archived', true] } } } }, MAX_PER_LOAD] },
         },
-        { $push: { evidence: item } }, { new: true }
+        { $push: { evidence: item }, ...(stage === 'pickup' && item.sealNumber ? { $set: { sealNumber: item.sealNumber } } : {}) }, { new: true }
       ).select('+evidence');
       if (!updated) {
         await rm(file);

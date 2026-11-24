@@ -37,9 +37,18 @@ const LoadSchema = new mongoose.Schema({
   hazmatClass: { type: String, maxlength: 50 },
   hazmatPackingGroup: { type: String, maxlength: 50 },
   dangerousGoodsUN: { type: String, maxlength: 50 },
+  // The two things a hazmat shipping paper must carry besides class / UN number / packing group
+  hazmatShippingName: { type: String, maxlength: 200 },   // proper shipping name
+  hazmatEmergencyPhone: { type: String, maxlength: 50 },  // 24-hour emergency response number
+
+  // ── What is physically handed over (printed on the bill of lading) ────────
+  pieceCount: Number,                                  // handling units
+  packageType: { type: String, maxlength: 50 },        // pallets, cartons, drums ...
+  sealNumber: { type: String, maxlength: 40 },         // recorded by the carrier at pickup
 
   // ── Enterprise / extended fields ──────────────────────────────────────────
   paymentTerms: { type: String, maxlength: 200 },
+  termsAcceptedAt: Date, // when the shipper ticked the posting terms for this load
   currency: { type: String, default: 'USD', maxlength: 10 },
   specialHandling: [{ type: String, maxlength: 100 }],
   accessorials: [{ type: String, maxlength: 100 }],
@@ -76,6 +85,7 @@ const LoadSchema = new mongoose.Schema({
   poNumber: { type: String, maxlength: 200 },
   shipperReferenceNumber: { type: String, maxlength: 200 },
   consigneeReference: { type: String, maxlength: 200 },
+  pickupNumber: { type: String, maxlength: 100 },      // the number the shipping dock asks the driver for
 
   // ── Overweight acknowledgment ─────────────────────────────────────────────
   overweightAcknowledged: { type: Boolean, default: false },
@@ -90,6 +100,9 @@ const LoadSchema = new mongoose.Schema({
   deliveryAddress: { type: String, maxlength: 300 },
   deliveryContactName: { type: String, maxlength: 200 },
   deliveryContactPhone: { type: String, maxlength: 50 },
+  deliveryContactEmail: { type: String, maxlength: 200 }, // the receiver, for sending delivery documents ahead
+  pickupHours: { type: String, maxlength: 200 },       // e.g. "Mon-Fri 07:00-15:00, closed 12-13"
+  deliveryHours: { type: String, maxlength: 200 },
 
   status: { type: String, default: 'open', enum: ['open', 'accepted', 'in-transit', 'delivered', 'cancelled', 'disputed', 'resolved'] },
   postedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -157,6 +170,14 @@ const LoadSchema = new mongoose.Schema({
     signerName:  { type: String, default: null },
     signedByRole:{ type: String, enum: ['carrier', 'shipper', null], default: null },
     signedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    signedAt:    { type: Date, default: null },
+  },
+  // The shipper's signature at the dock. Usually taken on the driver's device (capturedBy = the driver's login).
+  shipperSignature: {
+    dataUrl:     { type: String, default: null },
+    signerName:  { type: String, default: null },
+    capturedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    capturedByRole: { type: String, enum: ['carrier', 'shipper', null], default: null },
     signedAt:    { type: Date, default: null },
   },
   deliverySignature: {

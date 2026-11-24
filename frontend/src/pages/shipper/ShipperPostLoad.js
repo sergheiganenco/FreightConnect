@@ -77,6 +77,15 @@ const initialLoad = {
   hazmatClass: "",
   hazmatPackingGroup: "",
   dangerousGoodsUN: "",
+  hazmatShippingName: "",
+  hazmatEmergencyPhone: "",
+  // Printed on the bill of lading / needed at the dock
+  pieceCount: "",
+  packageType: "",
+  pickupNumber: "",
+  pickupHours: "",
+  deliveryHours: "",
+  deliveryContactEmail: "",
   temperatureMin: "",
   temperatureMax: "",
   temperatureUnit: "F",
@@ -135,6 +144,10 @@ function loadToForm(l) {
     insuranceRequired: customIns ? 'custom' : ins, customInsuranceAmount: customIns ? ins : '',
     hazardousMaterial: l.hazardousMaterial === true,
     hazmatClass: str(l.hazmatClass), hazmatPackingGroup: str(l.hazmatPackingGroup), dangerousGoodsUN: str(l.dangerousGoodsUN),
+    hazmatShippingName: str(l.hazmatShippingName), hazmatEmergencyPhone: str(l.hazmatEmergencyPhone),
+    pieceCount: str(l.pieceCount), packageType: str(l.packageType), pickupNumber: str(l.pickupNumber),
+    pickupHours: str(l.pickupHours), deliveryHours: str(l.deliveryHours), deliveryContactEmail: str(l.deliveryContactEmail),
+    equipmentSubtype: str(l.equipmentSubtype), requiredEndorsements: l.requiredEndorsements || [],
     temperatureMin: str(reefer.targetMinC), temperatureMax: str(reefer.targetMaxC), temperatureUnit: 'C', // stored in Celsius
     specialHandling: l.specialHandling || [], accessorials: l.accessorials || [], documentsRequired: l.documentsRequired || [],
     loadLength: str(d.length), loadWidth: str(d.width), loadHeight: str(d.height),
@@ -171,6 +184,10 @@ function formToApi(f, stops, reeferBase) {
     hazardousMaterial: hazmat,
     hazmatClass: hazmat ? txt(f.hazmatClass) : null, hazmatPackingGroup: hazmat ? txt(f.hazmatPackingGroup) : null,
     dangerousGoodsUN: hazmat ? txt(f.dangerousGoodsUN) : null,
+    hazmatShippingName: hazmat ? txt(f.hazmatShippingName) : null, hazmatEmergencyPhone: hazmat ? txt(f.hazmatEmergencyPhone) : null,
+    pieceCount: num(f.pieceCount), packageType: txt(f.packageType), pickupNumber: txt(f.pickupNumber),
+    pickupHours: txt(f.pickupHours), deliveryHours: txt(f.deliveryHours), deliveryContactEmail: txt(f.deliveryContactEmail),
+    equipmentSubtype: txt(f.equipmentSubtype), requiredEndorsements: f.requiredEndorsements,
     reefer: f.equipmentType === 'Reefer' ? { ...reeferBase, enabled: true, targetMinC: toC(f.temperatureMin), targetMaxC: toC(f.temperatureMax), alertOnDeviation: true } : null,
     stops: stops.map((s, i) => ({
       sequence: i + 1, type: s.type, address: s.address,
@@ -203,7 +220,11 @@ const FIELD_LABELS = {
   equipmentType: 'Equipment type', origin: 'Pickup city', pickupWindowStart: 'Pickup time', pickupWindowEnd: 'Pickup end',
   destination: 'Delivery city', deliveryWindowStart: 'Delivery time', deliveryWindowEnd: 'Delivery end', rate: 'Rate',
   currency: 'Currency', paymentTerms: 'Payment terms', termsAccepted: 'Terms', overweightAcknowledged: 'Overweight acknowledgement',
+  hazmatClass: 'Hazard class', dangerousGoodsUN: 'UN number', hazmatShippingName: 'Proper shipping name',
+  hazmatEmergencyPhone: 'Emergency phone', pieceCount: 'Pieces', deliveryContactEmail: 'Receiver email',
 };
+const PACKAGE_TYPES = ['Pallets', 'Cartons', 'Crates', 'Drums', 'Bags', 'Bundles', 'Rolls', 'Totes', 'Pieces'];
+const HAZMAT_REQUIRED = ['hazmatClass', 'dangerousGoodsUN', 'hazmatShippingName', 'hazmatEmergencyPhone'];
 
 const EQUIPMENT_SUBTYPES = {
   Reefer:    [{ value: 'multi_temp', label: 'Multi-Temp' }, { value: 'frozen', label: 'Frozen' }, { value: 'produce', label: 'Produce' }],
@@ -420,12 +441,23 @@ export default function ShipperPostLoad() {
     }, 60);
   };
 
+  // What the bill of lading cannot be printed without, and values the server would refuse.
+  const paperworkProblems = (step) => {
+    const e = {};
+    if (step !== 1) {
+      if (newLoad.hazardousMaterial) HAZMAT_REQUIRED.forEach((k) => { if (!String(newLoad[k] || '').trim()) e[k] = 'Required for a hazardous load.'; });
+      if (newLoad.pieceCount !== '' && !(Number.isInteger(Number(newLoad.pieceCount)) && Number(newLoad.pieceCount) >= 1)) e.pieceCount = 'Enter a whole number.';
+    }
+    if (step !== 0 && newLoad.deliveryContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newLoad.deliveryContactEmail.trim())) e.deliveryContactEmail = 'Enter an email address.';
+    return e;
+  };
+
   const validateFields = () => {
     let errors = {};
     requiredFields.forEach((k) => {
       if (!newLoad[k]) errors[k] = REQUIRED_MSG;
     });
-    Object.assign(errors, dateProblems());
+    Object.assign(errors, dateProblems(), paperworkProblems());
     // Block submission when overweight and not acknowledged
     if (newLoad.weight && newLoad.equipmentType) {
       const maxLbs = EQUIPMENT_WEIGHT_LIMITS[newLoad.equipmentType];
@@ -462,6 +494,7 @@ export default function ShipperPostLoad() {
       }
     }
     if (step === 1) Object.assign(errors, dateProblems());
+    Object.assign(errors, paperworkProblems(step));
     reportErrors(errors, true);
     return Object.keys(errors).length === 0;
   };
@@ -554,7 +587,6 @@ export default function ShipperPostLoad() {
         };
         // Remove fields not needed by backend
         delete payload.customInsuranceAmount;
-        delete payload.termsAccepted;
         if (wantsTender) {
           // The server sets loadVisibility to 'tender' itself.
           delete payload.loadVisibility;
@@ -617,6 +649,13 @@ export default function ShipperPostLoad() {
     cargoValue: 12,
     customInsuranceAmount: 12,
     dangerousGoodsUN: 20,
+    hazmatShippingName: 120,
+    hazmatEmergencyPhone: 30,
+    pieceCount: 6,
+    pickupNumber: 60,
+    pickupHours: 120,
+    deliveryHours: 120,
+    deliveryContactEmail: 120,
     temperatureMin: 8,
     temperatureMax: 8,
     carrierInstructions: 300,
@@ -854,6 +893,28 @@ export default function ShipperPostLoad() {
             </FormControl>
           </Grid>
 
+          {/* Pieces and packaging (printed on the bill of lading) */}
+          <Grid item xs={6} sm={3}>
+            <TextField
+              label="Pieces"
+              type="number"
+              fullWidth
+              value={newLoad.pieceCount}
+              onChange={e => handleChange("pieceCount", e.target.value, limits.pieceCount)}
+              inputProps={{ min: 1, step: 1 }}
+              error={!!fieldErrors.pieceCount} helperText={fieldErrors.pieceCount || "Handling units"}
+            />
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <FormControl fullWidth>
+              <InputLabel>Packaging</InputLabel>
+              <Select value={newLoad.packageType} label="Packaging"
+                onChange={e => handleChange("packageType", e.target.value)}>
+                <MenuItem value="">Not stated</MenuItem>
+                {PACKAGE_TYPES.map(p => <MenuItem value={p.toLowerCase()} key={p}>{p}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Grid>
           {/* Weight */}
           <Grid item xs={12} sm={6}>
             <TextField
@@ -1100,7 +1161,7 @@ export default function ShipperPostLoad() {
               <Grid item xs={12} sm={4}>
                 <FormControl fullWidth>
                   <InputLabel>Hazard Class</InputLabel>
-                  <Select value={newLoad.hazmatClass} label="Hazard Class"
+                  <Select value={newLoad.hazmatClass} label="Hazard Class" error={!!fieldErrors.hazmatClass}
                     onChange={e => handleChange("hazmatClass", e.target.value)}>
                     <MenuItem value="">Select</MenuItem>
                     {HAZMAT_CLASSES.map(h => (
@@ -1129,6 +1190,31 @@ export default function ShipperPostLoad() {
                   onChange={e => handleChange("dangerousGoodsUN", e.target.value, limits.dangerousGoodsUN)}
                   inputProps={{ maxLength: limits.dangerousGoodsUN }}
                   placeholder="e.g. UN1203"
+                  error={!!fieldErrors.dangerousGoodsUN} helperText={fieldErrors.dangerousGoodsUN || undefined}
+                />
+              </Grid>
+              <Grid item xs={12} sm={7}>
+                <TextField
+                  label="Proper Shipping Name"
+                  fullWidth
+                  value={newLoad.hazmatShippingName}
+                  onChange={e => handleChange("hazmatShippingName", e.target.value, limits.hazmatShippingName)}
+                  inputProps={{ maxLength: limits.hazmatShippingName }}
+                  placeholder="e.g. Gasoline"
+                  error={!!fieldErrors.hazmatShippingName}
+                  helperText={fieldErrors.hazmatShippingName || "As listed in the hazardous materials table. Printed on the bill of lading."}
+                />
+              </Grid>
+              <Grid item xs={12} sm={5}>
+                <TextField
+                  label="24-Hour Emergency Phone"
+                  fullWidth
+                  type="tel"
+                  value={newLoad.hazmatEmergencyPhone}
+                  onChange={e => handleChange("hazmatEmergencyPhone", e.target.value, limits.hazmatEmergencyPhone)}
+                  inputProps={{ maxLength: limits.hazmatEmergencyPhone }}
+                  error={!!fieldErrors.hazmatEmergencyPhone}
+                  helperText={fieldErrors.hazmatEmergencyPhone || "Answered at any hour while the load is moving."}
                 />
               </Grid>
             </Grid>
@@ -1225,6 +1311,27 @@ export default function ShipperPostLoad() {
               helperText="Optional"
             />
           </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Pickup Number"
+              fullWidth
+              value={newLoad.pickupNumber}
+              onChange={e => handleChange("pickupNumber", e.target.value, limits.pickupNumber)}
+              inputProps={{ maxLength: limits.pickupNumber }}
+              helperText="Optional. The number the dock will ask the driver for."
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Pickup Facility Hours"
+              fullWidth
+              value={newLoad.pickupHours}
+              onChange={e => handleChange("pickupHours", e.target.value, limits.pickupHours)}
+              inputProps={{ maxLength: limits.pickupHours }}
+              placeholder="e.g. Mon-Fri 7:00-15:00"
+              helperText="Optional"
+            />
+          </Grid>
         </Grid>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
@@ -1283,6 +1390,28 @@ export default function ShipperPostLoad() {
               onChange={e => handleChange("deliveryContactPhone", e.target.value, limits.deliveryContactPhone)}
               inputProps={{ maxLength: limits.deliveryContactPhone }}
               error={!!fieldErrors.deliveryContactPhone} helperText={fieldErrors.deliveryContactPhone || "Optional"}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Receiver Email"
+              fullWidth
+              type="email"
+              value={newLoad.deliveryContactEmail}
+              onChange={e => handleChange("deliveryContactEmail", e.target.value, limits.deliveryContactEmail)}
+              inputProps={{ maxLength: limits.deliveryContactEmail }}
+              error={!!fieldErrors.deliveryContactEmail} helperText={fieldErrors.deliveryContactEmail || "Optional"}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Delivery Facility Hours"
+              fullWidth
+              value={newLoad.deliveryHours}
+              onChange={e => handleChange("deliveryHours", e.target.value, limits.deliveryHours)}
+              inputProps={{ maxLength: limits.deliveryHours }}
+              placeholder="e.g. 24 hours, by appointment"
+              helperText="Optional"
             />
           </Grid>
           <Grid item xs={12} sm={6}>

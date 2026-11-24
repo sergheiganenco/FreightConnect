@@ -407,7 +407,23 @@ router.post('/:loadId/pickup-signature', auth, async (req, res) => {
     const dataUrl = parseSignatureDataUrl(req.body.dataUrl || req.body.signatureData);
     if (!dataUrl) return res.status(400).json({ error: 'A valid PNG signature (data:image/png;base64,...) is required' });
 
-    load.pickupSignature = buildSignature(dataUrl, req.body.signerName, req);
+    // Two signatures belong on a bill of lading at pickup: the driver's and the shipper's.
+    // party=shipper is the dock signing on the driver's device; a shipper login always signs as the shipper.
+    const forShipper = req.user.role === 'shipper' || req.body.party === 'shipper';
+    if (forShipper) {
+      if (req.user.role !== 'shipper' && !String(req.body.signerName || '').trim()) {
+        return res.status(400).json({ error: 'Enter the name of the person signing for the shipper' });
+      }
+      load.shipperSignature = {
+        dataUrl,
+        signerName: req.body.signerName ? String(req.body.signerName).trim().slice(0, 120) : null,
+        capturedBy: req.user.userId,
+        capturedByRole: req.user.role === 'shipper' ? 'shipper' : 'carrier',
+        signedAt: new Date(),
+      };
+    } else {
+      load.pickupSignature = buildSignature(dataUrl, req.body.signerName, req);
+    }
     await load.save();
 
     // Generate the BOL now so the pickup signature is captured on paper.
@@ -422,6 +438,7 @@ router.post('/:loadId/pickup-signature', auth, async (req, res) => {
 
     res.json({
       url: bolUrl,
+      party: forShipper ? 'shipper' : 'carrier',
       pickupSignature: {
         signerName: load.pickupSignature.signerName,
         signedByRole: load.pickupSignature.signedByRole,

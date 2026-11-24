@@ -81,7 +81,10 @@ const TEXT_CAPS = {
   pickupFacilityName: 200, pickupAddress: 300, pickupContactName: 200, pickupContactPhone: 50,
   deliveryFacilityName: 200, deliveryAddress: 300, deliveryContactName: 200, deliveryContactPhone: 50,
   overweightPermitNumber: 200,
+  hazmatShippingName: 200, hazmatEmergencyPhone: 50, packageType: 50, pickupNumber: 100,
+  pickupHours: 200, deliveryHours: 200, deliveryContactEmail: 200, equipmentSubtype: 50,
 };
+const ENDORSEMENTS = ['hazmat', 'tanker', 'doubles_triples']; // freight endorsements a load can require of the driver
 // Array-of-string fields (form option lists; the longest option is 34 characters) and multi-stop limits.
 const ARRAY_FIELDS = ['specialHandling', 'accessorials', 'documentsRequired'];
 const MAX_ARRAY_ITEMS = 20;
@@ -91,7 +94,7 @@ const STOP_TEXT_CAPS = { address: 300, contactName: 200, contactPhone: 50, notes
 const STOP_TYPES = ['pickup', 'delivery']; // Load.stops[].type enum
 // [min, max]. The form lets weight be 8 digits and cargo value / insurance 12; equipment limits top out at 48,000 lbs and
 // heavier loads are allowed with an overweight permit, so weight is bounded at a superload (500,000 lbs), not at a truck.
-const NUM_BOUNDS = { rate: [0, 1000000], loadWeight: [0, 500000], cargoValue: [0, 1e9], insuranceRequired: [0, 1e9] };
+const NUM_BOUNDS = { rate: [0, 1000000], loadWeight: [0, 500000], cargoValue: [0, 1e9], insuranceRequired: [0, 1e9], pieceCount: [1, 100000] };
 const DIMENSION_BOUNDS = [0, 999999]; // the form allows 6 digits per dimension
 const REEFER_TEMP_C = [-40, 40];
 // eslint-disable-next-line no-control-regex
@@ -126,6 +129,12 @@ function badFieldMessage(fields) {
     const v = fields[key];
     if (v == null || v === '') continue;
     if (outside(toNum(v), bounds)) return `${key} must be a number between ${bounds[0]} and ${bounds[1]}.`;
+  }
+  if (fields.pieceCount != null && fields.pieceCount !== '' && !Number.isInteger(toNum(fields.pieceCount))) return 'pieceCount must be a whole number.';
+  if (fields.deliveryContactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.deliveryContactEmail)) return 'deliveryContactEmail must be an email address.';
+  if (fields.requiredEndorsements != null) {
+    const v = fields.requiredEndorsements;
+    if (!Array.isArray(v) || v.some((x) => !ENDORSEMENTS.includes(x))) return `requiredEndorsements must be a list drawn from: ${ENDORSEMENTS.join(', ')}.`;
   }
   const dims = fields.loadDimensions;
   if (dims != null) {
@@ -231,6 +240,9 @@ const POSTABLE_FIELDS = [
   'pickupFacilityName', 'pickupAddress', 'pickupContactName', 'pickupContactPhone',
   'deliveryFacilityName', 'deliveryAddress', 'deliveryContactName', 'deliveryContactPhone',
   'overweightAcknowledged', 'overweightPermitNumber', 'reefer', 'contractId', 'isContractLoad',
+  'hazmatShippingName', 'hazmatEmergencyPhone', 'pieceCount', 'packageType', 'pickupNumber',
+  'pickupHours', 'deliveryHours', 'deliveryContactEmail', 'equipmentSubtype', 'requiredEndorsements',
+  'termsAcceptedAt',
 ];
 
 function postableFields(fields = {}) {
@@ -359,7 +371,7 @@ async function createPostedLoad({ shipperCompanyId, fields, io, options = {} }) 
 // ── Editing an OPEN load ─────────────────────────────────────────────────────────────────────────────────────────
 // What a shipper may change after posting: the postable fields minus provenance (source / contract / external ref),
 // plus the windows, stops and requirement flags. Anything else in the body is ignored.
-const EDIT_EXCLUDED = ['source', 'contractId', 'isContractLoad', 'externalRef'];
+const EDIT_EXCLUDED = ['source', 'contractId', 'isContractLoad', 'externalRef', 'termsAcceptedAt'];
 const EDITABLE_FIELDS = POSTABLE_FIELDS.filter((k) => !EDIT_EXCLUDED.includes(k));
 const WINDOW_FIELDS = ['pickupTimeWindow', 'deliveryTimeWindow'];
 const BOOLEAN_FIELDS = ['hazardousMaterial', 'allowCarrierBidding', 'overweightAcknowledged'];
@@ -369,6 +381,7 @@ const COSMETIC_FIELDS = [
   'title', 'notes', 'poNumber', 'shipperReferenceNumber', 'consigneeReference',
   'pickupFacilityName', 'pickupContactName', 'pickupContactPhone',
   'deliveryFacilityName', 'deliveryContactName', 'deliveryContactPhone',
+  'pickupNumber', 'deliveryContactEmail',
 ];
 const REQUIRED_FIELDS = ['title', 'origin', 'destination', 'rate', 'equipmentType'];
 const NOT_EDITABLE = { status: 409, error: 'This load can no longer be edited' };
@@ -415,7 +428,7 @@ async function updatePostedLoad({ loadId, shipperCompanyId, fields, io }) {
     for (const k of BOOLEAN_FIELDS) if (raw[k] != null && typeof raw[k] !== 'boolean') return { status: 400, error: `${k} must be true or false.` };
     if (fields.stops !== undefined) raw.stops = fields.stops === null ? [] : fields.stops;
     // Hazmat details only mean something on a hazmat load (the posting form drops them the same way).
-    if (raw.hazardousMaterial === false) Object.assign(raw, { hazmatClass: null, hazmatPackingGroup: null, dangerousGoodsUN: null });
+    if (raw.hazardousMaterial === false) Object.assign(raw, { hazmatClass: null, hazmatPackingGroup: null, dangerousGoodsUN: null, hazmatShippingName: null, hazmatEmergencyPhone: null });
     for (const k of REQUIRED_FIELDS) if (raw[k] !== undefined && !raw[k]) return { status: 400, error: `${k} is required.` };
 
     // Validate what changes, plus the two places (always required text).

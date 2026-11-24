@@ -63,6 +63,7 @@ export default function CarrierMyLoads({ embedded = false }) {
   const [selected, setSelected] = useState(null);
   // Pickup e-signature pad (opened when a load transitions to in-transit)
   const [sigPad, setSigPad] = useState({ open: false, loadId: null });
+  const [shipperSig, setShipperSig] = useState({ open: false, loadId: null });
   // Proof-of-delivery dialog: the server refuses 'delivered' without a POD on the load
   const [podLoad, setPodLoad] = useState(null);
   // The load whose documents are being shown to the receiver (QR code)
@@ -203,6 +204,21 @@ export default function CarrierMyLoads({ embedded = false }) {
     } catch (err) {
       // A 409 means the server will also refuse the status change; applyStatus shows its message.
       console.error('Pickup signature failed (continuing):', err?.response?.data?.error || err.message);
+    }
+    setShipperSig({ open: true, loadId: id }); // next: the shipper's signature, on this device
+  };
+
+  /* ── the shipper's dock signature (or skipped: it is then signed on paper) ─── */
+  const finishPickup = async (sig) => {
+    const id = shipperSig.loadId;
+    setShipperSig({ open: false, loadId: null });
+    if (!id) return;
+    if (sig) {
+      try {
+        await api.post(`/documents/${id}/pickup-signature`, { ...sig, party: 'shipper' });
+      } catch (err) {
+        console.error('Shipper signature failed (continuing):', err?.response?.data?.error || err.message);
+      }
     }
     await applyStatus(id, 'in-transit');
   };
@@ -439,6 +455,14 @@ export default function CarrierMyLoads({ embedded = false }) {
         subtitle="Sign to confirm the freight was picked up in good order. This is embedded into the Bill of Lading."
         onClose={() => setSigPad({ open: false, loadId: null })}
         onSave={handlePickupSigned}
+      />
+      {/* Closing this one without signing still starts the load: the shipper then signs the paper copy */}
+      <SignaturePad
+        open={shipperSig.open}
+        title="Shipper's Signature"
+        subtitle="Hand the device to the person releasing the freight. They enter their name and sign. If nobody can sign here, press Cancel and have the paper copy signed."
+        onClose={() => finishPickup(null)}
+        onSave={finishPickup}
       />
     </Box>
   );

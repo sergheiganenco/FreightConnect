@@ -910,6 +910,26 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
               <Typography fontWeight={600}>{loadState.commodityType}</Typography>
             </Box>
           )}
+          {/* What the driver needs at the dock and what goes on the bill of lading; empty ones are left out */}
+          {[
+            ['Pieces', loadState.pieceCount ? `${loadState.pieceCount}${loadState.packageType ? ` ${loadState.packageType}` : ''}` : ''],
+            ['Hazardous material', loadState.hazardousMaterial ? [loadState.dangerousGoodsUN, loadState.hazmatShippingName, loadState.hazmatClass && `Class ${loadState.hazmatClass}`, loadState.hazmatPackingGroup && `PG ${loadState.hazmatPackingGroup}`].filter(Boolean).join(', ') || 'Yes' : ''],
+            ['Hazmat emergency phone', loadState.hazardousMaterial ? loadState.hazmatEmergencyPhone : ''],
+            ['Pickup facility', [loadState.pickupFacilityName, loadState.pickupAddress].filter(Boolean).join(', ')],
+            ['Pickup contact', [loadState.pickupContactName, loadState.pickupContactPhone].filter(Boolean).join(' · ')],
+            ['Pickup number', loadState.pickupNumber],
+            ['Pickup hours', loadState.pickupHours],
+            ['Delivery facility', [loadState.deliveryFacilityName, loadState.deliveryAddress].filter(Boolean).join(', ')],
+            ['Delivery contact', [loadState.deliveryContactName, loadState.deliveryContactPhone].filter(Boolean).join(' · ')],
+            ['Delivery hours', loadState.deliveryHours],
+            ['PO number', loadState.poNumber],
+            ['Seal number', loadState.sealNumber],
+          ].filter(([, v]) => v).map(([label, v]) => (
+            <Box key={label}>
+              <Typography variant="caption" sx={{ color: T.muted, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: 1 }}>{label}</Typography>
+              <Typography fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>{v}</Typography>
+            </Box>
+          ))}
         </Box>
 
         {/* Estimated profit (carrier managers only; server omits economics for drivers/shippers) */}

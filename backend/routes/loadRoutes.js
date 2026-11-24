@@ -601,6 +601,19 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       throw e;
     }
 
+    const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+    const isHazmat = hazardousMaterial === true || hazardousMaterial === 'true';
+    // A hazmat shipping paper is not legal without the proper shipping name and a 24-hour emergency number,
+    // and the bill of lading is printed from this load. Asked for here, at posting, not at the dock.
+    if (isHazmat && (!text(req.body.hazmatShippingName) || !text(req.body.hazmatEmergencyPhone) || !text(dangerousGoodsUN) || !text(hazmatClass))) {
+      return res.status(400).json({ error: 'A hazardous load needs its UN number, hazard class, proper shipping name and a 24-hour emergency phone number.' });
+    }
+    let requiredEndorsementsList;
+    try { requiredEndorsementsList = parseArr(req.body.requiredEndorsements, 'requiredEndorsements'); } catch (e) {
+      if (e.badRequest) return res.status(400).json({ error: e.message });
+      throw e;
+    }
+
     const fields = {
       title,
       origin,
@@ -632,6 +645,19 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
       hazmatClass: (hazardousMaterial === true || hazardousMaterial === 'true') ? hazmatClass : undefined,
       hazmatPackingGroup: (hazardousMaterial === true || hazardousMaterial === 'true') ? hazmatPackingGroup : undefined,
       dangerousGoodsUN: (hazardousMaterial === true || hazardousMaterial === 'true') ? dangerousGoodsUN : undefined,
+      hazmatShippingName: isHazmat ? text(req.body.hazmatShippingName) : undefined,
+      hazmatEmergencyPhone: isHazmat ? text(req.body.hazmatEmergencyPhone) : undefined,
+
+      // What is handed over, and the dock details the driver needs
+      pieceCount: req.body.pieceCount !== undefined && req.body.pieceCount !== '' ? Number(req.body.pieceCount) : undefined,
+      packageType: text(req.body.packageType),
+      pickupNumber: text(req.body.pickupNumber),
+      pickupHours: text(req.body.pickupHours),
+      deliveryHours: text(req.body.deliveryHours),
+      deliveryContactEmail: text(req.body.deliveryContactEmail),
+      equipmentSubtype: text(req.body.equipmentSubtype),
+      requiredEndorsements: requiredEndorsementsList,
+      termsAcceptedAt: req.body.termsAccepted === true || req.body.termsAccepted === 'true' ? new Date() : undefined,
 
       // Enterprise fields
       specialHandling: specialHandlingList,
