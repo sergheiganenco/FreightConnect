@@ -17,7 +17,7 @@
 const express = require('express');
 const { adminEmailSelect } = require('../services/trustScoreService');
 const router = express.Router();
-const { body } = require('express-validator');
+const { body, param } = require('express-validator');
 const auth = require('../middlewares/authMiddleware');
 const validate = require('../middlewares/validate');
 const { uploadEvidence } = require('../middlewares/evidenceUpload');
@@ -86,6 +86,11 @@ router.post(
       const respondent   = isPoster ? load.acceptedBy : load.postedBy;
       const respondentRole = otherRole(claimantRole);
 
+      // Cargo claim against the carrier: the federal clocks start now (49 CFR 370).
+      const againstCarrier = isPoster;
+      const now = Date.now();
+      const filedLate = againstCarrier && !!load.deliveredAt && now > new Date(load.deliveredAt).setMonth(new Date(load.deliveredAt).getMonth() + 9);
+
       const claim = await Claim.create({
         loadId,
         claimant: companyId,
@@ -94,6 +99,10 @@ router.post(
         type,
         amountCents,
         description,
+        filedLate,
+        deadlines: againstCarrier
+          ? { acknowledgeBy: new Date(now + 30 * 86400000), decideBy: new Date(now + 120 * 86400000) }
+          : undefined,
         notes: [{
           author: req.user.userId,
           authorRole: claimantRole,
@@ -108,7 +117,7 @@ router.post(
       notifyUserSafe(respondent, {
         type: 'claim:new',
         title: 'A cargo claim was filed on your load',
-        body: `${type} — ${(amountCents / 100).toFixed(2)} claimed`,
+        body: `${type} — ${(amountCents / 100).toFixed(2)} claimed.${againstCarrier ? ' Acknowledge it within 30 days.' : ''}${filedLate ? ' It was filed more than 9 months after delivery.' : ''}`,
         link: claimsLink(respondentRole),
         metadata: { claimId: claim._id, loadId, type },
       });
@@ -270,6 +279,39 @@ router.post('/:id/evidence', auth, uploadEvidence, async (req, res) => {
   } catch (err) {
     console.error('[claims] evidence failed:', err.message);
     res.status(500).json({ error: 'Failed to attach evidence' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// PUT /api/claims/:id/acknowledge — the carrier acknowledges receipt of a cargo claim
+// ────────────────────────────────────────────────────────────────────────────
+router.put('/:id/acknowledge', auth, [param('id').isMongoId()], validate, async (req, res) => {
+  try {
+    const claim = await Claim.findOneAndUpdate(
+      { _id: req.params.id, respondent: companyOf(req), claimantRole: 'shipper', acknowledgedAt: null, status: { $in: ['open', 'investigating'] } },
+      {
+        $set: { acknowledgedAt: new Date(), acknowledgedBy: req.user.userId },
+        $push: { notes: { author: req.user.userId, authorRole: 'carrier', content: 'The carrier acknowledged receipt of this claim.' } },
+      },
+      { new: true },
+    );
+    if (!claim) {
+      const exists = await Claim.exists({ _id: req.params.id, respondent: companyOf(req) });
+      return exists
+        ? res.status(409).json({ error: 'This claim is already acknowledged or closed' })
+        : res.status(404).json({ error: 'Claim not found' });
+    }
+    notifyUserSafe(claim.claimant, {
+      type: 'claim:acknowledged',
+      title: 'The carrier acknowledged your cargo claim',
+      body: `A decision is due by ${claim.deadlines.decideBy.toISOString().slice(0, 10)}.`,
+      link: claimsLink('shipper'),
+      metadata: { claimId: claim._id },
+    });
+    res.json(claim);
+  } catch (err) {
+    console.error('[claims] acknowledge failed:', err.message);
+    res.status(500).json({ error: 'Failed to acknowledge claim' });
   }
 });
 

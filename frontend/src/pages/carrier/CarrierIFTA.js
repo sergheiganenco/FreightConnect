@@ -228,6 +228,32 @@ export default function CarrierIFTA() {
     setRows((prev) => prev.filter((r) => r.jurisdiction !== jurisdiction));
   };
 
+  // Fill the miles from the GPS trail of this quarter's loads. Nothing is saved until the carrier saves.
+  const [gpsNote, setGpsNote] = useState('');
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const fillFromGps = async () => {
+    setGpsBusy(true); setSaveError(''); setGpsNote('');
+    try {
+      const { data } = await api.get(`/ifta/${selectedYear}/${selectedQuarter}/gps-miles`);
+      const est = data.data;
+      const usable = est.byState.filter((r) => r.onWorksheet);
+      if (!usable.length) { setSaveError('No location history was found for loads in this quarter.'); return; }
+      setRows((prev) => {
+        const map = new Map(prev.map((r) => [r.jurisdiction, { ...r }]));
+        for (const r of usable) {
+          const row = map.get(r.jurisdiction) || { jurisdiction: r.jurisdiction, totalMiles: '', taxableMiles: '', taxRate: '' };
+          row.totalMiles = String(r.miles); row.taxableMiles = String(r.miles);
+          map.set(r.jurisdiction, row);
+        }
+        return [...map.values()].sort((a, b) => a.jurisdiction.localeCompare(b.jurisdiction));
+      });
+      setSaveSuccess(false);
+      setGpsNote(`Filled ${est.totalMiles.toLocaleString()} miles across ${usable.length} state${usable.length > 1 ? 's' : ''} from ${est.loads} tracked load${est.loads === 1 ? '' : 's'}. ${est.note} Review, then save.`);
+    } catch (err) {
+      setSaveError(err.response?.data?.error || 'Could not read the location history.');
+    } finally { setGpsBusy(false); }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setSaveError('');
@@ -235,6 +261,7 @@ export default function CarrierIFTA() {
     try {
       const payload = {
         fleetMpg: Number(fleetMpg) || 0,
+        ...(gpsNote ? { milesSource: 'gps_estimated' } : {}),
         jurisdictions: rows.map((r) => ({
           jurisdiction: r.jurisdiction,
           totalMiles: Number(r.totalMiles) || 0,
@@ -561,6 +588,10 @@ export default function CarrierIFTA() {
                 inputProps={{ min: 0, step: 0.1 }}
                 sx={{ width: 130 }}
               />
+              <Button variant="outlined" onClick={fillFromGps} disabled={!canEdit || gpsBusy}
+                sx={{ borderRadius: 9999, fontWeight: 700 }}>
+                {gpsBusy ? <CircularProgress size={18} /> : 'Fill miles from GPS'}
+              </Button>
               <Button variant="contained" startIcon={<SaveIcon />} onClick={handleSave}
                 disabled={!canEdit || saving}
                 sx={{ bgcolor: '#6366f1', borderRadius: 9999, fontWeight: 700 }}>
@@ -570,6 +601,7 @@ export default function CarrierIFTA() {
           </Stack>
 
           {saveError && <Alert severity="error" sx={{ mb: 2, borderRadius: 3 }}>{saveError}</Alert>}
+          {gpsNote && <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }} onClose={() => setGpsNote('')}>{gpsNote}</Alert>}
           {saveSuccess && <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>Worksheet saved.</Alert>}
 
           {/* Desktop / tablet: full worksheet table (md and up) */}

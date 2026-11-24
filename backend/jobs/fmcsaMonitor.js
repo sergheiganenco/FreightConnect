@@ -104,7 +104,7 @@ async function runFmcsaCheck() {
         { 'verification.status': 'verified' },
         { 'verification.status': 'suspended', 'verification.suspensionReason': UNCONFIRMED },
       ],
-    }).select('name email verification');
+    }).select('name email verification carrierEndorsements');
 
     for (const carrier of carriers) {
       try {
@@ -177,6 +177,36 @@ async function runFmcsaCheck() {
             link: '/dashboard/carrier/verification',
             metadata: { issues: result.issues },
           });
+        }
+
+        // Insurance on file is re-read every night as well. It used to be read once, at onboarding,
+        // so a policy cancelled afterwards went unnoticed. A lapse blocks booking (antiFraudGuard reads
+        // verification.insurance) and clears itself on the first night the record is good again.
+        try {
+          const ins = await require('../services/insuranceService').verifyInsurance(data, {
+            hazmat: (carrier.carrierEndorsements || []).includes('hazmat'),
+          });
+          const was = v.insurance?.status;
+          const keepBetterSource = ins.source === 'fmcsa' && ins.status === 'valid' && ['vendor', 'manual'].includes(v.insurance?.source) && was !== 'lapsed';
+          if (ins.status !== 'unknown' && !keepBetterSource) {
+            carrier.verification.insurance = {
+              cargoLiability: ins.cargoLiability || {}, autoLiability: ins.autoLiability || {},
+              status: ins.status, source: ins.source,
+              meetsFederalMinimum: ins.meetsFederalMinimum, requiredMinimum: ins.requiredMinimum, lastChecked: ins.lastChecked,
+            };
+            if (ins.status === 'lapsed' && was !== 'lapsed') {
+              console.warn(`[FmcsaMonitor] Insurance no longer on file for carrier ${carrier._id}`);
+              await notifyUserSafe(carrier._id.toString(), {
+                type: 'verification:insurance_lapsed',
+                title: 'Insurance no longer on file with FMCSA',
+                body: `${(ins.reasons || []).join(' ')} You cannot book loads until your insurer files it with FMCSA. This is checked again every night.`,
+                link: '/dashboard/carrier/verification',
+                metadata: { priority: 'high' },
+              });
+            }
+          }
+        } catch (insErr) {
+          console.error(`[FmcsaMonitor] insurance re-check failed for ${carrier._id} (non-fatal):`, insErr.message);
         }
 
         await carrier.save();

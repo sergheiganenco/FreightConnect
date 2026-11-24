@@ -290,7 +290,7 @@ function FileClaimDialog({ open, onClose, onCreated, role }) {
 }
 
 // ── Detail Drawer ────────────────────────────────────────────────────────────
-function ClaimDrawer({ claim, myId, onClose, onUpdated }) {
+function ClaimDrawer({ claim, myId, role, onClose, onUpdated }) {
   const [noteContent, setNoteContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -316,6 +316,19 @@ function ClaimDrawer({ claim, myId, onClose, onUpdated }) {
       onUpdated();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to add note');
+    }
+    setSaving(false);
+  };
+
+  const handleAcknowledge = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      await api.put(`/claims/${claim._id}/acknowledge`);
+      setSuccess('Claim acknowledged.');
+      onUpdated();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to acknowledge claim');
     }
     setSaving(false);
   };
@@ -506,6 +519,22 @@ function ClaimDrawer({ claim, myId, onClose, onUpdated }) {
 
       {error && <Alert severity="error" sx={{ py: 0, mb: 1 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ py: 0, mb: 1 }}>{success}</Alert>}
+
+      {/* The federal claim clocks, and the carrier's acknowledgment */}
+      {claim.deadlines?.decideBy && ['open', 'investigating'].includes(claim.status) && (
+        <Alert severity={!claim.acknowledgedAt && new Date(claim.deadlines.acknowledgeBy) < new Date() ? 'warning' : 'info'} sx={{ mb: 2 }}>
+          {claim.acknowledgedAt
+            ? `Acknowledged by the carrier on ${new Date(claim.acknowledgedAt).toLocaleDateString()}.`
+            : `The carrier must acknowledge this claim by ${new Date(claim.deadlines.acknowledgeBy).toLocaleDateString()}.`}
+          {' '}A decision (pay, decline or a firm offer) is due by {new Date(claim.deadlines.decideBy).toLocaleDateString()}.
+          {claim.filedLate ? ' This claim was filed more than 9 months after delivery.' : ''}
+          {role === 'carrier' && !claim.acknowledgedAt && (
+            <Button size="small" variant="contained" onClick={handleAcknowledge} disabled={saving} sx={{ display: 'block', mt: 1 }}>
+              Acknowledge this claim
+            </Button>
+          )}
+        </Alert>
+      )}
 
       {/* Withdraw — claimant only, while still open/investigating */}
       {canWithdraw(claim, myId) && (
@@ -708,6 +737,7 @@ export default function ClaimsBoard({ role = 'carrier' }) {
       <ClaimDrawer
         claim={selected}
         myId={myId}
+        role={role}
         onClose={() => setSelected(null)}
         onUpdated={handleUpdated}
       />

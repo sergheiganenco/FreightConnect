@@ -345,3 +345,32 @@ describe('insuranceMonitor — does not resurrect FMCSA-revoked carriers', () =>
     expect(fresh.verification.status).toBe('suspended');
   });
 });
+
+describe('nightly insurance re-check', () => {
+  const Notification = require('../../models/Notification');
+  const authorized = (onFile) => ({ dotNumber: '1234567', legalName: 'Test Trucking LLC', operatingStatus: 'AUTHORIZED FOR Property', insuranceOnFile: onFile });
+
+  test('a policy cancelled after onboarding is caught, the carrier is told once, and it clears when the record is good again', async () => {
+    const carrier = await createVerifiedCarrier();
+    fmcsaService.lookupByDOT.mockResolvedValue(authorized({ hasData: true, bipdOnFile: false, bipdOnFileAmount: 0 }));
+    await runFmcsaCheck();
+    await runFmcsaCheck();
+    let after = await User.findById(carrier._id);
+    expect(after.verification.insurance.status).toBe('lapsed');
+    expect(after.verification.status).toBe('verified'); // authority is fine; booking is blocked by the insurance status
+    expect(await Notification.countDocuments({ userId: carrier._id, type: 'verification:insurance_lapsed' })).toBe(1);
+
+    fmcsaService.lookupByDOT.mockResolvedValue(authorized({ hasData: true, bipdOnFile: true, bipdOnFileAmount: 1000000 }));
+    await runFmcsaCheck();
+    after = await User.findById(carrier._id);
+    expect(after.verification.insurance.status).toBe('valid');
+    expect(after.verification.insurance.meetsFederalMinimum).toBe(true);
+  });
+
+  test('a record with no insurance fields changes nothing', async () => {
+    const carrier = await createVerifiedCarrier();
+    fmcsaService.lookupByDOT.mockResolvedValue(authorized(undefined));
+    await runFmcsaCheck();
+    expect((await User.findById(carrier._id)).verification.insurance.status).toBe('valid');
+  });
+});

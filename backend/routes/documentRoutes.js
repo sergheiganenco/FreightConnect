@@ -305,6 +305,44 @@ router.get('/load/:loadId', auth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// GET /api/documents/:loadId/record       the transaction record, as data
+// GET /api/documents/:loadId/record/pdf   the same, to keep or print
+// Open to the shipper who posted the load, the carrier who booked it, and admins.
+// ────────────────────────────────────────────────────────────────────────────
+async function recordFor(req, res) {
+  if (!/^[a-f\d]{24}$/i.test(req.params.loadId)) { res.status(400).json({ error: 'Invalid load id' }); return null; }
+  const load = await Load.findById(req.params.loadId);
+  if (!load) { res.status(404).json({ error: 'Load not found' }); return null; }
+  const uid = String(req.user.companyOwnerId || req.user.userId);
+  // A driver login does not see the company's money.
+  if (req.user.companyRole === 'driver' || (req.user.role !== 'admin' && String(load.postedBy) !== uid && String(load.acceptedBy) !== uid)) {
+    res.status(403).json({ error: 'Forbidden' }); return null;
+  }
+  return require('../services/loadRecordService').buildLoadRecord(load);
+}
+router.get('/:loadId/record', auth, async (req, res) => {
+  try {
+    const record = await recordFor(req, res);
+    if (record) res.json({ data: record });
+  } catch (err) {
+    console.error('[documents/record] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+router.get('/:loadId/record/pdf', auth, async (req, res) => {
+  try {
+    const record = await recordFor(req, res);
+    if (!record) return;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="transaction-record-${record.loadId.slice(-8)}.pdf"`);
+    require('../utils/pdfGenerator').streamLoadRecord(record, res);
+  } catch (err) {
+    console.error('[documents/record/pdf] failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // POST /api/documents/generate/:loadId/:type
 // Manually (re)generate a document — type: 'bol' | 'ratecon'
 // ────────────────────────────────────────────────────────────────────────────

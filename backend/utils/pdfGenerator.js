@@ -551,3 +551,61 @@ exports.streamHosRecord = (record, res) => {
   addFooter(doc);
   doc.end();
 };
+
+// ── Transaction record for one load (see services/loadRecordService) ─────────
+exports.streamLoadRecord = (record, res) => {
+  const doc = new PDFDocument({ size: 'LETTER', margins: { top: 100, bottom: 60, left: 50, right: 50 } });
+  doc.pipe(res);
+  addHeader(doc, 'TRANSACTION RECORD', record.loadId.slice(-8).toUpperCase());
+  const when = (d) => (d ? fmtDateTime(d) : 'N/A');
+  const s = record.shipment; const m = record.money;
+
+  let y = 110;
+  y = sectionTitle(doc, 'PARTIES', y);
+  y = infoRow(doc, 'Shipper (consignor)', record.shipper.name, y);
+  y = infoRow(doc, 'Carrier', record.carrier ? record.carrier.name : 'Not booked', y);
+  if (record.carrier) {
+    y = infoRow(doc, 'USDOT / MC number', `${record.carrier.dotNumber} / ${record.carrier.mcNumber}`, y);
+    y = infoRow(doc, 'Driver and truck', [record.driverName, record.truckId].filter(Boolean).join(', ') || 'N/A', y);
+  }
+
+  y = sectionTitle(doc, 'SHIPMENT', y + 6);
+  y = infoRow(doc, 'Load', record.title, y);
+  y = infoRow(doc, 'Bill of lading reference', record.loadId, y);
+  y = infoRow(doc, 'From', s.origin, y);
+  y = infoRow(doc, 'To', s.destination, y);
+  y = infoRow(doc, 'Freight', [s.commodity, s.pieces ? `${s.pieces} pieces` : null, s.weight ? `${s.weight} lb` : null, s.equipment].filter(Boolean).join(', ') || 'N/A', y);
+  if (s.sealNumber) y = infoRow(doc, 'Seal number', s.sealNumber, y);
+  y = infoRow(doc, 'Delivered', when(s.deliveredAt), y);
+  y = infoRow(doc, 'Status', record.status, y);
+
+  y = sectionTitle(doc, 'MONEY', y + 6);
+  // Only a payout that happened is described as paid; until then these are the agreed figures.
+  const paidOut = !!(m.payment && m.payment.releasedAt);
+  y = infoRow(doc, 'Freight charge to the shipper', fmtMoney(m.freightChargeCents / 100), y);
+  y = infoRow(doc, paidOut ? 'Kept by FreightConnect' : 'FreightConnect fee when paid through the platform', fmtMoney(m.platformFeeCents / 100), y);
+  y = infoRow(doc, paidOut ? 'Paid to the carrier' : 'Carrier is due', fmtMoney(m.carrierPayCents / 100), y);
+  if (m.paymentTerms) y = infoRow(doc, 'Payment terms', m.paymentTerms, y);
+  y = infoRow(doc, 'Payment through the platform', m.payment
+    ? `${m.payment.status}; started ${when(m.payment.createdAt)}${m.payment.releasedAt ? `; paid out ${when(m.payment.releasedAt)}` : ''}${m.payment.refundedAt ? `; refunded ${when(m.payment.refundedAt)}` : ''}`
+    : 'No payment for this load has been made through the platform.', y);
+  for (const a of m.accessorials) {
+    y = infoRow(doc, `Extra charge: ${a.type}`, `${fmtMoney(a.amountCents / 100)}, ${a.status}${a.paidAt ? `, paid ${when(a.paidAt)}` : ''}${a.description ? ` (${a.description})` : ''}`, y);
+  }
+
+  y = sectionTitle(doc, 'SIGNATURES AND DOCUMENTS', y + 6);
+  const sig = (x) => (x ? `${x.signerName || 'Signed'}, ${when(x.signedAt)}` : 'Not signed');
+  y = infoRow(doc, 'Shipper at pickup', sig(record.signatures.shipper), y);
+  y = infoRow(doc, 'Driver at pickup', sig(record.signatures.driver), y);
+  y = infoRow(doc, 'Receiver at delivery', sig(record.signatures.consignee), y);
+  const d = record.documents;
+  y = infoRow(doc, 'On file', [d.rateConfirmation && 'rate confirmation', d.billOfLading && 'bill of lading', d.proofOfDelivery && 'proof of delivery', d.photos ? `${d.photos} photo${d.photos > 1 ? 's' : ''}` : null].filter(Boolean).join(', ') || 'Nothing yet', y);
+
+  y = sectionTitle(doc, 'WHAT HAPPENED', y + 6);
+  if (!record.timeline.length) y = infoRow(doc, 'History', 'No changes recorded', y);
+  for (const t of record.timeline) {
+    y = infoRow(doc, when(t.at), `${t.from === t.to ? t.to : `${t.from} to ${t.to}`}${t.reason ? `: ${t.reason}` : ''}`, y);
+  }
+  addFooter(doc);
+  doc.end();
+};

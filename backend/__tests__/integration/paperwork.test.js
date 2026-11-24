@@ -168,3 +168,33 @@ describe('two signatures at pickup', () => {
     expect(last.pickupSignature.signerName).toBe('Ann Driver');
   });
 });
+
+describe('the transaction record', () => {
+  const jwt = require('jsonwebtoken');
+  test('both parties get the same record; a driver login and outsiders do not', async () => {
+    const shipper = await shipperUser();
+    const carrier = await createTestUser({ role: 'carrier', companyName: 'Haul Co' });
+    const load = await createTestLoad(shipper._id, { status: 'delivered', acceptedBy: carrier._id, rate: 1000, deliveredAt: new Date() });
+    await require('../../models/StatusHistory').record('load', load._id, 'in-transit', 'delivered', carrier._id, 'delivered at dock 4');
+
+    const a = await request(app).get(`/api/documents/${load._id}/record`).set(bearer(shipper));
+    const b = await request(app).get(`/api/documents/${load._id}/record`).set(bearer(carrier));
+    expect(a.status).toBe(200);
+    expect(a.body.data.money).toEqual(b.body.data.money);
+    expect(a.body.data.money.freightChargeCents).toBe(100000);
+    expect(a.body.data.money.platformFeeCents + a.body.data.money.carrierPayCents).toBe(100000);
+    expect(a.body.data.money.payment).toBeNull();
+    expect(a.body.data.timeline[0].reason).toBe('delivered at dock 4');
+    expect(a.body.data.shipper.name).toBe('Acme Paint');
+
+    const stranger = await createTestUser({ role: 'carrier' });
+    expect((await request(app).get(`/api/documents/${load._id}/record`).set(bearer(stranger))).status).toBe(403);
+    const driverTok = jwt.sign({ userId: String(stranger._id), role: 'carrier', companyRole: 'driver', companyOwnerId: String(carrier._id) }, process.env.JWT_SECRET);
+    expect((await request(app).get(`/api/documents/${load._id}/record`).set({ Authorization: `Bearer ${driverTok}` })).status).toBe(403);
+
+    const pdf = await request(app).get(`/api/documents/${load._id}/record/pdf`).set(bearer(carrier)).buffer(true).parse((res, cb) => {
+      const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(pdf.body.slice(0, 4).toString()).toBe('%PDF');
+  });
+});

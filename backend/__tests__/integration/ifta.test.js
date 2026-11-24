@@ -258,3 +258,47 @@ describe('IFTA quarterly reporting', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('state miles from GPS', () => {
+  const express = require('express');
+  const request = require('supertest');
+  const TrackingEvent = require('../../models/TrackingEvent');
+  const { createTestUser, generateToken, createTestLoad } = require('../helpers');
+  const { stateAt } = require('../../services/stateMiles');
+
+  test('a point is placed in the right state', () => {
+    expect(stateAt(35.1495, -90.049)).toBe('TN');   // Memphis
+    expect(stateAt(41.8781, -87.6298)).toBe('IL');  // Chicago
+    expect(stateAt(32.7767, -96.797)).toBe('TX');   // Dallas
+    expect(stateAt(48.8566, 2.3522)).toBeNull();    // Paris
+  });
+
+  test('a tracked run from Dallas to Oklahoma City is split between Texas and Oklahoma; another company gets nothing', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/api/ifta', require('../../routes/iftaRoutes'));
+    const shipper = await createTestUser({ role: 'shipper' });
+    const carrier = await createTestUser({ role: 'carrier' });
+    const load = await createTestLoad(shipper._id, { status: 'delivered', acceptedBy: carrier._id });
+    // Straight up I-35: Dallas (32.78) to Oklahoma City (35.47); the Red River is near 33.9.
+    const t0 = Date.UTC(2026, 1, 10, 12);
+    const fixes = [];
+    for (let i = 0; i <= 20; i++) fixes.push({ load: load._id, carrier: carrier._id, latitude: 32.78 + (i * (35.47 - 32.78)) / 20, longitude: -97.3, recordedAt: new Date(t0 + i * 10 * 60000) });
+    await TrackingEvent.insertMany(fixes);
+
+    const res = await request(app).get('/api/ifta/2026/1/gps-miles').set('Authorization', `Bearer ${generateToken(carrier)}`);
+    expect(res.status).toBe(200);
+    const by = Object.fromEntries(res.body.data.byState.map((r) => [r.jurisdiction, r.miles]));
+    expect(Object.keys(by).sort()).toEqual(['OK', 'TX']);
+    expect(res.body.data.totalMiles).toBeGreaterThan(175);   // about 186 miles in a straight line
+    expect(res.body.data.totalMiles).toBeLessThan(195);
+    expect(by.OK).toBeGreaterThan(by.TX);                    // most of that run is in Oklahoma
+    expect(res.body.data.loads).toBe(1);
+
+    const other = await createTestUser({ role: 'carrier' });
+    const none = await request(app).get('/api/ifta/2026/1/gps-miles').set('Authorization', `Bearer ${generateToken(other)}`);
+    expect(none.body.data.totalMiles).toBe(0);
+    // A different quarter has no miles either.
+    expect((await request(app).get('/api/ifta/2026/2/gps-miles').set('Authorization', `Bearer ${generateToken(carrier)}`)).body.data.totalMiles).toBe(0);
+  });
+});

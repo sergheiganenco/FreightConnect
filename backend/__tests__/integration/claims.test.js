@@ -149,3 +149,54 @@ describe('cargo claims', () => {
     expect(stored.amountCents).toBe(249999);
   });
 });
+
+describe('cargo claim clocks', () => {
+  const Notification = require('../../models/Notification');
+  const { runClaimDeadlines } = require('../../jobs/claimDeadlineMonitor');
+  const DAY = 86400000;
+
+  test('a shipper claim starts the 30 and 120 day clocks; the carrier acknowledges once; reminders go out once', async () => {
+    const app = buildApp();
+    const shipper = await createTestUser({ role: 'shipper' });
+    const carrier = await createTestUser({ role: 'carrier' });
+    const admin = await createTestUser({ role: 'admin' });
+    const tok = (u) => ({ Authorization: `Bearer ${generateToken(u)}` });
+    const load = await createTestLoad(shipper._id, { status: 'delivered', acceptedBy: carrier._id, deliveredAt: new Date(Date.now() - 300 * DAY) });
+
+    const filed = await request(app).post('/api/claims').set(tok(shipper)).send({ loadId: String(load._id), type: 'damage', amountCents: 50000, description: 'crushed pallets' });
+    expect(filed.status).toBe(201);
+    expect(filed.body.filedLate).toBe(true); // 300 days after delivery: recorded, not refused
+    const ackBy = new Date(filed.body.deadlines.acknowledgeBy).getTime();
+    expect(Math.round((ackBy - Date.now()) / DAY)).toBe(30);
+    expect(Math.round((new Date(filed.body.deadlines.decideBy).getTime() - Date.now()) / DAY)).toBe(120);
+
+    // Nothing is due yet.
+    expect((await runClaimDeadlines()).sent).toBe(0);
+    // Day 25: the carrier is reminded once.
+    expect((await runClaimDeadlines(new Date(Date.now() + 25 * DAY))).sent).toBe(1);
+    expect((await runClaimDeadlines(new Date(Date.now() + 25 * DAY))).sent).toBe(0);
+    // Day 31, still not acknowledged: the carrier and the admins hear about it.
+    await runClaimDeadlines(new Date(Date.now() + 31 * DAY));
+    expect(await Notification.countDocuments({ userId: admin._id, type: 'claim:deadline' })).toBe(1);
+
+    // Only the carrier on the claim can acknowledge, and only once.
+    expect((await request(app).put(`/api/claims/${filed.body._id}/acknowledge`).set(tok(shipper))).status).toBe(404);
+    const ack = await request(app).put(`/api/claims/${filed.body._id}/acknowledge`).set(tok(carrier));
+    expect(ack.status).toBe(200);
+    expect(ack.body.acknowledgedAt).toBeTruthy();
+    expect((await request(app).put(`/api/claims/${filed.body._id}/acknowledge`).set(tok(carrier))).status).toBe(409);
+
+    // The 120-day reminders still follow.
+    expect((await runClaimDeadlines(new Date(Date.now() + 121 * DAY))).sent).toBe(2);
+  });
+
+  test('a carrier claim against the shipper carries no federal clock', async () => {
+    const app = buildApp();
+    const shipper = await createTestUser({ role: 'shipper' });
+    const carrier = await createTestUser({ role: 'carrier' });
+    const load = await createTestLoad(shipper._id, { status: 'delivered', acceptedBy: carrier._id });
+    const filed = await request(app).post('/api/claims').set({ Authorization: `Bearer ${generateToken(carrier)}` }).send({ loadId: String(load._id), type: 'overage', amountCents: 1000, description: 'two extra pallets' });
+    expect(filed.status).toBe(201);
+    expect(filed.body.deadlines?.decideBy ?? null).toBeNull();
+  });
+});

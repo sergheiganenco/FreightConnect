@@ -1631,6 +1631,27 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
         {['carrier', 'shipper', 'admin'].includes(userRole) && <CheckCallPanel load={loadState} userRole={userRole} />}
         {isAssignedLoad && ['carrier', 'shipper', 'admin'].includes(userRole) && <DetentionClock load={loadState} userRole={userRole} />}
 
+        {/* The whole transaction on one page, the same for both sides (drivers do not see company money). */}
+        {isAssignedLoad && ['carrier', 'shipper', 'admin'].includes(userRole) && localStorage.getItem('companyRole') !== 'driver' && (
+          <Box sx={{ my: 2 }}>
+            <Button size="small" variant="outlined" onClick={async () => {
+              setOpError('');
+              try {
+                const res = await api.get(`/documents/${loadState._id}/record/pdf`, { responseType: 'blob' });
+                const url = URL.createObjectURL(res.data);
+                const a = document.createElement('a');
+                a.href = url; a.download = `transaction-record-${String(loadState._id).slice(-8)}.pdf`; a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+              } catch { setOpError('Could not build the transaction record.'); }
+            }}>
+              Download transaction record
+            </Button>
+            <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+              Parties, freight charge, platform fee, carrier pay, signatures and every status change.
+            </Typography>
+          </Box>
+        )}
+
         {/* The server omits a cleared proposal, so it is reset explicitly on refresh. */}
         {/* ── Change pickup / delivery time (shipper) and respond to a proposed pickup time (carrier) ── */}
         {['carrier', 'shipper', 'admin'].includes(userRole) && (

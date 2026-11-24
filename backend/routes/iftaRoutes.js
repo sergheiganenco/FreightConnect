@@ -488,6 +488,29 @@ router.put('/:year/:quarter', auth, carrierOnly, async (req, res) => {
   }
 });
 
+// GET /:year/:quarter/gps-miles — miles per state estimated from the GPS trail of this quarter's loads.
+// Read-only: the carrier reviews the figures and saves the worksheet themselves.
+router.get('/:year/:quarter/gps-miles', auth, carrierOnly, async (req, res) => {
+  try {
+    const year = parseInt(req.params.year, 10);
+    const quarter = parseInt(req.params.quarter, 10);
+    if (!validYearQuarter(year, quarter)) return res.status(400).json({ error: 'Invalid year or quarter' });
+    const { start, end } = quarterRange(year, quarter);
+    const est = await require('../services/stateMiles').milesByState(companyId(req), start, end);
+    res.json({
+      data: {
+        ...est,
+        // Alaska and Hawaii are not IFTA jurisdictions; their miles are reported but not put on the worksheet.
+        byState: est.byState.map((r) => ({ ...r, onWorksheet: IftaReport.US_JURISDICTIONS.includes(r.jurisdiction) })),
+        note: 'An estimate from location tracking while loads were under way. It leaves out empty miles between loads and any time tracking was off. Check it against your odometer before filing.',
+      },
+    });
+  } catch (err) {
+    console.error('[ifta] gps miles failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /:year/:quarter — get-or-build the draft worksheet
 router.get('/:year/:quarter', auth, carrierOnly, async (req, res) => {
   try {

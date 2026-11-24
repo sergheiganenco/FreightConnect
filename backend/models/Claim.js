@@ -62,6 +62,18 @@ const ClaimSchema = new mongoose.Schema({
     decidedAt:         { type: Date, default: null },
   },
 
+  // ── Clocks (49 CFR 370), set when a shipper files against the carrier ──────
+  // The carrier acknowledges within 30 days and pays, declines or makes a firm offer within 120.
+  deadlines: {
+    acknowledgeBy: { type: Date, default: null },
+    decideBy:      { type: Date, default: null },
+  },
+  acknowledgedAt: { type: Date, default: null },
+  acknowledgedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  // Filed more than 9 months after delivery (the usual minimum filing period). Recorded, not refused.
+  filedLate:      { type: Boolean, default: false },
+  deadlineNotices: { type: [String], default: [] }, // reminders already sent (jobs/claimDeadlineMonitor)
+
   // ── Thread ────────────────────────────────────────────────────────────────
   notes: [NoteSchema],
 
