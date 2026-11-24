@@ -85,6 +85,8 @@ const UserSchema = new mongoose.Schema({
     medicalCardExpiry: Date,
     status:          { type: String, enum: ['active','inactive','on_leave'], default: 'active' },
     assignedTruckId: { type: String, default: null },
+    // This driver's own login (a sub-account with companyRole 'driver'), when they have one.
+    loginUserId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     // Driver pay configuration — drives settlement statement math. All money in
     // integer cents; percentage is 0-100 of the load's gross rate.
     pay: {

@@ -275,8 +275,10 @@ async function runFullVerification(user, mcInput, dotInput) {
     };
     // An FMCSA check may only lift a suspension that FMCSA caused. A carrier suspended for
     // insurance, fraud or by an admin stays suspended however clean its federal record is.
+    // A suspension with no recorded reason is treated as NOT FMCSA's, so it is never lifted here.
     const reason = user.verification.suspensionReason;
-    const ours = !reason || reason === 'fmcsa_authority' || reason === 'fmcsa_unconfirmed';
+    const ours = reason === 'fmcsa_authority' || reason === 'fmcsa_unconfirmed'
+      || (!reason && user.verification.status !== 'suspended');
     if (!ours) {
       user.verification.status = 'suspended';
     } else if (isAuthorized) {

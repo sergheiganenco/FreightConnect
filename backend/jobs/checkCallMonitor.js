@@ -37,16 +37,13 @@ async function postThreadMessage(loadId, text) {
   } catch (err) { console.error('[CheckCall] thread message failed:', err.message); }
 }
 
-/** The assigned driver's login: only when exactly one active driver sub-account carries the roster driver's name. */
+/** The assigned driver's login: the one linked on the roster, else the single driver login with the same name. */
 async function assignedDriverLogin(load) {
   if (!load.assignedDriverId) return null;
   try {
     const owner = await User.findById(load.acceptedBy).select('drivers').lean();
     const driver = ((owner && owner.drivers) || []).find((d) => d.driverId === load.assignedDriverId);
-    if (!driver) return null;
-    const logins = await User.find({ parentAccountId: load.acceptedBy, companyRole: 'driver', active: { $ne: false } }).select('name').lean();
-    const hits = logins.filter((u) => norm(u.name) === norm(driver.name));
-    return hits.length === 1 ? hits[0]._id : null;
+    return await require('../services/driverLink').loginForDriver(load.acceptedBy, driver);
   } catch (_) { return null; }
 }
 

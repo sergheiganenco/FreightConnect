@@ -85,6 +85,7 @@ async function adjustScore(userId, reason, points, loadId = null) {
   if (next === 0 && user.role === 'carrier') {
     user.verification = user.verification || {};
     user.verification.status = 'suspended';
+    if (!user.verification.suspensionReason) user.verification.suspensionReason = 'trust_score';
   }
 
   await user.save();

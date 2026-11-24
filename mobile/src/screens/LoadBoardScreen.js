@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import api from '../services/api';
 import { COLORS } from '../constants/config';
+import { useAuth } from '../context/AuthContext';
 import offlineStore from '../services/offlineStore';
 
 const RADIUS_OPTIONS = [50, 100, 150];
@@ -21,6 +22,8 @@ const STATUS_COLORS = {
 
 export default function LoadBoardScreen() {
   const navigation = useNavigation();
+  const { user } = useAuth();
+  const canBook = user?.companyRole !== 'driver'; // booking is for the owner or a dispatcher
   const [loads, setLoads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -160,7 +163,7 @@ export default function LoadBoardScreen() {
         </View>
       )}
 
-      {tab === 'available' && item.status === 'open' && (
+      {tab === 'available' && item.status === 'open' && canBook && (
         <TouchableOpacity
           style={styles.acceptBtn}
           onPress={() => {

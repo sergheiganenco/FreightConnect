@@ -8,6 +8,7 @@ import * as Location from 'expo-location';
 import api from '../services/api';
 import { startBackgroundTracking, stopBackgroundTracking, isTracking } from '../services/tracking';
 import { COLORS } from '../constants/config';
+import { useAuth } from '../context/AuthContext';
 
 const STATUS_COLORS = {
   open: COLORS.info,
@@ -19,6 +20,8 @@ const STATUS_COLORS = {
 const fmtFull = (d) => (d ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD');
 
 export default function LoadDetailScreen({ route, navigation }) {
+  const { user } = useAuth();
+  const canBook = user?.companyRole !== 'driver'; // booking is for the owner or a dispatcher
   const [load, setLoad] = useState(route.params.load);
   const [tracking, setTracking] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -223,8 +226,6 @@ export default function LoadDetailScreen({ route, navigation }) {
     Alert.alert('Tracking Stopped', 'GPS tracking has been paused.');
   };
 
-  const fmt = (d) => d ? new Date(d).toLocaleDateString(undefined, { dateStyle: 'medium' }) : 'TBD';
-
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Status badge */}
@@ -248,8 +249,8 @@ export default function LoadDetailScreen({ route, navigation }) {
         <Row label="Equipment" value={load.equipmentType} />
         {load.loadWeight && <Row label="Weight" value={`${load.loadWeight.toLocaleString()} lbs`} />}
         {load.commodityType && <Row label="Commodity" value={load.commodityType} />}
-        <Row label="Pickup" value={fmt(load.pickupTimeWindow?.start)} />
-        <Row label="Delivery" value={fmt(load.deliveryTimeWindow?.start)} />
+        <Row label="Pickup" value={fmtWindow(load.pickupTimeWindow)} />
+        <Row label="Delivery" value={fmtWindow(load.deliveryTimeWindow)} />
       </View>
 
       {/* Pickup / Delivery details */}
@@ -366,7 +367,7 @@ export default function LoadDetailScreen({ route, navigation }) {
       <View style={styles.actions}>
         {actionLoading && <ActivityIndicator color={COLORS.primary} style={{ marginBottom: 12 }} />}
 
-        {load.status === 'open' && (
+        {load.status === 'open' && canBook && (
           <ActionButton label="Accept Load" color={COLORS.success} onPress={handleAccept} disabled={actionLoading} />
         )}
 

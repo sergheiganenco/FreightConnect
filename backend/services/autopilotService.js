@@ -52,13 +52,7 @@ async function assertTruckAccess({ owner, truck, caller }) {
 
 async function driverLoginId(owner, driver) {
   const companyId = owner._id;
-  if (driver) {
-    const logins = await User.find({
-      parentAccountId: companyId, companyRole: 'driver', active: { $ne: false },
-    }).select('name').lean();
-    const hits = logins.filter((u) => norm(u.name) === norm(driver.name));
-    return hits.length === 1 ? hits[0]._id : null;
-  }
+  if (driver) return require('./driverLink').loginForDriver(companyId, driver);
   // No driver assigned: an owner-operator with a single truck drives it themselves, so their own log applies.
   return (owner.fleet || []).length === 1 ? companyId : null;
 }

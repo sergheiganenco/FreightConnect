@@ -94,6 +94,24 @@ describe('carrier vetting', () => {
     expect(after.suspensionReason).toBeNull();
   });
 
+  test('a suspension with no recorded reason, or for fraud, is never lifted by an FMCSA check and cannot restart verification', async () => {
+    const vApp = express();
+    vApp.use(express.json());
+    vApp.use('/api/verification', require('../../routes/verificationRoutes'));
+    let dot = 1000010;
+    for (const reason of [null, 'fraud', 'admin_review', 'trust_score']) {
+      const c = await suspended(reason);
+      dot += 1;
+      fmcsa(dot);
+      await fmcsaService.runFullVerification(c, undefined, String(dot));
+      expect((await User.findById(c._id)).verification.status).toBe('suspended');
+      const r = await request(vApp).post('/api/verification/carrier/start').set(bearer(generateToken(c))).send({ dotNumber: String(dot) });
+      expect(r.status).toBe(409);
+      expect((await User.findById(c._id)).verification.status).toBe('suspended');
+    }
+    axios.get.mockReset();
+  });
+
   test('a suspended carrier cannot book while its re-check is pending, even when the lookup keeps failing', async () => {
     const c = await suspended('fmcsa_authority');
     axios.get.mockRejectedValue(new Error('FMCSA down'));
@@ -175,4 +193,37 @@ test('a driver login can report a problem and log a reefer temperature on its co
   expect((await request(side).post(`/api/reefer/readings/${load._id}`).set(bearer(outsider)).send({ tempF: 36 })).status).toBe(403);
   expect((await request(side).post(`/api/reefer/readings/${load._id}`).set(bearer(driver)).send({ tempF: 36 })).status).toBeLessThan(300);
   expect((await request(side).post(`/api/reefer/readings/${load._id}`).set(bearer(generateToken(owner))).send({ tempF: 37 })).status).toBeLessThan(300);
+});
+
+test('a driver login is tied to the roster, is told when a load is assigned, and sees its own loads plus unassigned ones', async () => {
+  const Notification = require('../../models/Notification');
+  const driverLink = require('../../services/driverLink');
+  const shipper = await createTestUser({ role: 'shipper' });
+  const owner = await createTestUser({ role: 'carrier', drivers: [{ driverId: 'drv_ann', name: 'Ann  Lee' }, { driverId: 'drv_bob', name: 'Bob Ray' }] });
+  const ownerTok = generateToken(owner);
+  const mk = async (name, email) => (await request(app).post('/api/users/team').set(bearer(ownerTok)).send({ name, email, password: 'Temp12345!', companyRole: 'driver' })).body.member;
+  const ann = await mk('ann lee', 'ann@fleet.test');       // same name as a roster entry: linked to it
+  const cy = await mk('Cy New', 'cy@fleet.test');          // no roster entry: one is added
+  const roster = (await User.findById(owner._id)).drivers;
+  expect(String(roster.find((d) => d.driverId === 'drv_ann').loginUserId)).toBe(String(ann._id));
+  expect(roster.find((d) => d.name === 'Cy New').loginUserId).toBeTruthy();
+  expect(roster).toHaveLength(3);
+  expect(String(await driverLink.loginForDriver(owner._id, roster.find((d) => d.driverId === 'drv_ann')))).toBe(String(ann._id));
+
+  const mine = await createTestLoad(shipper._id, { status: 'accepted', acceptedBy: owner._id, title: 'Mine' });
+  const bobs = await createTestLoad(shipper._id, { status: 'accepted', acceptedBy: owner._id, title: 'Bobs', assignedDriverId: 'drv_bob' });
+  const pool = await createTestLoad(shipper._id, { status: 'accepted', acceptedBy: owner._id, title: 'Pool' });
+  const assign = await request(app).put(`/api/loads/${mine._id}/assign-driver`).set(bearer(ownerTok)).send({ driverId: 'drv_ann' });
+  expect(assign.status).toBe(200);
+  await new Promise((r) => setTimeout(r, 300));
+  const notes = await Notification.find({ userId: ann._id, type: 'load:assigned_to_you' });
+  expect(notes).toHaveLength(1);
+  expect(notes[0].body).toMatch(/Mine/);
+
+  await User.updateOne({ _id: ann._id }, { $set: { mustChangePassword: false } }); // she has set her own password
+  const annTok = jwt.sign({ userId: String(ann._id), role: 'carrier', companyRole: 'driver', companyOwnerId: String(owner._id) }, process.env.JWT_SECRET, { expiresIn: '1d' });
+  const seen = (await request(app).get('/api/loads/my-loads').set(bearer(annTok))).body.map((l) => l.title).sort();
+  expect(seen).toEqual(['Mine', 'Pool']);
+  expect((await request(app).get('/api/loads/my-loads').set(bearer(ownerTok))).body).toHaveLength(3);
+  expect(String(bobs._id)).toBeTruthy(); expect(String(pool._id)).toBeTruthy(); expect(cy._id).toBeTruthy();
 });

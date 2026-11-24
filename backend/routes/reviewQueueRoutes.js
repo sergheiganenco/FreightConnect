@@ -137,6 +137,7 @@ router.put('/:id/approve', auth, adminOnly, async (req, res) => {
 
       if (!subject.verification) subject.verification = {};
       subject.verification.status = 'suspended';
+      subject.verification.suspensionReason = 'admin_review'; // only an admin lifts this
       await subject.save();
 
       await notifyUserSafe(subject._id, {

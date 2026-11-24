@@ -578,6 +578,10 @@ router.post('/team',
         mustChangePassword: true, // owner-chosen password is temporary
         active: true,
       });
+      // A carrier driver's login is tied to the roster straight away, so loads can be assigned to it.
+      if (companyRole === 'driver' && owner.role === 'carrier') {
+        try { await require('../services/driverLink').linkNewDriverLogin(owner, member); } catch (e) { console.error('[team] roster link failed (non-fatal):', e.message); }
+      }
 
       res.status(201).json({
         member: {

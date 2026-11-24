@@ -55,6 +55,12 @@ router.post(
       if (!user) return res.status(404).json({ error: 'User not found' });
 
       if (!user.verification) user.verification = {};
+      // A carrier suspended for anything other than its FMCSA record (insurance, fraud, trust
+      // score, an admin decision, or no recorded reason) cannot restart verification to get out of it.
+      const why = user.verification.suspensionReason;
+      if (user.verification.status === 'suspended' && why !== 'fmcsa_authority' && why !== 'fmcsa_unconfirmed') {
+        return res.status(409).json({ error: 'Your account is suspended for a reason an FMCSA check cannot clear. Contact support.' });
+      }
       user.verification.status = 'pending';
       await user.save();
 
@@ -394,6 +400,8 @@ router.put('/admin/override/:userId', auth, async (req, res) => {
     if (!user.verification) user.verification = {};
     user.verification.status = status;
     if (status === 'verified') user.verification.verifiedAt = new Date();
+    // An admin decision replaces whatever suspended the account: the old reason must not block or re-suspend later.
+    user.verification.suspensionReason = status === 'suspended' ? 'admin' : null;
     await user.save();
 
     res.json({ message: `Verification status set to ${status}`, userId: user._id, status });

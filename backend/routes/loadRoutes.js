@@ -956,7 +956,16 @@ router.post('/', auth, createLoadValidation, validate, async (req, res) => {
 
       // Company-scoped: a dispatcher/driver sub-account sees the company's loads.
       const companyId = req.user.companyOwnerId || req.user.userId;
-      const loads = await Load.find({ acceptedBy: companyId });
+      const filter = { acceptedBy: companyId };
+      // A driver login sees the loads assigned to it, plus loads nobody has been assigned to yet
+      // (a small company that never assigns drivers keeps working). A driver that is not on the
+      // roster sees the company's loads, as before.
+      if (req.user.companyRole === 'driver') {
+        const owner = await User.findById(companyId).select('drivers').lean();
+        const me = await require('../services/driverLink').rosterDriverForLogin(owner, req.user.userId);
+        if (me) filter.assignedDriverId = { $in: [me.driverId, null] };
+      }
+      const loads = await Load.find(filter);
       res.json(loads);
     } catch (err) {
       console.error("Error fetching carrier loads:", err);
@@ -2296,9 +2305,26 @@ router.post('/voice-command', auth, async (req, res) => {
         });
       }
 
+      const previousDriverId = load.assignedDriverId;
       load.assignedDriverId = driver.driverId;
       load.assignedDriverName = driver.name;
       await load.save();
+
+      // Tell the driver. Before this, the person who had to run the load was never told.
+      if (previousDriverId !== driver.driverId) {
+        try {
+          const loginId = await require('../services/driverLink').loginForDriver(companyId, driver);
+          if (loginId) {
+            notifyUserSafe(String(loginId), {
+              type: 'load:assigned_to_you',
+              title: 'A load was assigned to you',
+              body: `"${load.title}": ${load.origin} to ${load.destination}. Pickup ${load.pickupTimeWindow?.start ? new Date(load.pickupTimeWindow.start).toUTCString() : 'time to be confirmed'}.`,
+              link: '/dashboard/carrier/my-loads',
+              metadata: { loadId: load._id, priority: 'high' },
+            });
+          }
+        } catch (e) { console.error('[assign-driver] driver notice failed (non-fatal):', e.message); }
+      }
 
       try {
         io.to(`user_${load.postedBy}`).emit('load:driverAssigned', {

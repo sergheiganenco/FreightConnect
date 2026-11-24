@@ -469,6 +469,7 @@ async function autoSuspendCritical() {
     // Suspend the account
     if (!user.verification) user.verification = {};
     user.verification.status = 'suspended';
+    user.verification.suspensionReason = 'fraud'; // only an admin lifts this
     await user.save();
 
     // Mark alerts as auto-actioned
