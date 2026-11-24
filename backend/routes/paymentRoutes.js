@@ -236,11 +236,17 @@ router.post('/release/:loadId', auth, async (req, res) => {
     if (!isAdmin && load.status !== 'delivered') {
       return res.status(409).json({ error: 'Escrow can only be released after the load is delivered' });
     }
+    // A disputed load is settled by the dispute decision, which splits the money. Nobody releases around it.
+    if (load.status === 'disputed') {
+      return res.status(409).json({ error: 'This load is in dispute. The payment is settled when the dispute is resolved.' });
+    }
+    // Without the payment provider no money can move, so nothing may be recorded as paid.
+    if (!stripe) return res.status(503).json({ error: 'Payment system not configured' });
 
     const payment = await Payment.findOne({ loadId: load._id, status: 'in_escrow' });
     if (!payment) return res.status(404).json({ error: 'No escrowed payment found for this load' });
 
-    if (stripe) {
+    {
       // Route through the NOA-aware capture path so a factored carrier's payout is
       // redirected/held per UCC §9-406 instead of being paid directly (double-pay risk).
       const escrowService = require('../services/escrowService');
@@ -262,11 +268,6 @@ router.post('/release/:loadId', auth, async (req, res) => {
         // Captured, but the carrier payout was redirected to a factor or held (NOA).
         payment.status = 'captured';
       }
-      await payment.save();
-    } else {
-      // No Stripe configured (pilot/test): operational release without money movement.
-      payment.status = 'released';
-      payment.releasedAt = new Date();
       await payment.save();
     }
 
@@ -291,6 +292,32 @@ router.post('/release/:loadId', auth, async (req, res) => {
   } catch (err) {
     console.error('Release payment error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /api/payments/:paymentId/retry-payout — admin sends a carrier payout that was captured but never went out.
+// ────────────────────────────────────────────────────────────────────────────
+router.post('/:paymentId/retry-payout', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (!/^[a-f0-9]{24}$/i.test(req.params.paymentId)) return res.status(400).json({ error: 'Invalid payment id' });
+    const r = await require('../services/escrowService').payoutCaptured(req.params.paymentId);
+    if (r.ok) return res.json({ success: true, transferId: r.transferId, payoutCents: r.payoutCents });
+    const why = {
+      stripe_unavailable: [503, 'Payment system not configured'],
+      not_found: [404, 'Payment not found'],
+      not_payable: [409, 'This payment is not waiting for a payout.'],
+      no_charge: [409, 'No charge is recorded for this payment, so it has to be sent from Stripe by hand.'],
+      nothing_to_pay: [409, 'There is nothing to pay out on this payment.'],
+      held_for_factoring: [409, `Held: ${r.error}. Pay the factoring company, not the carrier.`],
+      no_payout_account: [409, 'The carrier has not finished payout setup.'],
+      stripe_error: [502, `The payment provider refused the payout: ${r.error}`],
+    }[r.code] || [500, 'Server error'];
+    return res.status(why[0]).json({ error: why[1], code: r.code });
+  } catch (err) {
+    console.error('[payments] retry-payout failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

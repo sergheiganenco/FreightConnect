@@ -10,7 +10,9 @@ const mockStripe = {
   paymentIntents: {
     create: jest.fn(async (args, opts) => ({ id: `pi_${mockStripe.paymentIntents.create.mock.calls.length}`, client_secret: 'secret', args, opts })),
     cancel: jest.fn(async () => ({ status: 'canceled' })),
+    capture: jest.fn(async (id) => ({ id, amount: 100000, latest_charge: 'ch_1', metadata: {} })),
   },
+  refunds: { create: jest.fn(async (p) => ({ id: 're_1', amount: p.amount })) },
   transfers: { create: jest.fn(async () => ({ id: 'tr_tonu' })) },
 };
 jest.mock('stripe', () => () => mockStripe);
@@ -187,4 +189,76 @@ test('price breakdown: the same whole-cent numbers for both sides, and they alwa
     expect(body.platformFeeCents + body.carrierReceivesCents).toBe(cents);
   }
   expect((await get('?amountCents=240000')).body).toMatchObject({ platformFeeCents: 4800, carrierReceivesCents: 235200, feePercent: 2 });
+});
+
+describe('carrier payout that did not go out, and dispute splits', () => {
+  const express = require('express');
+  const request = require('supertest');
+  const User = require('../../models/User');
+  const escrowService = require('../../services/escrowService');
+  const { generateToken } = require('../helpers');
+  const withAccount = (carrier) => User.updateOne({ _id: carrier._id }, { $set: { 'stripe.connectAccountId': 'acct_9' } });
+  const fresh = (p) => Payment.findById(p._id);
+  beforeEach(() => { mockStripe.transfers.create.mockClear(); mockStripe.refunds.create.mockClear(); });
+
+  test('a transfer that fails after the charge is reported as captured, then retried once and only once', async () => {
+    const { carrier, load, payment } = await scene('in_escrow');
+    mockStripe.transfers.create.mockRejectedValueOnce(new Error('insufficient funds'));
+    const r = await escrowService.captureEscrow(payment.stripePaymentIntentId, String(load._id), 'acct_9');
+    expect(r).toMatchObject({ success: true, chargeId: 'ch_1', transferId: null, payoutError: 'insufficient funds' });
+
+    await Payment.updateOne({ _id: payment._id }, { $set: { status: 'captured', stripeChargeId: 'ch_1' } });
+    expect((await escrowService.payoutCaptured(payment._id)).code).toBe('no_payout_account'); // carrier not set up: nothing sent
+    expect(mockStripe.transfers.create).toHaveBeenCalledTimes(1);
+
+    await withAccount(carrier);
+    const paid = await escrowService.payoutCaptured(payment._id);
+    expect(paid).toMatchObject({ ok: true, payoutCents: 98000 });
+    const [args, opts] = mockStripe.transfers.create.mock.calls.at(-1);
+    expect(args).toMatchObject({ amount: 98000, destination: 'acct_9', source_transaction: 'ch_1' });
+    expect(opts.idempotencyKey).toBe(`payout_${payment._id}`);
+    expect((await fresh(payment)).status).toBe('released');
+    expect((await escrowService.payoutCaptured(payment._id)).code).toBe('not_payable'); // never twice
+    expect(mockStripe.transfers.create).toHaveBeenCalledTimes(2);
+  });
+
+  test('only an admin can send a stuck payout', async () => {
+    const app = express();
+    app.use('/api/payments', require('../../routes/paymentRoutes'));
+    const { carrier, payment } = await scene('captured', { stripeChargeId: 'ch_1' });
+    await withAccount(carrier);
+    const post = (u, id = payment._id) => request(app).post(`/api/payments/${id}/retry-payout`).set('Authorization', `Bearer ${generateToken(u)}`);
+    expect((await post(carrier)).status).toBe(403);
+    const admin = await createTestUser({ role: 'admin' });
+    expect((await post(admin, 'nope')).status).toBe(400);
+    expect((await post(admin)).status).toBe(200);
+    expect((await fresh(payment)).status).toBe('released');
+    expect((await post(admin)).status).toBe(409);
+  });
+
+  test('dispute split: shipper refunded their part, carrier paid their part less the fee, record says so', async () => {
+    const { carrier, load, payment } = await scene('in_escrow');
+    await Load.updateOne({ _id: load._id }, { $set: { escrowPaymentIntentId: payment.stripePaymentIntentId } });
+    await withAccount(carrier);
+    const r = await escrowService.settleDisputeResolution(load._id, 60);
+    expect(r).toMatchObject({ ok: true, carrierShareCents: 60000, refundCents: 40000 });
+    expect(mockStripe.refunds.create.mock.calls[0][0].amount).toBe(40000);
+    expect(mockStripe.transfers.create.mock.calls[0][0]).toMatchObject({ amount: 58800, destination: 'acct_9' });
+    expect(await fresh(payment)).toMatchObject({ status: 'released', amountCents: 60000, platformFeeCents: 1200, carrierPayoutCents: 58800 });
+
+    // carrier at fault: everything back to the shipper, nothing sent to the carrier
+    const zero = await scene('in_escrow');
+    await Load.updateOne({ _id: zero.load._id }, { $set: { escrowPaymentIntentId: zero.payment.stripePaymentIntentId } });
+    await withAccount(zero.carrier);
+    mockStripe.transfers.create.mockClear();
+    await escrowService.settleDisputeResolution(zero.load._id, 0);
+    expect((await fresh(zero.payment)).status).toBe('refunded');
+    expect(mockStripe.transfers.create).not.toHaveBeenCalled();
+
+    // money already paid out: nothing is changed automatically
+    const done = await scene('released');
+    await Load.updateOne({ _id: done.load._id }, { $set: { escrowPaymentIntentId: done.payment.stripePaymentIntentId } });
+    expect((await escrowService.settleDisputeResolution(done.load._id, 50)).code).toBe('not_in_escrow');
+    expect((await fresh(done.payment)).status).toBe('released');
+  });
 });

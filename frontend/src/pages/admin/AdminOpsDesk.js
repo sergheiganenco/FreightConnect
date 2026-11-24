@@ -16,12 +16,23 @@ export default function AdminOpsDesk() {
   const navigate = useNavigate();
   const [desk, setDesk] = useState(null);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [sending, setSending] = useState(null);
 
   const load = useCallback(() => {
     setError(null);
     api.get("/admin/ops-desk").then((r) => setDesk(r.data)).catch(() => setError("The operations desk could not be loaded."));
   }, []);
   useEffect(load, [load]);
+
+  const sendPayout = (id) => {
+    if (!window.confirm("Send this payout to the carrier now?")) return;
+    setSending(id); setNotice(null);
+    api.post(`/payments/${id}/retry-payout`)
+      .then(() => { setNotice({ severity: "success", text: "Payout sent to the carrier." }); load(); })
+      .catch((e) => setNotice({ severity: "error", text: e.response?.data?.error || "The payout could not be sent." }))
+      .finally(() => setSending(null));
+  };
 
   return (
     <Box sx={{ width: "100%", maxWidth: 1100, mx: "auto", py: { xs: 1, md: 3 } }}>
@@ -33,6 +44,7 @@ export default function AdminOpsDesk() {
         Every open case that needs a person. Recommendations come from fixed rules and never act on their own: you decide on the case&apos;s own screen.
       </Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {notice && <Alert severity={notice.severity} onClose={() => setNotice(null)} sx={{ mb: 2 }}>{notice.text}</Alert>}
       {!desk && !error && <Box py={8} display="flex" justifyContent="center"><CircularProgress /></Box>}
 
       {desk && (
@@ -61,7 +73,10 @@ export default function AdminOpsDesk() {
                       <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{c.proposal.reason}</Typography>
                     </Alert>
                   </Box>
-                  {c.link && <Button variant="outlined" onClick={() => navigate(c.link)} sx={{ flexShrink: 0 }}>Open</Button>}
+                  <Stack direction={{ xs: "row", sm: "column" }} spacing={1} sx={{ flexShrink: 0 }}>
+                    {c.retryPayoutId && <Button variant="contained" disabled={sending === c.retryPayoutId} onClick={() => sendPayout(c.retryPayoutId)}>Send payout</Button>}
+                    {c.link && <Button variant="outlined" onClick={() => navigate(c.link)}>Open</Button>}
+                  </Stack>
                 </Stack>
               </Paper>
             ))}

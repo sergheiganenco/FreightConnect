@@ -125,8 +125,8 @@ async function collectCases({ adminId, env = process.env } = {}) {
     }))),
     ...stuckPayouts.map((p) => ({
       kind: 'payout', id: p._id, title: `Carrier payout not sent: ${money(p.carrierPayoutCents ?? p.amountCents)}`, detail: `Load ${p.loadId}`,
-      severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger',
-      proposal: review('The shipper has been charged, but the payout to the carrier (or its factoring company) has not gone out. Send it from Stripe or the ledger.'),
+      severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger', retryPayoutId: p._id,
+      proposal: review('The shipper has been charged, but the payout to the carrier (or its factoring company) has not gone out. "Send payout" tries again; it refuses if a factoring notice is on file or the carrier has no payout account.'),
     })),
     ...claims.map((c) => ({
       kind: 'claim', id: c._id, title: `Cargo claim: ${c.type}, ${money(c.amountCents)}`, detail: loadOf(c.loadId)?.title || null,

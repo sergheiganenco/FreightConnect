@@ -2113,15 +2113,8 @@ router.post('/voice-command', auth, async (req, res) => {
         console.error('Failed to create exception for dispute (non-fatal):', exErr);
       }
 
-      // Freeze escrow — mark payment as disputed
-      try {
-        const Payment = require('../models/Payment');
-        const payment = await Payment.findOne({ loadId: load._id, status: { $in: ['in_escrow', 'released'] } });
-        if (payment) {
-          payment.status = 'pending'; // revert to pending = frozen
-          await payment.save();
-        }
-      } catch { /* non-critical */ }
+      // The payment record is left as it is: it must keep saying where the money really is
+      // (held, or already paid out). The freeze is the load being "disputed", which blocks release.
 
       // Notify the other party
       const { notifyUserSafe } = require('../utils/notifyUser');

@@ -1297,14 +1297,9 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
               console.error(`[deliver] Load ${load._id}: escrow capture failed — leaving in_escrow for retry:`, capErr.message);
             }
           }
-        } else if (!stripeConfigured) {
-          // No-money pilot / tests: no real Stripe. Preserve prior behavior so the
-          // operational flow (invoice + notifications) still works end-to-end.
-          payment.status = 'released';
-          payment.releasedAt = new Date();
-          await payment.save();
-          moneyMoved = true;
         }
+        // Payment provider off: no money can move, so the record is left exactly as it is —
+        // never "released", no "paid" invoice, no payout notice.
 
         if (moneyMoved) {
           const existing = await Invoice.findOne({ loadId: load._id });

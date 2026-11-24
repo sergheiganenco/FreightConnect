@@ -116,17 +116,33 @@ class EscrowService {
 
     // ── Path A: no NOA → normal carrier payout (BYTE-FOR-BYTE prior behavior) ──
     if (payee.payTo === 'carrier') {
-      const transfer = await stripe.transfers.create({
-        amount: payoutCents,
-        currency: 'usd',
-        destination: carrierConnectAccountId,
-        source_transaction: chargeId,
-        metadata: {
-          loadId,
-          paymentIntentId,
-          type: 'carrier_payout',
-        },
-      });
+      let transfer;
+      try {
+        transfer = await stripe.transfers.create({
+          amount: payoutCents,
+          currency: 'usd',
+          destination: carrierConnectAccountId,
+          source_transaction: chargeId,
+          metadata: {
+            loadId,
+            paymentIntentId,
+            type: 'carrier_payout',
+          },
+        });
+      } catch (e) {
+        // The shipper IS charged at this point. Throwing here made callers leave the record as
+        // "held" for a hold that no longer exists, with no way to retry. Report the truth instead:
+        // captured, payout not sent. payoutCaptured() retries it.
+        console.error('[escrowService] capture succeeded but carrier transfer failed:', e.message);
+        await notifyAdmins({
+          type: 'payment:payout_failed',
+          title: 'Carrier payout failed after the shipper was charged',
+          body: `Load ${loadId}: $${(payoutCents / 100).toFixed(2)} was not sent to the carrier (${e.message}). Retry it from the operations desk.`,
+          link: '/dashboard/admin/ops-desk',
+          metadata: { loadId, payoutCents },
+        });
+        return { success: true, chargeId, transferId: null, payoutCents, payoutError: e.message };
+      }
 
       // Ledger: the carrier payable is paid out (drains carrier_payable into the
       // escrow_holding clearing account), and the platform fee is recognized as
@@ -387,8 +403,22 @@ class EscrowService {
     const load = await Load.findById(loadId).select('escrowPaymentIntentId');
     if (!load || !load.escrowPaymentIntentId) return { ok: false, code: 'no_escrow' };
     const Payment = require('../models/Payment');
-    const payment = await Payment.findOne({ loadId });
+    const payment = await Payment.findOne({ loadId, stripePaymentIntentId: load.escrowPaymentIntentId });
     if (!payment) return { ok: false, code: 'no_escrow' };
+    // Only a hold can be split here. Once money has been captured or paid out, a split needs a
+    // refund or a transfer reversal that a person must decide.
+    if (payment.status !== 'in_escrow') {
+      if (['captured', 'released'].includes(payment.status)) {
+        await notifyAdmins({
+          type: 'payment:dispute_after_payout',
+          title: 'Dispute resolved after the money already moved',
+          body: `Load ${loadId}: the payment is already "${payment.status}", so the ${carrierPayoutPercent}% carrier share was not applied automatically. Adjust it in Stripe.`,
+          link: '/dashboard/admin/ops-desk',
+          metadata: { loadId, paymentId: payment._id, carrierPayoutPercent },
+        });
+      }
+      return { ok: false, code: 'not_in_escrow' };
+    }
 
     const pct = Math.max(0, Math.min(100, Number(carrierPayoutPercent)));
     const totalCents = payment.amountCents;
@@ -396,12 +426,25 @@ class EscrowService {
     const refundCents = totalCents - carrierShareCents;
 
     try {
-      // Capture the held funds, then refund the shipper's share. The carrier's
-      // share flows out via the normal payout path.
-      await stripe.paymentIntents.capture(load.escrowPaymentIntentId);
+      // Capture the held funds, then refund the shipper's share.
+      // ponytail: capture-then-refund leaves the card fee on the refunded part with the platform;
+      // switch to a partial capture (amount_to_capture) once this runs against real Stripe.
+      const captured = await stripe.paymentIntents.capture(load.escrowPaymentIntentId);
       if (refundCents > 0) {
         await stripe.refunds.create({ payment_intent: load.escrowPaymentIntentId, amount: refundCents });
       }
+      // The record now says what happened: the shipper paid the carrier's share only.
+      const feeCents = calculatePlatformFee(carrierShareCents);
+      const payoutCents = carrierShareCents - feeCents;
+      payment.stripeChargeId = (captured && captured.latest_charge) || payment.stripeChargeId;
+      payment.amountCents = carrierShareCents;
+      payment.platformFeeCents = feeCents;
+      payment.carrierPayoutCents = payoutCents;
+      payment.amount = carrierShareCents / 100;
+      payment.platformFee = feeCents / 100;
+      payment.carrierPayout = payoutCents / 100;
+      if (carrierShareCents === 0) { payment.status = 'refunded'; payment.refundedAt = new Date(); } else { payment.status = 'captured'; }
+      await payment.save();
       try {
         await ledgerService.record({
           transactionId: `dispute_${loadId}`,
@@ -414,10 +457,77 @@ class EscrowService {
           stripeRef: load.escrowPaymentIntentId,
         });
       } catch (e) { console.error('[settleDisputeResolution] ledger failed:', e.message); }
-      return { ok: true, carrierShareCents, refundCents };
+      // Send the carrier's share. If it cannot go out now, the payment stays "captured" and
+      // shows on the operations desk until it is sent.
+      const payout = carrierShareCents > 0 ? await this.payoutCaptured(payment._id, stripe) : null;
+      return { ok: true, carrierShareCents, refundCents, payout };
     } catch (err) {
       return { ok: false, code: 'stripe_error', error: err.message };
     }
+  }
+
+  /**
+   * Send the carrier payout for a payment that is captured but not paid out (the transfer failed,
+   * the carrier had not finished payout setup, or a dispute was just settled). Safe to call twice:
+   * the same Stripe idempotency key is used and the record only moves captured → released once.
+   * Never pays the carrier while a factoring notice says the money belongs to someone else.
+   *
+   * @returns {Promise<{ ok, code?, error?, transferId?, payoutCents? }>}
+   */
+  async payoutCaptured(paymentId, stripeClient) {
+    let stripe;
+    try { stripe = stripeClient || getStripe(); } catch (_) { return { ok: false, code: 'stripe_unavailable' }; }
+    const Payment = require('../models/Payment');
+    const payment = await Payment.findById(paymentId);
+    if (!payment) return { ok: false, code: 'not_found' };
+    if (payment.status !== 'captured' || payment.stripeTransferId) return { ok: false, code: 'not_payable' };
+    if (!payment.stripeChargeId) return { ok: false, code: 'no_charge' };
+    if (!(payment.carrierPayoutCents > 0)) return { ok: false, code: 'nothing_to_pay' };
+
+    let payee;
+    try { payee = await resolvePayee(payment.carrierId); } catch (e) { payee = { payTo: 'hold', reason: 'Could not check factoring status' }; }
+    if (payee.payTo !== 'carrier') return { ok: false, code: 'held_for_factoring', error: payee.reason || 'A factoring notice is on file for this carrier' };
+
+    const carrier = await User.findById(payment.carrierId).select('stripe');
+    const destination = carrier && carrier.stripe && carrier.stripe.connectAccountId;
+    if (!destination) return { ok: false, code: 'no_payout_account' };
+
+    let transfer;
+    try {
+      transfer = await stripe.transfers.create({
+        amount: payment.carrierPayoutCents,
+        currency: 'usd',
+        destination,
+        source_transaction: payment.stripeChargeId,
+        metadata: { loadId: String(payment.loadId), paymentIntentId: payment.stripePaymentIntentId, type: 'carrier_payout' },
+      }, { idempotencyKey: `payout_${payment._id}` });
+    } catch (e) {
+      return { ok: false, code: 'stripe_error', error: e.message };
+    }
+    await Payment.updateOne(
+      { _id: payment._id, status: 'captured' },
+      { $set: { status: 'released', stripeTransferId: transfer.id, releasedAt: new Date() } },
+    );
+    try {
+      await ledgerService.record({
+        transactionId: `carrier_payout_${transfer.id}`,
+        loadId: String(payment.loadId),
+        entryType: 'carrier_payout',
+        amountCents: payment.carrierPayoutCents,
+        debitAccount: 'carrier_payable',
+        creditAccount: 'escrow_holding',
+        description: `Carrier payout for Load ${payment.loadId}`,
+        stripeRef: transfer.id,
+      });
+    } catch (e) { console.error('[payoutCaptured] ledger failed:', e.message); }
+    notifyUserSafe(String(payment.carrierId), {
+      type: 'payment:released',
+      title: 'Payout released',
+      body: `$${(payment.carrierPayoutCents / 100).toFixed(2)} was sent to your payout account.`,
+      link: '/dashboard/carrier/payments',
+      metadata: { loadId: payment.loadId },
+    });
+    return { ok: true, transferId: transfer.id, payoutCents: payment.carrierPayoutCents };
   }
 
   /**
