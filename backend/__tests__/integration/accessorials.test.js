@@ -50,13 +50,13 @@ describe('Integration — Accessorial Settlement Loop', () => {
     const res = await request(app)
       .post(`/api/loads/${load._id}/accessorials`)
       .set('Authorization', `Bearer ${generateToken(carrier)}`)
-      .send({ type: 'lumper', amountCents: 15000, description: '2h lumper' });
+      .send({ type: 'layover', amountCents: 15000, description: '2h layover' });
 
     expect(res.status).toBe(201);
     expect(res.body.charge).toBeDefined();
     expect(res.body.charge.status).toBe('pending');
     expect(res.body.charge.amountCents).toBe(15000);
-    expect(res.body.charge.type).toBe('lumper');
+    expect(res.body.charge.type).toBe('layover');
     expect(res.body.charge._id).toBeDefined();
   });
 
@@ -66,7 +66,7 @@ describe('Integration — Accessorial Settlement Loop', () => {
     const created = await request(app)
       .post(`/api/loads/${load._id}/accessorials`)
       .set('Authorization', `Bearer ${generateToken(carrier)}`)
-      .send({ type: 'lumper', amountCents: 8000 });
+      .send({ type: 'layover', amountCents: 8000 });
     const chargeId = created.body.charge._id;
 
     const res = await request(app)
@@ -106,7 +106,7 @@ describe('Integration — Accessorial Settlement Loop', () => {
     const created = await request(app)
       .post(`/api/loads/${load._id}/accessorials`)
       .set('Authorization', `Bearer ${generateToken(carrier)}`)
-      .send({ type: 'lumper', amountCents: 15000 });
+      .send({ type: 'layover', amountCents: 15000 });
     const chargeId = created.body.charge._id;
 
     const res = await request(app)
@@ -128,7 +128,7 @@ describe('Integration — Accessorial Settlement Loop', () => {
     const res = await request(app)
       .post(`/api/loads/${load._id}/accessorials`)
       .set('Authorization', `Bearer ${generateToken(stranger)}`)
-      .send({ type: 'lumper', amountCents: 15000 });
+      .send({ type: 'layover', amountCents: 15000 });
 
     expect(res.status).toBe(403);
   });
@@ -141,7 +141,7 @@ describe('Integration — Accessorial Settlement Loop', () => {
       const res = await request(app)
         .post(`/api/loads/${load._id}/accessorials`)
         .set('Authorization', `Bearer ${token}`)
-        .send({ type: 'lumper', amountCents: bad });
+        .send({ type: 'layover', amountCents: bad });
       expect(res.status).toBe(400);
     }
   });

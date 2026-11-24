@@ -297,6 +297,9 @@ exports.generateBOL = (load, carrier, shipper) => {
     y = sectionTitle(doc, 'SIGNATURES', y) + 20;
     const at = pickupSignatures(load);
     drawSignature(doc, at.shipper, 'Shipper Signature:', 50, y, 300);
+    if (at.shipper && at.shipper.capturedByRole === 'carrier') {
+      doc.fontSize(7.5).fillColor('#64748b').font('Helvetica').text("Signed on the carrier's device at pickup", 50, y + 80, { width: 250 });
+    }
     drawSignature(doc, at.driver, 'Driver Signature:', 320, y, 562);
     drawSignature(doc, load.deliverySignature, 'Consignee Signature:', 50, y + 110, 300);
 

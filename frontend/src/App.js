@@ -86,6 +86,7 @@ const CarrierClaims = lazy(() => import('./pages/carrier/CarrierClaims'));
 const AdminClaims = lazy(() => import('./pages/admin/AdminClaims'));
 const CarrierSettlements = lazy(() => import('./pages/carrier/CarrierSettlements'));
 const CarrierIFTA = lazy(() => import('./pages/carrier/CarrierIFTA'));
+const CarrierCompliance = lazy(() => import('./pages/carrier/CarrierCompliance'));
 
 // Fallback shown while a lazy route chunk loads.
 function RouteFallback() {
@@ -190,6 +191,7 @@ function App() {
             <Route path="tax" element={<CarrierTax />} />
             <Route path="settlements" element={<CarrierSettlements />} />
             <Route path="ifta" element={<CarrierIFTA />} />
+            <Route path="compliance" element={<CarrierCompliance />} />
             <Route path="claims" element={<CarrierClaims />} />
             <Route path="network" element={<CarrierNetwork />} />
             <Route path="ai-insights" element={<AIInsightsPanel />} />

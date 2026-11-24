@@ -300,6 +300,7 @@ const LoadSchema = new mongoose.Schema({
     paidAt:      { type: Date, default: null },
     rejectionReason: { type: String, default: null },
     evidenceUrls:[String],
+    receiptEvidenceId: { type: mongoose.Schema.Types.ObjectId, default: null }, // the receipt photo (Load.evidence) behind a lumper charge
 
     // ── Detention auto-collect (system-generated charges) ────────────────────
     // `source` distinguishes carrier-requested accessorials from server-authored
@@ -366,7 +367,7 @@ const LoadSchema = new mongoose.Schema({
   evidence: {
     type: [{
       stage:    { type: String, enum: ['pickup', 'delivery'], required: true },
-      kind:     { type: String, enum: ['cargo', 'seal', 'damage', 'paperwork', 'other'], default: 'cargo' },
+      kind:     { type: String, enum: ['cargo', 'seal', 'damage', 'paperwork', 'receipt', 'other'], default: 'cargo' },
       file:     { type: String, required: true },
       mimeType: String,
       sizeBytes: Number,

@@ -30,6 +30,7 @@ import ReeferMonitorPanel from '../features/shared/ReeferMonitorPanel';
 import PickupHandshakePanel from '../features/shared/PickupHandshakePanel';
 import PickupRiskPanel from '../features/shared/PickupRiskPanel';
 import CheckCallPanel from '../features/shared/CheckCallPanel';
+import DetentionClock from '../features/shared/DetentionClock';
 import TenderProgress from '../features/shared/TenderProgress';
 import PickupWindowPanel from '../features/shared/PickupWindowPanel';
 import LoadEvidencePanel from '../features/shared/LoadEvidencePanel';
@@ -46,6 +47,8 @@ const EXCEPTION_TYPES = [
   { value: 'cargo_damage',   label: 'Cargo Damage' },
   { value: 'missed_pickup',  label: 'Missed Pickup' },
   { value: 'overcharge',     label: 'Overcharge' },
+  { value: 'breakdown',      label: 'Breakdown (carrier)' },
+  { value: 'accident',       label: 'Accident (carrier)' },
   { value: 'other',          label: 'Other' },
 ];
 const EXCEPTION_SEVERITIES = [
@@ -1519,7 +1522,8 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
                     />
                   </Stack>
                   <TextField size="small" label="Description" fullWidth value={accDesc}
-                    onChange={(e) => setAccDesc(e.target.value)} sx={darkFieldSx} placeholder="e.g. 3 hrs detention at receiver" />
+                    onChange={(e) => setAccDesc(e.target.value)} sx={darkFieldSx} placeholder="e.g. unloading by lumper service at receiver"
+                    helperText={accType === 'lumper' ? 'First add a photo of the lumper receipt under Photos (kind: receipt). Each receipt backs one charge.' : undefined} />
                   <Box>
                     <Button variant="contained" onClick={handleRequestAccessorial} disabled={accSaving || !accAmount}
                       sx={{ bgcolor: brand.indigo, borderRadius: 9999, fontWeight: 700, '&:hover': { bgcolor: '#5558e6' } }}>
@@ -1625,6 +1629,7 @@ export default function LoadDetailsModal({ load, userRole, onClose, onLoadAccept
 
         {/* ── Automatic check calls (booked / in transit / delivered) ── */}
         {['carrier', 'shipper', 'admin'].includes(userRole) && <CheckCallPanel load={loadState} userRole={userRole} />}
+        {isAssignedLoad && ['carrier', 'shipper', 'admin'].includes(userRole) && <DetentionClock load={loadState} userRole={userRole} />}
 
         {/* The server omits a cleared proposal, so it is reset explicitly on refresh. */}
         {/* ── Change pickup / delivery time (shipper) and respond to a proposed pickup time (carrier) ── */}

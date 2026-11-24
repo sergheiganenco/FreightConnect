@@ -37,6 +37,8 @@ const TYPE_OPTIONS = [
   { value: 'cargo_damage',  label: 'Cargo Damage' },
   { value: 'missed_pickup', label: 'Missed Pickup' },
   { value: 'overcharge',    label: 'Overcharge' },
+  { value: 'breakdown',     label: 'Breakdown' },
+  { value: 'accident',      label: 'Accident' },
   { value: 'other',         label: 'Other' },
 ];
 

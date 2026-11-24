@@ -17,7 +17,7 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import api from '../../services/api';
 import { semantic, surface, text as T } from '../../theme/tokens';
 
-const KINDS = ['cargo', 'seal', 'damage', 'paperwork', 'other'];
+const KINDS = ['cargo', 'seal', 'damage', 'paperwork', 'receipt', 'other'];
 const STAGES = [{ key: 'pickup', label: 'Pickup photos', where: 'pickup' }, { key: 'delivery', label: 'Delivery photos', where: 'delivery' }];
 const errMsg = (e, fallback) => e?.response?.data?.error || fallback;
 

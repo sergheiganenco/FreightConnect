@@ -27,6 +27,7 @@ import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import GavelIcon from '@mui/icons-material/Gavel';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import LocalGasStationIcon from '@mui/icons-material/LocalGasStation';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import { useChatContext } from '../../../../components/chat/ChatProvider';
@@ -64,6 +65,7 @@ const moreItems = [
   { key: "fleet",        label: "Fleet",        icon: <DirectionsCarIcon />,   access: 'manager' },
   { key: "drivers",      label: "Drivers",       icon: <BadgeIcon />,           access: 'manager' },
   { key: "fleetHos",     label: "Fleet HOS",     icon: <MonitorHeartIcon />,    access: 'manager' },
+  { key: "compliance",   label: "Inspections & Docs", icon: <FactCheckIcon /> },
   { key: "fleetMap",     label: "Fleet Map",     icon: <MapIcon /> },
   { key: "autopilot",    label: "Autopilot",     icon: <AutoModeIcon /> },
   { key: "trips",        label: "Trip Planning", icon: <RouteIcon /> },

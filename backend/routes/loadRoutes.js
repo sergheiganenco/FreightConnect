@@ -1259,6 +1259,15 @@ router.put("/:id/status", auth, async (req, res) => {
       });
     }
 
+    // A truck a driver reported unsafe stays parked until a manager certifies the repair (49 CFR 396.11).
+    if (status === 'in-transit' && existingLoad.assignedTruckId
+      && await require('../models/Dvir').outOfService(existingLoad.acceptedBy, existingLoad.assignedTruckId)) {
+      return res.status(409).json({
+        error: `Truck ${existingLoad.assignedTruckId} is out of service: an inspection report lists an unsafe defect and the repair has not been certified.`,
+        reason: 'truck_out_of_service',
+      });
+    }
+
     // Photo evidence the shipper required (pickup photos before pickup/delivery, delivery photos before delivery).
     const photoBlock = status === 'in-transit' ? await pickupBlockers(existingLoad)
       : status === 'delivered' ? (await pickupBlockers(existingLoad)) || (await deliveryBlockers(existingLoad)) : null;
@@ -2532,6 +2541,19 @@ router.post('/voice-command', auth, async (req, res) => {
         return res.status(400).json({ error: 'amountCents must be a positive integer (cents)' });
       }
 
+      // A lumper fee is repaid against its receipt: the photo must already be on the load (Photos, kind "receipt").
+      let receiptEvidenceId = null;
+      if (type === 'lumper' && isCarrier) {
+        const withPhotos = await Load.findById(load._id).select('+evidence').lean();
+        const used = new Set(load.accessorialCharges.map((c) => String(c.receiptEvidenceId || '')));
+        const receipt = (withPhotos.evidence || []).filter((e) => e.kind === 'receipt' && !e.archived
+          && String(e.companyId) === String(load.acceptedBy) && !used.has(String(e._id))).pop();
+        if (!receipt) {
+          return res.status(400).json({ error: 'Add a photo of the lumper receipt first (Photos, kind "receipt"). Each receipt backs one lumper charge.', reason: 'receipt_required' });
+        }
+        receiptEvidenceId = receipt._id;
+      }
+
       load.accessorialCharges.push({
         type,
         description: description || null,
@@ -2539,7 +2561,8 @@ router.post('/voice-command', auth, async (req, res) => {
         status: 'pending',
         requestedBy: req.user.userId,
         requestedAt: new Date(),
-        evidenceUrls: Array.isArray(evidenceUrls) ? evidenceUrls : [],
+        evidenceUrls: [], // client-supplied links are not stored; proof is a photo on the load
+        receiptEvidenceId,
       });
       await load.save();
 

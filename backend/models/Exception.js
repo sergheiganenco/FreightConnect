@@ -25,7 +25,7 @@ const ExceptionSchema = new mongoose.Schema({
   // ── Classification ────────────────────────────────────────────────────────
   type: {
     type: String,
-    enum: ['dispute', 'delay', 'cargo_damage', 'missed_pickup', 'overcharge', 'other'],
+    enum: ['dispute', 'delay', 'cargo_damage', 'missed_pickup', 'overcharge', 'breakdown', 'accident', 'other'],
     required: true,
   },
   severity: {

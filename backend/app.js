@@ -221,6 +221,10 @@ app.use('/api/tos', tosRoutes);
 
 // User Routes
 const userRoutes = require('./routes/userRoutes');
+// Dock details (pickup number, facility contacts) leave the API only to a load's own parties.
+app.use('/api', require('./middlewares/redactLoadSecrets'));
+// The wallet's files are private: read only through /api/compliance-docs/:id/file.
+app.use('/documents/compliance', (req, res) => res.status(404).end());
 app.use('/api/users', userRoutes);
 
 // Driver Routes (fleet driver roster + compliance alerts)
@@ -541,6 +545,10 @@ app.use('/api/settlements', require('./routes/settlementRoutes'));
 // IFTA Routes (quarterly fuel-tax worksheet)
 app.use('/api/ifta', require('./routes/iftaRoutes'));
 
+// Driver vehicle inspection reports, and the document wallet
+app.use('/api/dvir', require('./routes/dvirRoutes'));
+app.use('/api/compliance-docs', require('./routes/complianceDocRoutes'));
+
 // ── Client-side routing catch-all (production only) ─────────────────────────
 // Serves index.html for any non-API route so React Router handles navigation.
 // Must be AFTER all /api routes and BEFORE the 404 handler.
@@ -593,6 +601,7 @@ server.listen(PORT, () => {
   // Start background jobs (skip in test environment)
   if (process.env.NODE_ENV !== 'test') {
     require('./jobs/insuranceMonitor').start();
+    require('./jobs/expiryMonitor').start();
     require('./jobs/fmcsaMonitor').start();
     require('./jobs/overdueLoadMonitor').start();
     require('./jobs/pickupRiskMonitor').start();

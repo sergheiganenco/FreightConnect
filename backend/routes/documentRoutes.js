@@ -411,20 +411,34 @@ router.post('/:loadId/pickup-signature', auth, async (req, res) => {
     // party=shipper is the dock signing on the driver's device; a shipper login always signs as the shipper.
     const forShipper = req.user.role === 'shipper' || req.body.party === 'shipper';
     if (forShipper) {
-      if (req.user.role !== 'shipper' && !String(req.body.signerName || '').trim()) {
+      const byShipper = req.user.role === 'shipper';
+      if (!byShipper && !String(req.body.signerName || '').trim()) {
         return res.status(400).json({ error: 'Enter the name of the person signing for the shipper' });
       }
-      load.shipperSignature = {
+      const sig = {
         dataUrl,
         signerName: req.body.signerName ? String(req.body.signerName).trim().slice(0, 120) : null,
         capturedBy: req.user.userId,
-        capturedByRole: req.user.role === 'shipper' ? 'shipper' : 'carrier',
+        capturedByRole: byShipper ? 'shipper' : 'carrier',
         signedAt: new Date(),
       };
+      // The carrier's device may fill the shipper's slot once, before the load leaves, and never
+      // replace what is there. Only a shipper login can replace it. One conditional write, so two
+      // requests cannot both win.
+      const filter = byShipper
+        ? { _id: load._id, status: { $in: ['accepted', 'in-transit'] } }
+        : { _id: load._id, status: 'accepted', 'shipperSignature.dataUrl': null };
+      const saved = await Load.findOneAndUpdate(filter, { $set: { shipperSignature: sig } }, { new: true });
+      if (!saved) return res.status(409).json({ error: 'The shipper signature is already on this bill of lading, or the load has left the dock' });
+      load.shipperSignature = saved.shipperSignature;
+      try {
+        await require('../models/StatusHistory').record('load', load._id, load.status, 'shipper_signature', req.user.userId,
+          `Shipper signature for the bill of lading taken ${byShipper ? 'from the shipper account' : "on the carrier's device"} (signer: ${sig.signerName || 'not named'})`);
+      } catch (e) { console.error('[pickup-signature] history failed (non-fatal):', e.message); }
     } else {
       load.pickupSignature = buildSignature(dataUrl, req.body.signerName, req);
+      await load.save();
     }
-    await load.save();
 
     // Generate the BOL now so the pickup signature is captured on paper.
     let bolUrl = null;

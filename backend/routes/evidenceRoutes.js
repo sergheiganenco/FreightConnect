@@ -123,7 +123,7 @@ router.post('/loads/:id/evidence', auth,
   (req, res, next) => (req.user.role === 'carrier' ? next() : res.status(403).json({ error: 'Only the booked carrier can add photos' })),
   uploadLimiter, idParam, uploadOne,
   body('stage').isIn(['pickup', 'delivery']).withMessage('stage must be pickup or delivery'),
-  body('kind').optional({ checkFalsy: true }).isIn(['cargo', 'seal', 'damage', 'paperwork', 'other']).withMessage('Invalid kind'),
+  body('kind').optional({ checkFalsy: true }).isIn(['cargo', 'seal', 'damage', 'paperwork', 'receipt', 'other']).withMessage('Invalid kind'),
   body('latitude').optional({ checkFalsy: true }).isFloat({ min: -90, max: 90 }).withMessage('latitude must be -90..90'),
   body('longitude').optional({ checkFalsy: true }).isFloat({ min: -180, max: 180 }).withMessage('longitude must be -180..180'),
   body('accuracyMeters').optional({ checkFalsy: true }).isFloat({ min: 0 }).withMessage('accuracyMeters must be >= 0'),
@@ -180,13 +180,19 @@ router.post('/loads/:id/evidence', auth,
           [`evidence.${MAX_STORED - 1}`]: { $exists: false },
           $expr: { $lt: [{ $size: { $filter: { input: { $ifNull: ['$evidence', []] }, cond: { $ne: ['$$this.archived', true] } } } }, MAX_PER_LOAD] },
         },
-        { $push: { evidence: item }, ...(stage === 'pickup' && item.sealNumber ? { $set: { sealNumber: item.sealNumber } } : {}) }, { new: true }
+        { $push: { evidence: item } }, { new: true }
       ).select('+evidence');
       if (!updated) {
         await rm(file);
         return res.status(409).json({ error: 'The load changed or the photo limit was reached; try again' });
       }
       await audit(load, 'evidence_added', req.user.userId, `${stage} photo added (${item.kind})`, { evidenceId: item._id, sha256: item.sha256 });
+      // The seal number on the bill of lading is the FIRST one recorded at pickup, before the load leaves.
+      // Later photos keep their own seal number but never change the document.
+      if (stage === 'pickup' && item.sealNumber) {
+        const sealed = await Load.updateOne({ _id: load._id, status: 'accepted', acceptedBy: load.acceptedBy, sealNumber: null }, { $set: { sealNumber: item.sealNumber } });
+        if (sealed.modifiedCount) await audit(load, 'seal_recorded', req.user.userId, `Seal number ${item.sealNumber} recorded for the bill of lading`, { evidenceId: item._id });
+      }
       if (updated.evidence.filter((e) => e.stage === stage && !e.archived).length === 1) {
         notifyUserSafe(load.postedBy, {
           type: 'load:evidence_added',

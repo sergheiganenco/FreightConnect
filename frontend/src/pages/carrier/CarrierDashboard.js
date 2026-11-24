@@ -109,6 +109,7 @@ export default function CarrierDashboard() {
   else if (path.includes('/factoring')) currentSection = 'factoring';
   else if (path.includes('/settlements')) currentSection = 'settlements';
   else if (path.includes('/ifta')) currentSection = 'ifta';
+  else if (path.includes('/compliance')) currentSection = 'compliance';
   else if (path.includes('/claims')) currentSection = 'claims';
   else if (path.includes('/tax')) currentSection = 'tax';
   else if (path.includes('/network')) currentSection = 'network';
@@ -227,6 +228,7 @@ export default function CarrierDashboard() {
               else if (key === "factoring") navigate("/dashboard/carrier/factoring");
               else if (key === "settlements") navigate("/dashboard/carrier/settlements");
               else if (key === "ifta") navigate("/dashboard/carrier/ifta");
+              else if (key === "compliance") navigate("/dashboard/carrier/compliance");
               else if (key === "claims") navigate("/dashboard/carrier/claims");
               else if (key === "tax") navigate("/dashboard/carrier/tax");
               else if (key === "network") navigate("/dashboard/carrier/network");

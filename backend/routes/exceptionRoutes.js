@@ -88,12 +88,15 @@ router.post('/', auth, async (req, res) => {
       return res.status(403).json({ error: 'You are not a participant on this load' });
     }
 
+    // A breakdown or an accident is never routine: the severity is set here, not chosen by the reporter.
+    const roadside = type === 'breakdown' || type === 'accident';
+    if (roadside && role !== 'carrier') return res.status(400).json({ error: 'Only the carrier can report a breakdown or an accident' });
     const exception = await Exception.create({
       loadId,
       filedBy: uid,
       filedByRole: role,
       type,
-      severity: severity || 'medium',
+      severity: roadside ? (type === 'accident' ? 'critical' : 'high') : (severity || 'medium'),
       title,
       description,
       claimAmount: claimAmount || null,
@@ -122,6 +125,17 @@ router.post('/', auth, async (req, res) => {
         body: `${type.replace('_', ' ')} — "${title}"`,
         link: '/dashboard/carrier/my-loads',
         metadata: { exceptionId: exception._id, loadId, severity: exception.severity },
+      });
+    }
+
+    // A driver reporting from the road: the company's own office hears about it too.
+    if (roadside && String(uid) !== companyId) {
+      notifyUserSafe(companyId, {
+        type: 'exception:new',
+        title: type === 'accident' ? 'Your driver reported an accident' : 'Your driver reported a breakdown',
+        body: `"${load.title}": ${title}`,
+        link: '/dashboard/carrier/my-loads',
+        metadata: { exceptionId: exception._id, loadId, severity: exception.severity, priority: 'high' },
       });
     }
 
