@@ -1496,7 +1496,8 @@ router.get('/:id/stops', auth, async (req, res) => {
     // Stops carry facility contact details — gate the same way as the load itself.
     const denied = await browseDenial(load, req);
     if (denied) return res.status(denied.status).json({ error: denied.error });
-    res.json({ stops: load.stops || [], origin: load.origin, destination: load.destination });
+    // postedBy / acceptedBy travel with the stops so the dock-detail filter (middlewares/redactLoadSecrets) can tell a party from a browser.
+    res.json({ stops: load.stops || [], origin: load.origin, destination: load.destination, postedBy: load.postedBy, acceptedBy: load.acceptedBy });
   } catch (err) {
     res.status(500).json({ error: 'Server error fetching stops' });
   }

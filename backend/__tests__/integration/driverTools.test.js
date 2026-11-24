@@ -202,6 +202,10 @@ describe('who sees what, and what cannot be rewritten', () => {
     expect(browsing.pickupContactPhone).toBeUndefined();
     expect(browsing.stops[0].address).toBe('5 Mid St, Jackson, TN');
     expect(JSON.stringify(browsing)).not.toMatch(/Stop Sue|555-0199|4471/);
+    const stopsOnly = await request(app).get(`/api/loads/${load._id}/stops`).set(bearer(carrier));
+    expect(stopsOnly.body.stops).toHaveLength(1);
+    expect(JSON.stringify(stopsOnly.body)).not.toMatch(/Stop Sue|555-0199|4471/);
+    expect(JSON.stringify((await request(app).get(`/api/loads/${load._id}/stops`).set(bearer(shipper))).body)).toMatch(/Stop Sue/);
     const board = (await request(app).get('/api/loads').set(bearer(carrier))).body;
     expect(JSON.stringify(board)).not.toContain('PU-77');
 
