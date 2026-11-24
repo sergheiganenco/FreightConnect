@@ -1290,6 +1290,7 @@ router.put('/fleet/:truckId/deliver', auth, async (req, res) => {
                 // Captured, but the carrier payout was redirected to a factor or held
                 // (UCC §9-406). The shipper WAS charged, so the invoice is legitimate.
                 payment.status = 'captured';
+                payment.payoutRoute = result.redirectedToFactor ? 'factor' : (result.payoutError ? 'carrier' : 'held');
               }
               await payment.save();
               moneyMoved = true;

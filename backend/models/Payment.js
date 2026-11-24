@@ -35,6 +35,10 @@ const PaymentSchema = new mongoose.Schema({
   stripeTransferId:      String,   // payout to carrier after delivery
   stripeChargeId:        String,
 
+  // Who a captured-but-unpaid payout belongs to, fixed at capture. 'factor' is permanent: the money
+  // is owed to the factoring company and must never later be sent to the carrier.
+  payoutRoute: { type: String, enum: ['carrier', 'factor', 'held'] },
+
   releasedAt: Date,
   refundedAt: Date,
   failedAt:   Date,

@@ -267,6 +267,7 @@ router.post('/release/:loadId', auth, async (req, res) => {
       } else {
         // Captured, but the carrier payout was redirected to a factor or held (NOA).
         payment.status = 'captured';
+        payment.payoutRoute = result.redirectedToFactor ? 'factor' : (result.payoutError ? 'carrier' : 'held');
       }
       await payment.save();
     }

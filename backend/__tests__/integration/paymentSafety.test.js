@@ -262,3 +262,17 @@ describe('carrier payout that did not go out, and dispute splits', () => {
     expect((await fresh(done.payment)).status).toBe('released');
   });
 });
+
+test('a payout assigned to a factoring company is never sent to the carrier later, even after the notice is gone', async () => {
+  const User = require('../../models/User');
+  const escrowService = require('../../services/escrowService');
+  const { carrier, payment } = await scene('captured', { stripeChargeId: 'ch_1', payoutRoute: 'factor' });
+  await User.updateOne({ _id: carrier._id }, { $set: { 'stripe.connectAccountId': 'acct_9' } }); // no notice on file now
+  mockStripe.transfers.create.mockClear();
+  expect((await escrowService.payoutCaptured(payment._id)).code).toBe('held_for_factoring');
+  expect(mockStripe.transfers.create).not.toHaveBeenCalled();
+  await Payment.collection.updateOne({ _id: payment._id }, { $set: { updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000) } });
+  const c = (await desk.collectCases({})).find((x) => String(x.id) === String(payment._id));
+  expect(c.kind).toBe('payout');
+  expect(c.retryPayoutId).toBeUndefined(); // shown, but with no send button
+});

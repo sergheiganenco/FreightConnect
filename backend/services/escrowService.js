@@ -483,10 +483,16 @@ class EscrowService {
     if (payment.status !== 'captured' || payment.stripeTransferId) return { ok: false, code: 'not_payable' };
     if (!payment.stripeChargeId) return { ok: false, code: 'no_charge' };
     if (!(payment.carrierPayoutCents > 0)) return { ok: false, code: 'nothing_to_pay' };
+    // Already assigned to a factoring company at capture: that debt is the factor's for good,
+    // even if the notice is withdrawn later. Paying the carrier now would pay the same load twice.
+    if (payment.payoutRoute === 'factor') return { ok: false, code: 'held_for_factoring', error: 'This payout was assigned to the factoring company' };
 
     let payee;
     try { payee = await resolvePayee(payment.carrierId); } catch (e) { payee = { payTo: 'hold', reason: 'Could not check factoring status' }; }
-    if (payee.payTo !== 'carrier') return { ok: false, code: 'held_for_factoring', error: payee.reason || 'A factoring notice is on file for this carrier' };
+    if (payee.payTo !== 'carrier') {
+      if (payee.payTo === 'factor') await Payment.updateOne({ _id: payment._id }, { $set: { payoutRoute: 'factor' } });
+      return { ok: false, code: 'held_for_factoring', error: payee.reason || 'A factoring notice is on file for this carrier' };
+    }
 
     const carrier = await User.findById(payment.carrierId).select('stripe');
     const destination = carrier && carrier.stripe && carrier.stripe.connectAccountId;

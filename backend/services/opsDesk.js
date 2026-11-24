@@ -125,7 +125,7 @@ async function collectCases({ adminId, env = process.env } = {}) {
     }))),
     ...stuckPayouts.map((p) => ({
       kind: 'payout', id: p._id, title: `Carrier payout not sent: ${money(p.carrierPayoutCents ?? p.amountCents)}`, detail: `Load ${p.loadId}`,
-      severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger', retryPayoutId: p._id,
+      severity: 'critical', ageHours: age(p.updatedAt), link: '/dashboard/admin/ledger', retryPayoutId: p.payoutRoute === 'factor' ? undefined : p._id,
       proposal: review('The shipper has been charged, but the payout to the carrier (or its factoring company) has not gone out. "Send payout" tries again; it refuses if a factoring notice is on file or the carrier has no payout account.'),
     })),
     ...claims.map((c) => ({
