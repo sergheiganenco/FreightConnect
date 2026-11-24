@@ -48,6 +48,8 @@ async function runInsuranceCheck() {
     for (const carrier of carriers) {
       const ins = carrier.verification?.insurance;
       if (!ins) continue;
+      // A lapse found on the federal record is not cleared by a certificate's expiry date (jobs/fmcsaMonitor clears it).
+      if (ins.fmcsaLapsedAt) continue;
 
       // Earliest expiry across policies — a valid cargo policy must not mask
       // an expired auto-liability policy (mirrors antiFraudGuard).

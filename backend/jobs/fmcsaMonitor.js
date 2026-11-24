@@ -186,15 +186,28 @@ async function runFmcsaCheck() {
           const ins = await require('../services/insuranceService').verifyInsurance(data, {
             hazmat: (carrier.carrierEndorsements || []).includes('hazmat'),
           });
-          const was = v.insurance?.status;
-          const keepBetterSource = ins.source === 'fmcsa' && ins.status === 'valid' && ['vendor', 'manual'].includes(v.insurance?.source) && was !== 'lapsed';
-          if (ins.status !== 'unknown' && !keepBetterSource) {
-            carrier.verification.insurance = {
-              cargoLiability: ins.cargoLiability || {}, autoLiability: ins.autoLiability || {},
-              status: ins.status, source: ins.source,
-              meetsFederalMinimum: ins.meetsFederalMinimum, requiredMinimum: ins.requiredMinimum, lastChecked: ins.lastChecked,
-            };
-            if (ins.status === 'lapsed' && was !== 'lapsed') {
+          const cur = v.insurance || {};
+          const better = ['vendor', 'manual'].includes(cur.source); // a certificate with real expiry dates
+          const fields = {
+            cargoLiability: ins.cargoLiability || {}, autoLiability: ins.autoLiability || {},
+            status: ins.status, source: ins.source,
+            meetsFederalMinimum: ins.meetsFederalMinimum, requiredMinimum: ins.requiredMinimum, lastChecked: ins.lastChecked,
+          };
+          if (ins.source !== 'fmcsa') {
+            // A configured certificate vendor answered: it is the best source, so its result stands.
+            if (ins.status !== 'unknown') carrier.verification.insurance = { ...fields, fmcsaLapsedAt: cur.fmcsaLapsedAt || null };
+          } else if (ins.status === 'lapsed') {
+            // The federal record says a required policy is missing: this always applies. A certificate's
+            // own details (amounts, expiry dates) are kept; only the status and the marker change.
+            const first = !cur.fmcsaLapsedAt;
+            if (better) {
+              carrier.verification.insurance.status = 'lapsed';
+              carrier.verification.insurance.fmcsaLapsedAt = cur.fmcsaLapsedAt || new Date();
+              carrier.verification.insurance.lastChecked = ins.lastChecked;
+            } else {
+              carrier.verification.insurance = { ...fields, fmcsaLapsedAt: cur.fmcsaLapsedAt || new Date() };
+            }
+            if (first) {
               console.warn(`[FmcsaMonitor] Insurance no longer on file for carrier ${carrier._id}`);
               await notifyUserSafe(carrier._id.toString(), {
                 type: 'verification:insurance_lapsed',
@@ -204,6 +217,12 @@ async function runFmcsaCheck() {
                 metadata: { priority: 'high' },
               });
             }
+          } else if (ins.status === 'valid') {
+            // Good on the federal record. That lifts only the federal lapse marker. It never turns a
+            // certificate's status to valid: with a vendor or manual source the status stays as it is
+            // until the nightly expiry check (jobs/insuranceMonitor) confirms it from the certificate.
+            if (better) carrier.verification.insurance.fmcsaLapsedAt = null;
+            else carrier.verification.insurance = { ...fields, fmcsaLapsedAt: null };
           }
         } catch (insErr) {
           console.error(`[FmcsaMonitor] insurance re-check failed for ${carrier._id} (non-fatal):`, insErr.message);

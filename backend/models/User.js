@@ -229,6 +229,8 @@ const UserSchema = new mongoose.Schema({
       // Whether the on-file BIPD meets the federal minimum (49 CFR §387) for the
       // carrier, and what that required minimum was.
       meetsFederalMinimum: { type: Boolean, default: null },
+      // Set while the nightly FMCSA check finds the required insurance missing; only that check clears it.
+      fmcsaLapsedAt: { type: Date, default: null },
       requiredMinimum: { type: Number, default: null },
     },
     identityVerified: { type: Boolean, default: false },

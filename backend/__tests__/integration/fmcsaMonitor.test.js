@@ -367,6 +367,42 @@ describe('nightly insurance re-check', () => {
     expect(after.verification.insurance.meetsFederalMinimum).toBe(true);
   });
 
+  test('a good federal record never overrides or clears what a certificate says', async () => {
+    const soon = new Date(Date.now() + 200 * 86400000);
+    const manual = (status) => ({ status, source: 'manual', autoLiability: { amount: 1000000, expiry: soon } });
+    const good = authorized({ hasData: true, bipdOnFile: true, bipdOnFileAmount: 1000000 });
+    const missing = authorized({ hasData: true, bipdOnFile: false, bipdOnFileAmount: 0 });
+
+    // A certificate marked lapsed stays lapsed when FMCSA looks fine.
+    const a = await createVerifiedCarrier({ verification: { status: 'verified', dotNumber: '1234567', insurance: manual('lapsed'), fmcsaData: { legalName: 'Test Trucking LLC', operatingStatus: 'AUTHORIZED FOR Property' } } });
+    fmcsaService.lookupByDOT.mockResolvedValue(good);
+    await runFmcsaCheck();
+    let after = await User.findById(a._id);
+    expect(after.verification.insurance.status).toBe('lapsed');
+    expect(after.verification.insurance.source).toBe('manual');
+
+    // A federal lapse over a valid certificate: status goes to lapsed, the certificate's dates are kept,
+    // and the certificate's expiry check cannot lift it while FMCSA still shows the policy missing.
+    await User.updateOne({ _id: a._id }, { $set: { 'verification.insurance': manual('valid') } });
+    fmcsaService.lookupByDOT.mockResolvedValue(missing);
+    await runFmcsaCheck();
+    await runInsuranceCheck();
+    after = await User.findById(a._id);
+    expect(after.verification.insurance.status).toBe('lapsed');
+    expect(after.verification.insurance.source).toBe('manual');
+    expect(after.verification.insurance.autoLiability.expiry).toEqual(soon);
+    expect(after.verification.insurance.fmcsaLapsedAt).toBeTruthy();
+
+    // FMCSA good again: only the marker is lifted; the certificate's own check then restores the status.
+    fmcsaService.lookupByDOT.mockResolvedValue(good);
+    await runFmcsaCheck();
+    after = await User.findById(a._id);
+    expect(after.verification.insurance.fmcsaLapsedAt).toBeNull();
+    expect(after.verification.insurance.status).toBe('lapsed');
+    await runInsuranceCheck();
+    expect((await User.findById(a._id)).verification.insurance.status).toBe('valid');
+  });
+
   test('a record with no insurance fields changes nothing', async () => {
     const carrier = await createVerifiedCarrier();
     fmcsaService.lookupByDOT.mockResolvedValue(authorized(undefined));

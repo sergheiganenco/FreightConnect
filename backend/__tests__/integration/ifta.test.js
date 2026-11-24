@@ -295,6 +295,12 @@ describe('state miles from GPS', () => {
     expect(by.OK).toBeGreaterThan(by.TX);                    // most of that run is in Oklahoma
     expect(res.body.data.loads).toBe(1);
 
+    // Fixes recorded while an earlier carrier held this load are not this company's miles.
+    const earlier = await createTestUser({ role: 'carrier' });
+    await TrackingEvent.insertMany([0, 1, 2].map((i) => ({ load: load._id, carrier: earlier._id, latitude: 30 + i, longitude: -97.3, recordedAt: new Date(t0 - (5 - i) * 3600000) })));
+    const again = await request(app).get('/api/ifta/2026/1/gps-miles').set('Authorization', `Bearer ${generateToken(carrier)}`);
+    expect(again.body.data.totalMiles).toBe(res.body.data.totalMiles);
+
     const other = await createTestUser({ role: 'carrier' });
     const none = await request(app).get('/api/ifta/2026/1/gps-miles').set('Authorization', `Bearer ${generateToken(other)}`);
     expect(none.body.data.totalMiles).toBe(0);

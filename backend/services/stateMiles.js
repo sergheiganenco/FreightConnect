@@ -67,7 +67,9 @@ async function milesByState(companyId, start, end) {
   const loadIds = await Load.find({ acceptedBy: companyId }).distinct('_id');
   const into = {}; let unplaced = 0; let fixes = 0; const loads = new Set();
   let trail = []; let current = null;
-  const cursor = TrackingEvent.find({ load: { $in: loadIds }, recordedAt: { $gte: start, $lt: end } })
+  // `carrier` is the company that held the booking when the fix was recorded: a load released by another
+  // carrier and rebooked by this one must not hand over the first carrier's trail.
+  const cursor = TrackingEvent.find({ load: { $in: loadIds }, carrier: companyId, recordedAt: { $gte: start, $lt: end } })
     .select('load latitude longitude recordedAt').sort({ load: 1, recordedAt: 1 }).lean().cursor();
   for await (const e of cursor) {
     if (String(e.load) !== current) { unplaced += addTrail(trail, into); trail = []; current = String(e.load); loads.add(current); }
