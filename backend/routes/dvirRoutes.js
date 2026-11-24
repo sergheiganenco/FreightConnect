@@ -81,7 +81,7 @@ router.post('/', auth, carrierOnly,
         const managers = await User.find({ parentAccountId: company, companyRole: 'dispatcher', active: { $ne: false } }).select('_id').lean();
         for (const id of [company, ...managers.map((m) => String(m._id))]) {
           if (id === String(req.user.userId)) continue;
-          notifyUserSafe(id, {
+          await notifyUserSafe(id, { // never throws
             type: 'dvir:defect',
             title: report.safeToOperate ? `Defect reported on truck ${report.truckId}` : `Truck ${report.truckId} is out of service`,
             body: `${report.driverName}: ${defects.map((d) => d.item).join(', ')}.${report.safeToOperate ? '' : ' It cannot start a load until the repair is certified.'}`,

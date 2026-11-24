@@ -607,6 +607,7 @@ server.listen(PORT, () => {
     require('./jobs/pickupRiskMonitor').start();
     require('./jobs/checkCallMonitor').start();
     require('./jobs/tenderMonitor').start();
+    require('./jobs/nextLoadProposer').start();
     require('./jobs/escrowExpiryMonitor').start();
     require('./jobs/contractAutoPost').start();
     require('./jobs/contractMonitor').start();

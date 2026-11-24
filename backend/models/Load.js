@@ -108,6 +108,8 @@ const LoadSchema = new mongoose.Schema({
   postedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   assignedTruckId: { type: String, default: null },
+  // Next-load proposals sent while this load was close to delivery (jobs/nextLoadProposer): when, and which loads.
+  nextLoadProposal: { at: { type: Date, default: null }, loadIds: { type: [String], default: undefined } },
   deliveredAt: { type: Date, default: null },
   // Predictive-delay alert idempotency: set once the shipper is warned that the
   // projected ETA has slipped past the delivery window.

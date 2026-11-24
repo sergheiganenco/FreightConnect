@@ -4,7 +4,7 @@
  * Proposes the most profitable FEASIBLE chain (up to 3 open loads) for one truck and books the chain
  * one load at a time through the normal accept endpoint, so every existing booking gate still applies.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Typography, Stack, Paper, Button, CircularProgress, Alert, Divider, TextField,
   MenuItem, FormControlLabel, Switch, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -65,16 +65,16 @@ function Totals({ t }) {
   );
 }
 
-function PlanCard({ plan, index, onBook }) {
+function PlanCard({ plan, index, onBook, onAsk, isDriver }) {
   return (
     <Paper sx={{ p: 3, borderRadius: 3, bgcolor: 'rgba(124,140,248,0.08)' }}>
       <Stack direction="row" alignItems="center" spacing={1} mb={1}>
         <Typography fontWeight={900} sx={{ color: '#fff', flex: 1 }}>
           Plan {index + 1}: {plan.legs.length} load{plan.legs.length > 1 ? 's' : ''}
         </Typography>
-        <Button variant="contained" onClick={() => onBook(plan)}
+        <Button variant="contained" onClick={() => (isDriver ? onAsk(plan) : onBook(plan))}
           sx={{ bgcolor: '#6a1fcf', fontWeight: 800, borderRadius: 99, '&:hover': { bgcolor: '#5518a8' } }}>
-          Book this plan
+          {isDriver ? 'Ask dispatch to book' : 'Book this plan'}
         </Button>
       </Stack>
 
@@ -214,6 +214,18 @@ export default function CarrierAutopilot() {
   const [saved, setSaved] = useState('');
   const [result, setResult] = useState(null);
   const [booking, setBooking] = useState(null);
+  const isDriver = localStorage.getItem('companyRole') === 'driver'; // a driver cannot book; they ask the office
+  const fromLink = useRef(!!new URLSearchParams(window.location.search).get('truckId'));
+
+  const askDispatch = async (p) => {
+    setError(''); setSaved('');
+    try {
+      const { data } = await api.post('/autopilot/request', { truckId: result?.truck?.truckId, loadIds: p.loadIds });
+      setSaved(data.data.alreadyAsked ? 'You already asked for this plan. Dispatch has it.' : 'Sent to dispatch. You will see the load in My Loads once it is booked.');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not send the request.');
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -255,6 +267,11 @@ export default function CarrierAutopilot() {
     } finally { setLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [truckId, minRate, maxDeadhead, homeBy]);
+
+  // Opened from a "next load" notice: plan straight away for that truck.
+  useEffect(() => {
+    if (fromLink.current && truckId) { fromLink.current = false; plan(); }
+  }, [truckId, plan]);
 
   const saveDefaults = async () => {
     setError(''); setSaved('');
@@ -334,7 +351,7 @@ export default function CarrierAutopilot() {
           </Typography>
           {result.notes.map((n) => <Alert key={n} severity="info">{n}</Alert>)}
 
-          {result.plans.map((p, i) => <PlanCard key={p.loadIds.join('-')} plan={p} index={i} onBook={setBooking} />)}
+          {result.plans.map((p, i) => <PlanCard key={p.loadIds.join('-')} plan={p} index={i} onBook={setBooking} onAsk={askDispatch} isDriver={isDriver} />)}
 
           {noPlans && (
             <Paper sx={{ p: 4, borderRadius: 3, bgcolor: 'rgba(124,140,248,0.08)' }}>
