@@ -85,7 +85,9 @@ async function adjustScore(userId, reason, points, loadId = null) {
   if (next === 0 && user.role === 'carrier') {
     user.verification = user.verification || {};
     user.verification.status = 'suspended';
-    if (!user.verification.suspensionReason) user.verification.suspensionReason = 'trust_score';
+    // Replaces a self-clearable reason (FMCSA, insurance): once the score is at zero, fixing those must not
+    // restore the account. Fraud and admin reasons are kept; they are already only lifted by an admin.
+    if (!['fraud', 'admin_review', 'admin'].includes(user.verification.suspensionReason)) user.verification.suspensionReason = 'trust_score';
   }
 
   await user.save();
